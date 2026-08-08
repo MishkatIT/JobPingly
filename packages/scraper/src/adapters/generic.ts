@@ -60,6 +60,8 @@ export const GenericAdapter: ATSAdapter = {
       // Check if href indicates a job posting link
       const isJobLink = lowerHref.includes('/job') ||
                         lowerHref.includes('/jobs/') ||
+                        lowerHref.includes('/role') ||
+                        lowerHref.includes('/roles/') ||
                         lowerHref.includes('/position') ||
                         lowerHref.includes('/opening') ||
                         lowerHref.includes('/vacancy') ||
@@ -96,7 +98,7 @@ export const GenericAdapter: ATSAdapter = {
 
       // Skip generic navigation links
       const lowerTitle = title.toLowerCase();
-      if (['home', 'about us', 'careers', 'jobs', 'login', 'contact', 'privacy', 'terms', 'see open roles'].includes(lowerTitle)) {
+      if (['home', 'about us', 'careers', 'jobs', 'roles', 'login', 'contact', 'privacy', 'terms', 'see open roles', 'find your role'].includes(lowerTitle)) {
         return;
       }
 

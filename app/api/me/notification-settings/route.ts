@@ -12,13 +12,19 @@ export async function PUT(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { name, emailNotificationsEnabled, notificationPreference } = body;
+  const { name, avatarUrl, emailNotificationsEnabled, notificationPreference } = body;
 
-  const [updated] = await db.update(users).set({
+  const updateFields: any = {
     name,
     emailNotificationsEnabled: Boolean(emailNotificationsEnabled),
     notificationPreference: notificationPreference || 'daily',
-  }).where(eq(users.id, authUser.userId)).returning();
+  };
+
+  if (avatarUrl !== undefined) {
+    updateFields.avatarUrl = avatarUrl ? String(avatarUrl).trim() : null;
+  }
+
+  const [updated] = await db.update(users).set(updateFields).where(eq(users.id, authUser.userId)).returning();
 
   let emailApprovalStatus = 'pending';
   const autoApproveEnabled = await isFeatureEnabled('email.auto_approve_enabled', false);

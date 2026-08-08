@@ -95,9 +95,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     },
   });
 
-  // Trigger non-blocking initial scrape
-  runScraperPipeline(page.id).catch(err => {
-    console.error('Initial scrape error for', page.id, err.message);
+  // Trigger initial background sync non-blockingly
+  runScraperPipeline(page.id, { force: false }).catch(err => {
+    console.error('[Add Career Page] Initial background sync error for', page.id, err.message);
   });
 
   return NextResponse.json({

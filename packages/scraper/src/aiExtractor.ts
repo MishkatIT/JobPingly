@@ -90,7 +90,33 @@ export async function extractJobsWithAI(
       cleanJsonStr = cleanJsonStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
     }
 
-    const parsedJson = JSON.parse(cleanJsonStr);
+    let parsedJson = JSON.parse(cleanJsonStr);
+    
+    // Normalize response formats returned by different LLM models
+    if (Array.isArray(parsedJson)) {
+      parsedJson = { pages: parsedJson };
+    } else if (parsedJson && typeof parsedJson === 'object' && !parsedJson.pages && Array.isArray(parsedJson.jobs)) {
+      parsedJson = { pages: [{ pageId: batchPages[0]?.pageId || 'p1', jobs: parsedJson.jobs }] };
+    }
+
+    // Coerce nested salary/location objects to string if returned by LLM
+    if (parsedJson?.pages && Array.isArray(parsedJson.pages)) {
+      for (const pageItem of parsedJson.pages) {
+        if (pageItem?.jobs && Array.isArray(pageItem.jobs)) {
+          for (const j of pageItem.jobs) {
+            if (j && typeof j.salary === 'object' && j.salary !== null) {
+              const s = j.salary;
+              j.salary = s.amount || s.value || s.text || JSON.stringify(s).replace(/[{}"\\]/g, '');
+            }
+            if (j && typeof j.location === 'object' && j.location !== null) {
+              const l = j.location;
+              j.location = l.name || l.address || l.text || JSON.stringify(l).replace(/[{}"\\]/g, '');
+            }
+          }
+        }
+      }
+    }
+
     const validated = AiExtractionResponseSchema.parse(parsedJson);
 
     return validated.pages;

@@ -50,10 +50,18 @@ export default function AdminDashboardPage() {
   const [selectedEmailIds, setSelectedEmailIds] = useState<string[]>([]);
   const [processingBatch, setProcessingBatch] = useState(false);
 
-  // Manual Add Email Modal
+  // Manual Add Email Modal State
   const [showAddEmailModal, setShowAddEmailModal] = useState(false);
   const [manualEmail, setManualEmail] = useState('');
   const [addingEmail, setAddingEmail] = useState(false);
+
+  // Flexible Custom Time Modal State
+  const [showCustomTimerModal, setShowCustomTimerModal] = useState(false);
+  const [customTargetType, setCustomTargetType] = useState<'global' | 'page'>('global');
+  const [customPageId, setCustomPageId] = useState<string | null>(null);
+  const [customPageStatus, setCustomPageStatus] = useState<string>('active');
+  const [customValue, setCustomValue] = useState(2);
+  const [customUnit, setCustomUnit] = useState<number>(60); // 1=mins, 60=hrs, 1440=days, 10080=weeks, 43200=months, 525600=years
 
   // Debounce search input for company pages (300ms)
   useEffect(() => {
@@ -278,6 +286,34 @@ export default function AdminDashboardPage() {
     loadAdminData();
   };
 
+  const [syncingAll, setSyncingAll] = useState(false);
+
+  const handleSyncAllPages = async () => {
+    if (!careerPagesList || careerPagesList.length === 0) return;
+    setSyncingAll(true);
+    toast.info(`Checking updates for all ${careerPagesList.length} monitored company career pages...`);
+
+    let totalFound = 0;
+    let totalAdded = 0;
+
+    for (const p of careerPagesList) {
+      try {
+        const res = await fetch(`/api/career-pages/${p.id}`, { method: 'POST' });
+        const json = await res.json();
+        if (res.ok) {
+          totalFound += json.result?.jobsFound || 0;
+          totalAdded += json.result?.jobsAdded || 0;
+        }
+      } catch {
+        // continue
+      }
+    }
+
+    toast.success(`Check complete! Found ${totalFound} jobs (${totalAdded} new added).`);
+    fetchPaginatedCareerPages(companyPage, debouncedCompanySearch, companyLimit);
+    setSyncingAll(false);
+  };
+
   const handleForceScrape = async (pageId: string) => {
     setTriggeringId(pageId);
     try {
@@ -286,11 +322,11 @@ export default function AdminDashboardPage() {
       const found = json.result?.jobsFound || 0;
       const added = json.result?.jobsAdded || 0;
       if (found === 0) {
-        toast.success('Scrape completed! No active jobs found on page.');
+        toast.success('Check completed! No active jobs found on page.');
       } else if (added > 0) {
-        toast.success(`Scrape completed! Found ${found} job${found === 1 ? '' : 's'} (${added} new added).`);
+        toast.success(`Check completed! Found ${found} job${found === 1 ? '' : 's'} (${added} new added).`);
       } else {
-        toast.success(`Scrape completed! Found ${found} job${found === 1 ? '' : 's'} (all up to date).`);
+        toast.success(`Check completed! Found ${found} job${found === 1 ? '' : 's'} (all up to date).`);
       }
       fetchPaginatedCareerPages(companyPage, debouncedCompanySearch, companyLimit);
     } catch (err: any) {
@@ -329,7 +365,7 @@ export default function AdminDashboardPage() {
         body: JSON.stringify({ status: currentStatus, checkIntervalMinutes: intervalMins }),
       });
       if (res.ok) {
-        toast.success(`Scrape interval updated to ${intervalMins} minutes!`);
+        toast.success(`Check interval updated to ${formatMins(intervalMins)}!`);
         fetchPaginatedCareerPages(companyPage, debouncedCompanySearch, companyLimit);
       }
     } catch (e: any) {
@@ -337,14 +373,65 @@ export default function AdminDashboardPage() {
     }
   };
 
+  const handleSaveCustomTimer = async () => {
+    const totalMins = Math.max(1, Math.round(customValue * customUnit));
+    if (customTargetType === 'global') {
+      await handleUpdateGlobalInterval(totalMins);
+    } else if (customPageId) {
+      await handleChangeInterval(customPageId, customPageStatus, totalMins);
+    }
+    setShowCustomTimerModal(false);
+  };
+
+  function formatMins(mins: number): string {
+    if (!mins || mins <= 0) return '3 hours';
+    if (mins % 525600 === 0) {
+      const yrs = mins / 525600;
+      return `${yrs} year${yrs > 1 ? 's' : ''}`;
+    }
+    if (mins % 43200 === 0) {
+      const m = mins / 43200;
+      return `${m} month${m > 1 ? 's' : ''}`;
+    }
+    if (mins % 10080 === 0) {
+      const w = mins / 10080;
+      return `${w} week${w > 1 ? 's' : ''}`;
+    }
+    if (mins % 1440 === 0) {
+      const d = mins / 1440;
+      return `${d} day${d > 1 ? 's' : ''}`;
+    }
+    if (mins % 60 === 0) {
+      const h = mins / 60;
+      return `${h} hour${h > 1 ? 's' : ''}`;
+    }
+    return `${mins} mins`;
+  }
+
   const handleToggleFlag = async (key: string, currentValue: boolean) => {
     const newValue = !currentValue;
+
+    // For limit flags, turning OFF sets value to -1 (Unlimited), turning ON sets default limit (e.g. 10 / 25 / 20)
+    let payloadValue: any = newValue;
+    if (key.startsWith('limits.')) {
+      if (!newValue) {
+        payloadValue = -1; // Unlimited when OFF
+      } else {
+        payloadValue = key.includes('list') ? 10 : key.includes('url') ? 25 : 20;
+      }
+    }
+
     await fetch('/api/admin/flags', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key, value: newValue }),
+      body: JSON.stringify({ key, value: payloadValue }),
     });
-    toast.success(`Feature flag '${key}' set to ${newValue ? 'ENABLED' : 'DISABLED'}`);
+
+    if (key.startsWith('limits.')) {
+      toast.success(`Quota limit '${key}' set to ${!newValue ? 'UNLIMITED (OFF)' : 'ACTIVE (ON)'}`);
+    } else {
+      toast.success(`Feature flag '${key}' set to ${newValue ? 'ENABLED' : 'DISABLED'}`);
+    }
     loadAdminData();
   };
 
@@ -489,12 +576,6 @@ export default function AdminDashboardPage() {
     } else {
       setSelectedEmailIds([...selectedEmailIds, id]);
     }
-  };
-
-  const formatMins = (mins: number) => {
-    if (mins < 60) return `${mins} mins`;
-    const hrs = mins / 60;
-    return `${hrs} ${hrs === 1 ? 'hour' : 'hours'}`;
   };
 
   // Preset options checkers
@@ -736,19 +817,46 @@ export default function AdminDashboardPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {[...flags].sort((a, b) => a.key.localeCompare(b.key)).map(f => {
-                const isEnabled = f.value === true || f.value === 'true';
+                const isLimitFlag = f.key.startsWith('limits.');
+                const isUnlimited = isLimitFlag && (f.value === -1 || f.value === '-1' || f.value === false || f.value === 'false');
+                const isEnabled = !isUnlimited && (f.value === true || f.value === 'true' || Number(f.value) > 0);
+
                 return (
                   <div key={f.key} className="glass-card p-4 rounded-2xl border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                    <div>
-                      <span className="font-mono text-xs font-bold text-blue-600 dark:text-blue-400 block mb-0.5">
+                    <div className="space-y-1">
+                      <span className="font-mono text-xs font-bold text-blue-600 dark:text-blue-400 block">
                         {f.key}
                       </span>
-                      <span className="text-xs text-slate-600 dark:text-slate-400 block truncate max-w-[200px]">{f.description}</span>
+                      <span className="text-xs text-slate-600 dark:text-slate-400 block truncate max-w-[170px]">
+                        {f.description || (isLimitFlag ? 'Enforced system quota limit' : 'System feature flag')}
+                      </span>
+
+                      {/* Status Badge: Displays Unlimited when OFF */}
+                      {isLimitFlag ? (
+                        isUnlimited ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/30 uppercase">
+                            ♾ Unlimited
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-blue-600 dark:text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-md border border-blue-500/30">
+                            Active Limit: {f.value === true ? 'Enforced' : `${f.value}`}
+                          </span>
+                        )
+                      ) : (
+                        <span className={`inline-flex items-center text-[10px] font-extrabold px-2 py-0.5 rounded-md ${
+                          isEnabled
+                            ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/30'
+                            : 'text-slate-500 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700'
+                        }`}>
+                          {isEnabled ? 'Enabled' : 'Disabled'}
+                        </span>
+                      )}
                     </div>
 
                     <button
                       onClick={() => handleToggleFlag(f.key, isEnabled)}
                       type="button"
+                      title={isLimitFlag ? (isEnabled ? 'Click to set Unlimited (OFF)' : 'Click to Enable Limit (ON)') : 'Toggle Flag'}
                       className={`w-11 h-6 rounded-full transition-colors p-0.5 relative flex items-center cursor-pointer shrink-0 ml-3 ${
                         isEnabled ? 'bg-emerald-600' : 'bg-slate-300 dark:bg-slate-700'
                       }`}
@@ -818,16 +926,31 @@ export default function AdminDashboardPage() {
                       Global Period:
                     </span>
                     <select
-                      value={globalIntervalMinutes}
-                      onChange={e => handleUpdateGlobalInterval(Number(e.target.value))}
-                      className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-purple-500/40 text-xs font-bold text-purple-700 dark:text-purple-300 focus:outline-none"
+                      value={[30, 60, 180, 360, 720, 1440, 10080, 43200].includes(globalIntervalMinutes) ? globalIntervalMinutes : 'custom'}
+                      onChange={e => {
+                        if (e.target.value === 'custom') {
+                          setCustomTargetType('global');
+                          setCustomValue(2);
+                          setCustomUnit(60);
+                          setShowCustomTimerModal(true);
+                        } else {
+                          handleUpdateGlobalInterval(Number(e.target.value));
+                        }
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-purple-500/40 text-xs font-bold text-purple-700 dark:text-purple-300 focus:outline-none cursor-pointer"
                     >
                       <option value={30}>Every 30 mins</option>
                       <option value={60}>Every 1 hour</option>
                       <option value={180}>Every 3 hours</option>
                       <option value={360}>Every 6 hours</option>
                       <option value={720}>Every 12 hours</option>
-                      <option value={1440}>Every 24 hours</option>
+                      <option value={1440}>Every 24 hours (1 day)</option>
+                      <option value={10080}>Every 7 days (1 week)</option>
+                      <option value={43200}>Every 30 days (1 month)</option>
+                      {![30, 60, 180, 360, 720, 1440, 10080, 43200].includes(globalIntervalMinutes) && (
+                        <option value="custom">Custom: Every {formatMins(globalIntervalMinutes)}</option>
+                      )}
+                      <option value="custom">⚙ Custom Period...</option>
                     </select>
                   </div>
                 )}
@@ -851,6 +974,18 @@ export default function AdminDashboardPage() {
               </div>
 
               <div className="flex items-center gap-3 flex-wrap">
+                {/* Check All Companies Button */}
+                {careerPagesList.length > 0 && (
+                  <button
+                    onClick={handleSyncAllPages}
+                    disabled={syncingAll}
+                    className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${syncingAll ? 'animate-spin' : ''}`} />
+                    {syncingAll ? 'Checking All...' : 'Check All Companies'}
+                  </button>
+                )}
+
                 {/* Items Per Page Selector */}
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-600 dark:text-slate-400 shrink-0">
@@ -887,17 +1022,16 @@ export default function AdminDashboardPage() {
                 <thead className="bg-slate-100 dark:bg-slate-900/90 text-slate-600 dark:text-slate-400 uppercase font-semibold border-b border-slate-200 dark:border-slate-800 text-xs">
                   <tr>
                     <th className="py-3.5 px-4">Company &amp; Target URL</th>
-                    <th className="py-3.5 px-4">ATS Adapter</th>
                     <th className="py-3.5 px-4">Monitoring Status</th>
                     <th className="py-3.5 px-4">Check Interval (Period)</th>
-                    <th className="py-3.5 px-4">Last Scraped</th>
+                    <th className="py-3.5 px-4">Last Checked</th>
                     <th className="py-3.5 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800/80">
                   {loadingPages ? (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center">
+                      <td colSpan={5} className="py-8 text-center">
                         <LoadingSpinner message="Loading company career pages..." fullPage={false} />
                       </td>
                     </tr>
@@ -910,12 +1044,6 @@ export default function AdminDashboardPage() {
                           <a href={p.url} target="_blank" rel="noreferrer" className="font-mono text-xs text-blue-600 dark:text-blue-400 hover:underline truncate max-w-sm block mt-0.5">
                             {p.url}
                           </a>
-                        </td>
-
-                        <td className="py-3.5 px-4">
-                          <span className="uppercase font-bold text-xs bg-slate-200 dark:bg-slate-800 px-2.5 py-1 rounded-lg text-slate-700 dark:text-slate-300">
-                            {p.atsType || 'Generic'}
-                          </span>
                         </td>
 
                         <td className="py-3.5 px-4">
@@ -939,16 +1067,33 @@ export default function AdminDashboardPage() {
                             </span>
                           ) : (
                             <select
-                              value={p.checkIntervalMinutes || 180}
-                              onChange={e => handleChangeInterval(p.id, p.status, Number(e.target.value))}
-                              className="px-2.5 py-1 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-blue-600"
+                              value={[30, 60, 180, 360, 720, 1440, 10080, 43200].includes(p.checkIntervalMinutes || 180) ? (p.checkIntervalMinutes || 180) : 'custom'}
+                              onChange={e => {
+                                if (e.target.value === 'custom') {
+                                  setCustomTargetType('page');
+                                  setCustomPageId(p.id);
+                                  setCustomPageStatus(p.status);
+                                  setCustomValue(2);
+                                  setCustomUnit(60);
+                                  setShowCustomTimerModal(true);
+                                } else {
+                                  handleChangeInterval(p.id, p.status, Number(e.target.value));
+                                }
+                              }}
+                              className="px-2.5 py-1 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-blue-600 cursor-pointer"
                             >
                               <option value={30}>Every 30 mins</option>
                               <option value={60}>Every 1 hour</option>
                               <option value={180}>Every 3 hours</option>
                               <option value={360}>Every 6 hours</option>
                               <option value={720}>Every 12 hours</option>
-                              <option value={1440}>Every 24 hours</option>
+                              <option value={1440}>Every 24 hours (1 day)</option>
+                              <option value={10080}>Every 7 days (1 week)</option>
+                              <option value={43200}>Every 30 days (1 month)</option>
+                              {![30, 60, 180, 360, 720, 1440, 10080, 43200].includes(p.checkIntervalMinutes || 180) && (
+                                <option value="custom">Custom: Every {formatMins(p.checkIntervalMinutes)}</option>
+                              )}
+                              <option value="custom">⚙ Custom Period...</option>
                             </select>
                           )}
                         </td>
@@ -963,8 +1108,8 @@ export default function AdminDashboardPage() {
                             disabled={triggeringId === p.id}
                             className="px-4 py-2 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 inline-flex items-center gap-1.5 shadow-sm cursor-pointer"
                           >
-                            <Play className={`w-3.5 h-3.5 ${triggeringId === p.id ? 'animate-spin' : ''}`} />
-                            {triggeringId === p.id ? 'Scraping...' : 'Force Check'}
+                            <RefreshCw className={`w-3.5 h-3.5 ${triggeringId === p.id ? 'animate-spin' : ''}`} />
+                            {triggeringId === p.id ? 'Checking...' : 'Check Now'}
                           </button>
                         </td>
                       </tr>
@@ -973,7 +1118,7 @@ export default function AdminDashboardPage() {
 
                   {!loadingPages && careerPagesList.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-slate-500 text-xs">
+                      <td colSpan={5} className="py-8 text-center text-slate-500 text-xs">
                         No company career pages match the search criteria.
                       </td>
                     </tr>
@@ -1486,6 +1631,90 @@ export default function AdminDashboardPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Flexible Custom Time Interval Modal */}
+      {showCustomTimerModal && (
+        <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Clock className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                Set Flexible Custom Check Period
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowCustomTimerModal(false)}
+                className="text-slate-400 hover:text-slate-900 dark:hover:text-white text-xl font-bold cursor-pointer"
+              >
+                &times;
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+              Enter any custom check frequency using minutes, hours, days, weeks, months, or years.
+            </p>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
+                  Frequency Value
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="1000"
+                  value={customValue}
+                  onChange={e => setCustomValue(Math.max(1, Number(e.target.value)))}
+                  className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-sm font-bold focus:outline-none focus:border-purple-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
+                  Time Unit
+                </label>
+                <select
+                  value={customUnit}
+                  onChange={e => setCustomUnit(Number(e.target.value))}
+                  className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-sm font-bold focus:outline-none focus:border-purple-600 cursor-pointer"
+                >
+                  <option value={1}>Minute(s)</option>
+                  <option value={60}>Hour(s)</option>
+                  <option value={1440}>Day(s)</option>
+                  <option value={10080}>Week(s)</option>
+                  <option value={43200}>Month(s)</option>
+                  <option value={525600}>Year(s)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Real-time Calculated Preview Badge */}
+            <div className="p-3.5 rounded-2xl bg-purple-500/10 border border-purple-500/30 text-center">
+              <span className="text-xs text-slate-600 dark:text-slate-400 block mb-1">Calculated Check Frequency:</span>
+              <span className="text-sm font-black text-purple-600 dark:text-purple-300 block">
+                Every {customValue} {customUnit === 1 ? 'Minute' : customUnit === 60 ? 'Hour' : customUnit === 1440 ? 'Day' : customUnit === 10080 ? 'Week' : customUnit === 43200 ? 'Month' : 'Year'}{customValue > 1 ? 's' : ''} ({Math.round(customValue * customUnit)} total minutes)
+              </span>
+            </div>
+
+            <div className="pt-2 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowCustomTimerModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveCustomTimer}
+                className="px-5 py-2.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-md cursor-pointer transition-all"
+              >
+                Save Custom Period
+              </button>
+            </div>
           </div>
         </div>
       )}

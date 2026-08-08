@@ -167,7 +167,8 @@ export async function runScraperPipeline(careerPageId: string, options?: { force
     // ----------------------------------------------------
     if (extractedJobs.length === 0 && cleanedContent.length > 20) {
       try {
-        console.log(`[Ollama AI Extractor] Sending changed page content for ${page.url} to Ollama Cloud (qwen3.5:cloud)...`);
+        const activeModel = process.env.OLLAMA_MODEL || 'gemma4:31b';
+        console.log(`[Ollama AI Extractor] Sending changed page content for ${page.url} to Ollama Cloud (${activeModel})...`);
         const aiResults = await extractJobsWithAI([{
           pageId: page.id,
           sourceUrl: page.url,
@@ -177,7 +178,7 @@ export async function runScraperPipeline(careerPageId: string, options?: { force
 
         if (aiResults && aiResults.length > 0 && aiResults[0].jobs) {
           const aiJobs = aiResults[0].jobs;
-          selectedAdapterName = 'ollama_qwen3.5_cloud';
+          selectedAdapterName = `ollama_${activeModel.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
 
           extractedJobs = aiJobs.map((j) => {
             let appUrl = j.applicationUrl || page.url;
@@ -225,7 +226,7 @@ export async function runScraperPipeline(careerPageId: string, options?: { force
     // DEDUPLICATION & DATABASE PERSISTENCE
     // ----------------------------------------------------
     const existingJobs = await db.select().from(jobs).where(eq(jobs.careerPageId, careerPageId));
-    const diff = diffJobs(extractedJobs, existingJobs);
+    const diff = diffJobs(extractedJobs, existingJobs, page.url);
     const durationMs = Date.now() - startTime;
 
     let jobsAdded = 0;
@@ -261,7 +262,7 @@ export async function runScraperPipeline(careerPageId: string, options?: { force
       const expired = isDeadlineExpired(rawDeadline);
       const initialStatus = expired ? 'closed' : 'active';
 
-      const fingerprint = generateJobFingerprint(job);
+      const fingerprint = generateJobFingerprint(job, page.url);
       const [insertedJob] = await db.insert(jobs).values({
         careerPageId,
         fingerprint,

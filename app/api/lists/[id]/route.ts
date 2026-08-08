@@ -35,10 +35,20 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     ? await db.select().from(jobs).where(and(inArray(jobs.careerPageId, pageIds), eq(jobs.status, 'active')))
     : [];
 
+  // Map companyName from career pages onto job objects
+  const pageMap = new Map(pages.map(p => [p.id, p]));
+  const jobsWithCompany = activeJobs.map(j => {
+    const parentPage = pageMap.get(j.careerPageId);
+    return {
+      ...j,
+      companyName: parentPage?.companyName || (j.rawData as any)?.company || null,
+    };
+  });
+
   return NextResponse.json({
     list,
     pages,
-    jobs: activeJobs,
+    jobs: jobsWithCompany,
   });
 }
 

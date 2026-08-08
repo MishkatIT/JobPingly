@@ -228,7 +228,7 @@ export default function WatchListsPage() {
                       {openMenuId === l.id && (
                         <div
                           ref={menuRef}
-                          className="absolute right-0 top-8 w-44 glass-panel bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-20 py-1 space-y-0.5 animate-in fade-in zoom-in-95 duration-100"
+                          className="absolute right-0 top-8 w-44 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl z-30 py-1 space-y-0.5 animate-in fade-in zoom-in-95 duration-100"
                         >
                           <Link
                             href={`/dashboard/lists/${l.id}`}

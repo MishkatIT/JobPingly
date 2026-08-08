@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Globe, Search, ArrowLeft, ExternalLink, ShieldAlert, ChevronLeft, ChevronRight, LayoutDashboard, Building, Briefcase, User } from 'lucide-react';
 import { Logo } from '@/components/Logo';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { UserProfileDropdown } from '@/components/UserProfileDropdown';
+import { Navbar } from '@/components/Navbar';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { Footer } from '@/components/Footer';
 
@@ -67,38 +67,8 @@ export default function PublicDiscoverPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#080c14] text-slate-900 dark:text-slate-100 flex flex-col justify-between transition-colors">
+      <Navbar showBackHome />
       <div className="p-6 md:p-12 max-w-6xl mx-auto w-full space-y-8 flex-1">
-        {/* Top Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link href="/" className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white glass-panel px-3.5 py-2 rounded-xl">
-              <ArrowLeft className="w-4 h-4" /> Back to Home
-            </Link>
-            <Logo />
-          </div>
-
-          <div className="flex items-center gap-3">
-            <ThemeToggle />
-            {user ? (
-              <div className="flex items-center gap-3">
-                <Link
-                  href="/dashboard"
-                  className="text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl shadow-md flex items-center gap-1.5"
-                >
-                  <LayoutDashboard className="w-3.5 h-3.5" /> Dashboard
-                </Link>
-                <UserProfileDropdown user={user} onLogout={() => setUser(null)} />
-              </div>
-            ) : (
-              <Link
-                href="/login"
-                className="text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl"
-              >
-                Sign In
-              </Link>
-            )}
-          </div>
-        </div>
 
         {/* Title & Search Bar */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">

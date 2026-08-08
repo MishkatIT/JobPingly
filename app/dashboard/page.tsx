@@ -87,12 +87,34 @@ export default function DashboardOverview() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to add career page');
 
-      toast.success('Successfully added career page! Initial scrape enqueued.');
+      const addedPage = data.careerPage;
+      const compName = addedPage?.companyName || companyName || 'Company';
+
       setUrl('');
       setCompanyName('');
       setKeywords('');
-      fetchDashboardData();
       setShowAddModal(false);
+      fetchDashboardData();
+
+      toast.info(`Job sync started for '${compName}'...`);
+
+      if (addedPage?.id) {
+        fetch(`/api/career-pages/${addedPage.id}`, { method: 'POST' })
+          .then(r => r.json())
+          .then(syncJson => {
+            if (syncJson.success) {
+              const found = syncJson.result?.jobsFound || 0;
+              const added = syncJson.result?.jobsAdded || 0;
+              if (found > 0) {
+                toast.success(`Sync complete for '${compName}': ${found} jobs found (${added} new)!`);
+              } else {
+                toast.info(`Sync complete for '${compName}': No open positions detected.`);
+              }
+              fetchDashboardData();
+            }
+          })
+          .catch(() => {});
+      }
     } catch (err: any) {
       toast.error(err.message || 'Failed to add career page');
     } finally {
@@ -144,7 +166,7 @@ export default function DashboardOverview() {
 
         <div className="glass-card p-6 rounded-2xl border-slate-200 dark:border-slate-800">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Scraper Status</span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Monitor Status</span>
             <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
           </div>
           <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-bold">

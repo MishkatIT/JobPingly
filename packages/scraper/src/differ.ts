@@ -13,7 +13,8 @@ export interface StoredJob {
 
 export function diffJobs(
   scrapedJobs: NormalizedJob[],
-  storedJobs: StoredJob[]
+  storedJobs: StoredJob[],
+  pageUrl?: string
 ): DiffResult {
   const activeStoredJobs = storedJobs.filter(j => j.status === 'active');
   const storedByFingerprint = new Map<string, StoredJob>();
@@ -21,7 +22,7 @@ export function diffJobs(
 
   const scrapedMap = new Map<string, NormalizedJob>();
   scrapedJobs.forEach(j => {
-    const fp = generateJobFingerprint(j);
+    const fp = generateJobFingerprint(j, pageUrl);
     scrapedMap.set(fp, j);
   });
 

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ShieldAlert, Zap } from 'lucide-react';
+import LoadingSpinner from '@/components/LoadingSpinner';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -32,14 +33,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }, [router]);
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-50 dark:bg-[#0b0f19] flex items-center justify-center text-slate-500 dark:text-slate-400">
-        <div className="flex items-center gap-3">
-          <div className="w-5 h-5 border-2 border-rose-600 border-t-transparent rounded-full animate-spin" />
-          <span className="font-semibold text-sm">Verifying Admin Access...</span>
-        </div>
-      </div>
-    );
+    return <LoadingSpinner message="Verifying Admin Access..." fullPage />;
   }
 
   if (!authorized) {

@@ -5,7 +5,7 @@
  */
 
 const OLLAMA_API_KEY = process.env.OLLAMA_API_KEY || '';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen3.5:cloud';
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'gemma4:31b';
 const OLLAMA_BASE_URL = (process.env.OLLAMA_BASE_URL || 'https://api.ollama.com').replace(/\/$/, '');
 
 export interface OllamaRequestPayload {

@@ -57,9 +57,17 @@ export function UserProfileDropdown({ user, onLogout, direction = 'down' }: User
         type="button"
         className="flex items-center gap-2 p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700 transition-all shadow-sm cursor-pointer"
       >
-        <div className="w-8 h-8 rounded-lg bg-blue-600 text-white font-bold text-xs flex items-center justify-center shrink-0">
-          {initial}
-        </div>
+        {user.avatarUrl ? (
+          <img
+            src={user.avatarUrl}
+            alt={user.name || 'User'}
+            className="w-8 h-8 rounded-lg object-cover border border-slate-200 dark:border-slate-800 shrink-0"
+          />
+        ) : (
+          <div className="w-8 h-8 rounded-lg bg-blue-600 text-white font-bold text-xs flex items-center justify-center shrink-0">
+            {initial}
+          </div>
+        )}
         <span className="text-xs font-semibold text-slate-800 dark:text-slate-200 max-w-[100px] truncate hidden sm:inline-block">
           {user.name}
         </span>
@@ -68,7 +76,7 @@ export function UserProfileDropdown({ user, onLogout, direction = 'down' }: User
 
       {/* Popover Menu */}
       {open && (
-        <div className={`absolute ${positionClasses} w-64 glass-panel rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-2 z-50 animate-in fade-in slide-in-from-bottom-2 duration-150`}>
+        <div className={`absolute ${positionClasses} w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-2 z-[100] animate-in fade-in slide-in-from-bottom-2 duration-150`}>
           {/* User Info Header */}
           <div className="px-3 py-2.5 mb-1 border-b border-slate-200 dark:border-slate-800/80">
             <div className="flex items-center justify-between">

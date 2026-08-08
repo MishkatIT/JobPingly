@@ -10,7 +10,7 @@ async function main() {
     process.exit(1);
   }
 
-  const modelName = process.env.OLLAMA_MODEL || 'qwen3.5:cloud';
+  const modelName = process.env.OLLAMA_MODEL || 'gemma4:31b';
 
   console.log(`Career page:\n${targetUrl}\n`);
 

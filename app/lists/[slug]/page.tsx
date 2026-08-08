@@ -3,9 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { Globe, ArrowLeft, ExternalLink, Briefcase, ShieldAlert, Building, Share2, Check } from 'lucide-react';
-import { Logo } from '@/components/Logo';
-import { ThemeToggle } from '@/components/ThemeToggle';
+import { Globe, ArrowLeft, ExternalLink, Briefcase, ShieldAlert, Building, Share2, Check, Search } from 'lucide-react';
+import { Navbar } from '@/components/Navbar';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { JobCard } from '@/components/JobCard';
 import { Footer } from '@/components/Footer';
@@ -18,6 +17,7 @@ export default function PublicListPageView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     if (!slug) return;
@@ -78,25 +78,38 @@ export default function PublicListPageView() {
 
   const { list, pages, jobs } = data;
 
+  const filteredPages = (pages || []).filter((p: any) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase().trim();
+    const companyName = (p.companyName || '').toLowerCase();
+    const url = (p.url || '').toLowerCase();
+    return companyName.includes(q) || url.includes(q);
+  });
+
+  const filteredJobs = (jobs || []).filter((j: any) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase().trim();
+    const title = (j.title || '').toLowerCase();
+    const company = ((j.companyName || j.rawData?.company || '') as string).toLowerCase();
+    const location = (j.location || '').toLowerCase();
+    const department = (j.department || '').toLowerCase();
+    const jobType = (j.jobType || j.rawData?.employmentType || '').toLowerCase();
+    const experience = (j.rawData?.experience || '').toLowerCase();
+
+    return (
+      title.includes(q) ||
+      company.includes(q) ||
+      location.includes(q) ||
+      department.includes(q) ||
+      jobType.includes(q) ||
+      experience.includes(q)
+    );
+  });
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#080c14] text-slate-900 dark:text-slate-100 flex flex-col justify-between transition-colors">
+      <Navbar showBackHome />
       <div className="p-6 md:p-12 max-w-6xl mx-auto w-full space-y-8 flex-1">
-        {/* Top bar */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link href="/discover" className="inline-flex items-center gap-2 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline">
-              <ArrowLeft className="w-3.5 h-3.5" /> Back to Discover
-            </Link>
-            <Logo />
-          </div>
-
-          <div className="flex items-center gap-3">
-            <ThemeToggle />
-            <Link href="/register" className="text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl">
-              Track Companies Free
-            </Link>
-          </div>
-        </div>
 
         {/* Header - Utilizing Right Side Space */}
         <div className="glass-panel p-8 rounded-3xl border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -141,30 +154,76 @@ export default function PublicListPageView() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Companies List */}
           <div className="lg:col-span-1 space-y-4">
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white">Monitored Companies ({pages.length})</h2>
-            <div className="space-y-3">
-              {pages.map((p: any) => (
-                <div key={p.id} className="glass-card p-4 rounded-xl border-slate-200 dark:border-slate-800 text-xs">
-                  <span className="font-bold text-slate-900 dark:text-white text-sm block mb-1">{p.companyName || 'Company'}</span>
-                  <a href={p.url} target="_blank" rel="noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline truncate block text-[11px] font-mono">
-                    {p.url}
-                  </a>
-                </div>
-              ))}
-            </div>
+            <h2 className="text-lg font-bold text-slate-900 dark:text-white">Monitored Companies ({filteredPages.length})</h2>
+            {filteredPages.length === 0 ? (
+              <div className="glass-panel p-6 rounded-2xl text-center border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
+                {searchQuery ? `No companies match "${searchQuery}"` : 'No monitored companies in this list.'}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {filteredPages.map((p: any) => (
+                  <div key={p.id} className="glass-card p-4 rounded-xl border-slate-200 dark:border-slate-800 text-xs">
+                    <span className="font-bold text-slate-900 dark:text-white text-sm block mb-1">{p.companyName || 'Company'}</span>
+                    <a href={p.url} target="_blank" rel="noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline truncate block text-[11px] font-mono">
+                      {p.url}
+                    </a>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Jobs Feed */}
           <div className="lg:col-span-2 space-y-4">
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white">Currently Open Positions ({jobs.length})</h2>
-            {jobs.length === 0 ? (
-              <div className="glass-panel p-10 rounded-2xl text-center border-slate-200 dark:border-slate-800">
-                <Briefcase className="w-10 h-10 text-slate-400 dark:text-slate-600 mx-auto mb-3" />
-                <p className="text-xs text-slate-500 dark:text-slate-400">No active positions currently reported.</p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                Currently Open Positions ({filteredJobs.length})
+              </h2>
+
+              {/* Instant Search Bar (0 DB/Server Calls) */}
+              <div className="relative w-full sm:w-64">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="Search title, company, location..."
+                  className="w-full pl-8 pr-7 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-blue-600 transition-all shadow-sm"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xs font-bold cursor-pointer"
+                  >
+                    &times;
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {filteredJobs.length === 0 ? (
+              <div className="glass-panel p-10 rounded-2xl text-center border-slate-200 dark:border-slate-800 space-y-2">
+                <Briefcase className="w-10 h-10 text-slate-400 dark:text-slate-600 mx-auto mb-2" />
+                {searchQuery ? (
+                  <>
+                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">No jobs match "{searchQuery}"</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Try searching for a different title, company, or location.</p>
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline pt-1 cursor-pointer"
+                    >
+                      Clear Search Filter
+                    </button>
+                  </>
+                ) : (
+                  <p className="text-xs text-slate-500 dark:text-slate-400">No active positions currently reported.</p>
+                )}
               </div>
             ) : (
               <div className="space-y-3">
-                {jobs.map((j: any) => (
+                {filteredJobs.map((j: any) => (
                   <JobCard key={j.id} job={j} />
                 ))}
               </div>

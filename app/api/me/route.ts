@@ -24,6 +24,7 @@ export async function GET(req: NextRequest) {
       id: dbUser.id,
       email: dbUser.email,
       name: dbUser.name,
+      avatarUrl: dbUser.avatarUrl,
       role: dbUser.role,
       emailVerified: dbUser.emailVerified,
       emailNotificationsEnabled: dbUser.emailNotificationsEnabled,
