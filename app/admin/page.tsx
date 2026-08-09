@@ -15,7 +15,7 @@ import { Footer } from '@/components/Footer';
 export default function AdminDashboardPage() {
   const toast = useToast();
   const [mounted, setMounted] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'emails' | 'users' | 'unverified' | 'audit'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'emails' | 'users' | 'unverified' | 'issues' | 'audit'>('overview');
   const [data, setData] = useState<any>(null);
   const [flags, setFlags] = useState<any[]>([]);
   const [userList, setUserList] = useState<any[]>([]);
@@ -23,6 +23,18 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Reported Issues Paginated State
+  const [issuesList, setIssuesList] = useState<any[]>([]);
+  const [issuesPage, setIssuesPage] = useState(1);
+  const [issuesLimit, setIssuesLimit] = useState(10);
+  const [issuesPagination, setIssuesPagination] = useState({ total: 0, page: 1, limit: 10, totalPages: 1 });
+  const [issuesStatusFilter, setIssuesStatusFilter] = useState<'all' | 'open' | 'in_progress' | 'resolved' | 'closed'>('open');
+  const [issuesCategoryFilter, setIssuesCategoryFilter] = useState<string>('all');
+  const [issuesSearch, setIssuesSearch] = useState('');
+  const [debouncedIssuesSearch, setDebouncedIssuesSearch] = useState('');
+  const [loadingIssues, setLoadingIssues] = useState(false);
+  const [openIssuesCount, setOpenIssuesCount] = useState(0);
 
   // Unverified Emails Paginated State
   const [unverifiedList, setUnverifiedList] = useState<any[]>([]);
@@ -266,9 +278,84 @@ export default function AdminDashboardPage() {
     }
   };
 
+  // Issues search debounce (300ms)
   useEffect(() => {
-    // Initial fetch for badge count
+    const handler = setTimeout(() => {
+      setDebouncedIssuesSearch(issuesSearch);
+      setIssuesPage(1);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [issuesSearch]);
+
+  const fetchPaginatedIssues = async (p: number, q: string, l: number, status: string, cat: string) => {
+    setLoadingIssues(true);
+    try {
+      const res = await fetch(`/api/admin/issues?page=${p}&limit=${l}&search=${encodeURIComponent(q)}&status=${status}&category=${cat}`);
+      if (res.ok) {
+        const json = await res.json();
+        setIssuesList(json.issues || []);
+        setOpenIssuesCount(json.openCount || 0);
+        setIssuesPagination(json.pagination || { total: 0, page: p, limit: l, totalPages: 1 });
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingIssues(false);
+    }
+  };
+
+  const handleUpdateIssueStatus = async (id: string, newStatus: string) => {
+    try {
+      const res = await fetch(`/api/admin/issues/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      const json = await res.json();
+      if (res.ok) {
+        toast.success(json.message || `Issue status updated to ${newStatus.toUpperCase()}`);
+        fetchPaginatedIssues(issuesPage, debouncedIssuesSearch, issuesLimit, issuesStatusFilter, issuesCategoryFilter);
+      } else {
+        toast.error(json.error || 'Failed to update issue status');
+      }
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+  };
+
+  const handleUpdateIssuePriority = async (id: string, newPriority: string) => {
+    try {
+      const res = await fetch(`/api/admin/issues/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priority: newPriority }),
+      });
+      if (res.ok) {
+        toast.success(`Priority updated to ${newPriority.toUpperCase()}`);
+        fetchPaginatedIssues(issuesPage, debouncedIssuesSearch, issuesLimit, issuesStatusFilter, issuesCategoryFilter);
+      }
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+  };
+
+  const handleDeleteIssue = async (id: string) => {
+    if (!confirm('Delete this reported issue?')) return;
+    try {
+      const res = await fetch(`/api/admin/issues/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        toast.success('Issue report deleted.');
+        fetchPaginatedIssues(issuesPage, debouncedIssuesSearch, issuesLimit, issuesStatusFilter, issuesCategoryFilter);
+      }
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+  };
+
+  useEffect(() => {
+    // Initial fetch for badge counts
     fetchUnverifiedUsers(1, '', 10);
+    fetchPaginatedIssues(1, '', 10, 'open', 'all');
   }, []);
 
   useEffect(() => {
@@ -280,8 +367,10 @@ export default function AdminDashboardPage() {
       fetchPaginatedUsers(userPage, debouncedUserSearch, userLimit, userRoleFilter);
     } else if (activeTab === 'unverified') {
       fetchUnverifiedUsers(unverifiedPage, debouncedUnverifiedSearch, unverifiedLimit);
+    } else if (activeTab === 'issues') {
+      fetchPaginatedIssues(issuesPage, debouncedIssuesSearch, issuesLimit, issuesStatusFilter, issuesCategoryFilter);
     }
-  }, [companyPage, debouncedCompanySearch, companyLimit, emailPage, debouncedEmailSearch, emailLimit, emailStatusFilter, userPage, debouncedUserSearch, userLimit, userRoleFilter, unverifiedPage, debouncedUnverifiedSearch, unverifiedLimit, activeTab]);
+  }, [companyPage, debouncedCompanySearch, companyLimit, emailPage, debouncedEmailSearch, emailLimit, emailStatusFilter, userPage, debouncedUserSearch, userLimit, userRoleFilter, unverifiedPage, debouncedUnverifiedSearch, unverifiedLimit, issuesPage, debouncedIssuesSearch, issuesLimit, issuesStatusFilter, issuesCategoryFilter, activeTab]);
 
   // Audit Logs fetch helper
   const fetchAuditLogsPage = async (pageToFetch: number, append = false) => {
@@ -897,6 +986,26 @@ export default function AdminDashboardPage() {
     }
   };
 
+  const handlePurgeOrphaned = async () => {
+    if (!confirm('Purge all company career page URLs that are not linked to any watch list?')) return;
+    try {
+      const res = await fetch('/api/admin/career-pages/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'purge_orphaned' }),
+      });
+      const json = await res.json();
+      if (res.ok) {
+        toast.success(json.message || 'Purged orphaned career pages!');
+        fetchPaginatedCareerPages(companyPage, debouncedCompanySearch, companyLimit);
+      } else {
+        toast.error(json.error || 'Failed to purge orphaned career pages');
+      }
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+  };
+
   if (loading) {
     return <LoadingSpinner message="Loading Admin Control Suite..." fullPage />;
   }
@@ -1076,6 +1185,22 @@ export default function AdminDashboardPage() {
             {unverifiedPagination.total > 0 && (
               <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 text-[10px] font-extrabold border border-amber-500/30">
                 {unverifiedPagination.total}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setActiveTab('issues')}
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              activeTab === 'issues'
+                ? 'bg-blue-600 text-white shadow-md'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
+            }`}
+          >
+            <ShieldAlert className="w-4 h-4 text-rose-500" /> Reported Issues
+            {openIssuesCount > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-extrabold animate-pulse">
+                {openIssuesCount}
               </span>
             )}
           </button>
@@ -1293,7 +1418,7 @@ export default function AdminDashboardPage() {
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                    Master Scrape Timer Configuration
+                    Master Sync Timer Configuration
                     {isGlobalTimerOn && (
                       <span className="px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30 text-[10px] font-extrabold uppercase">
                         MASTER TIMER ACTIVE
@@ -1405,6 +1530,16 @@ export default function AdminDashboardPage() {
                   </button>
                 )}
 
+                {/* Purge Orphaned URLs Button */}
+                <button
+                  onClick={handlePurgeOrphaned}
+                  title="Remove all company career pages that are not linked to any watch list"
+                  className="text-xs font-bold text-amber-700 dark:text-amber-300 hover:text-amber-800 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-amber-500" />
+                  Purge Orphaned URLs
+                </button>
+
                 {/* Items Per Page Selector */}
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-600 dark:text-slate-400 shrink-0">
@@ -1510,6 +1645,15 @@ export default function AdminDashboardPage() {
                           <a href={p.url} target="_blank" rel="noreferrer" className="font-mono text-xs text-blue-600 dark:text-blue-400 hover:underline truncate max-w-sm block mt-0.5">
                             {p.url}
                           </a>
+                          {p.watchListCount > 0 ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 text-[10px] font-bold mt-1">
+                              <Layers className="w-3 h-3" /> In {p.watchListCount} Watch List{p.watchListCount > 1 ? 's' : ''}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30 text-[10px] font-bold mt-1">
+                              <ShieldAlert className="w-3 h-3 text-amber-500" /> Orphaned (0 Watch Lists)
+                            </span>
+                          )}
                         </td>
 
                         <td className="py-3.5 px-4">
@@ -2316,6 +2460,213 @@ export default function AdminDashboardPage() {
           )}
         </div>
       )}
+
+      {/* REPORTED ISSUES VIEW TAB */}
+      {activeTab === 'issues' && (
+        <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <ShieldAlert className="w-5 h-5 text-rose-500" />
+                User Reported Issues &amp; Bug Reports ({issuesPagination.total})
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Manage user-submitted reports for broken career page URLs, scraper bugs, UI issues, and feature requests.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* Category Filter */}
+              <select
+                value={issuesCategoryFilter}
+                onChange={e => { setIssuesCategoryFilter(e.target.value); setIssuesPage(1); }}
+                className="px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
+              >
+                <option value="all">All Categories</option>
+                <option value="jobs_not_loading">Jobs Not Loading</option>
+                <option value="broken_url">Broken URL</option>
+                <option value="scraper_bug">System Bug</option>
+                <option value="ui_bug">UI Bug</option>
+                <option value="feature_request">Feature Request</option>
+                <option value="general">General</option>
+              </select>
+
+              {/* Status Filter */}
+              <select
+                value={issuesStatusFilter}
+                onChange={e => { setIssuesStatusFilter(e.target.value as any); setIssuesPage(1); }}
+                className="px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
+              >
+                <option value="all">All Statuses</option>
+                <option value="open">Open</option>
+                <option value="in_progress">In Progress</option>
+                <option value="resolved">Resolved</option>
+                <option value="closed">Closed</option>
+              </select>
+
+              {/* Search Bar */}
+              <div className="relative w-full sm:w-64">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={issuesSearch}
+                  onChange={e => setIssuesSearch(e.target.value)}
+                  placeholder="Search issues..."
+                  className="w-full pl-9 pr-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-rose-500"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-slate-100 dark:bg-slate-900/90 text-slate-600 dark:text-slate-400 uppercase font-semibold border-b border-slate-200 dark:border-slate-800 text-xs">
+                <tr>
+                  <th className="py-3.5 px-4">Subject &amp; Reporter</th>
+                  <th className="py-3.5 px-4">Category &amp; Target URL</th>
+                  <th className="py-3.5 px-4">Priority</th>
+                  <th className="py-3.5 px-4">Status</th>
+                  <th className="py-3.5 px-4">Submitted Date</th>
+                  <th className="py-3.5 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-800/80 text-xs">
+                {loadingIssues ? (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center">
+                      <LoadingSpinner message="Loading reported issues..." fullPage={false} />
+                    </td>
+                  </tr>
+                ) : issuesList.map(issue => (
+                  <tr key={issue.id} className="hover:bg-slate-100/60 dark:hover:bg-slate-900/40 transition-colors">
+                    <td className="py-3.5 px-4">
+                      <span className="font-bold text-slate-900 dark:text-white text-sm block">{issue.subject}</span>
+                      <span className="text-slate-500 dark:text-slate-400 text-xs mt-0.5 block">
+                        By {issue.reporterName || 'Anonymous'} ({issue.reporterEmail})
+                      </span>
+                      <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 max-w-md bg-slate-50 dark:bg-slate-900/60 p-2 rounded-lg border border-slate-200/60 dark:border-slate-800/60">
+                        {issue.description}
+                      </p>
+                    </td>
+
+                    <td className="py-3.5 px-4">
+                      <span className="px-2.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[11px] font-bold uppercase inline-block mb-1">
+                        {issue.category.replace('_', ' ')}
+                      </span>
+                      {issue.targetUrl && (
+                        <a href={issue.targetUrl} target="_blank" rel="noreferrer" className="font-mono text-xs text-blue-600 dark:text-blue-400 hover:underline truncate max-w-xs block">
+                          {issue.targetUrl}
+                        </a>
+                      )}
+                    </td>
+
+                    <td className="py-3.5 px-4">
+                      <select
+                        value={issue.priority}
+                        onChange={e => handleUpdateIssuePriority(issue.id, e.target.value)}
+                        className={`px-2.5 py-1 rounded-xl text-[11px] font-bold uppercase cursor-pointer border focus:outline-none ${
+                          issue.priority === 'critical' || issue.priority === 'high'
+                            ? 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/30'
+                            : issue.priority === 'medium'
+                            ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'
+                        }`}
+                      >
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                        <option value="critical">Critical</option>
+                      </select>
+                    </td>
+
+                    <td className="py-3.5 px-4">
+                      <select
+                        value={issue.status}
+                        onChange={e => handleUpdateIssueStatus(issue.id, e.target.value)}
+                        className={`px-2.5 py-1 rounded-xl text-[11px] font-bold uppercase cursor-pointer border focus:outline-none ${
+                          issue.status === 'resolved' || issue.status === 'closed'
+                            ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30'
+                            : issue.status === 'in_progress'
+                            ? 'bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30'
+                            : 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30'
+                        }`}
+                      >
+                        <option value="open">Open</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="resolved">Resolved</option>
+                        <option value="closed">Closed</option>
+                      </select>
+                    </td>
+
+                    <td className="py-3.5 px-4 text-slate-600 dark:text-slate-400 text-xs">
+                      {new Date(issue.createdAt).toLocaleString()}
+                    </td>
+
+                    <td className="py-3.5 px-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {issue.status !== 'resolved' && (
+                          <button
+                            onClick={() => handleUpdateIssueStatus(issue.id, 'resolved')}
+                            title="Mark as resolved"
+                            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-all cursor-pointer flex items-center gap-1 shrink-0"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Resolve
+                          </button>
+                        )}
+
+                        <button
+                          onClick={() => handleDeleteIssue(issue.id)}
+                          title="Delete issue report"
+                          className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 transition-all cursor-pointer flex items-center gap-1 shrink-0"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+
+                {!loadingIssues && issuesList.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-slate-500 text-xs">
+                      No issue reports found matching criteria.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Issues Pagination Controls */}
+          {issuesPagination.totalPages > 1 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-200 dark:border-slate-800/80">
+              <span className="text-xs text-slate-500">
+                Page <span className="font-bold text-slate-900 dark:text-white">{issuesPagination.page}</span> of <span className="font-bold text-slate-900 dark:text-white">{issuesPagination.totalPages}</span> ({issuesPagination.total} issues)
+              </span>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIssuesPage(prev => Math.max(1, prev - 1))}
+                  disabled={issuesPage <= 1}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 flex items-center gap-1 cursor-pointer"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" /> Previous
+                </button>
+
+                <button
+                  onClick={() => setIssuesPage(prev => Math.min(issuesPagination.totalPages, prev + 1))}
+                  disabled={issuesPage >= issuesPagination.totalPages}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 flex items-center gap-1 cursor-pointer"
+                >
+                  Next <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* AUDIT LOG TAB WITH INFINITE SCROLL */}
       {activeTab === 'audit' && (
         <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-5">
           <div className="flex items-center justify-between">

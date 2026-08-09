@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
-import { careerPages, adminAuditLog } from '@/lib/db/schema';
-import { inArray } from 'drizzle-orm';
+import { careerPages, listCareerPages, adminAuditLog } from '@/lib/db/schema';
+import { inArray, notInArray, eq } from 'drizzle-orm';
 
 export async function POST(req: NextRequest) {
   const adminUser = await requireAdmin(req);
@@ -13,6 +13,36 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { pageIds, action } = body;
+
+    if (action === 'purge_orphaned') {
+      const linkedListPages = await db.selectDistinct({ id: listCareerPages.careerPageId }).from(listCareerPages);
+      const linkedIds = linkedListPages.map(l => l.id);
+
+      const orphanedPages = linkedIds.length > 0
+        ? await db.select().from(careerPages).where(notInArray(careerPages.id, linkedIds))
+        : await db.select().from(careerPages);
+
+      if (orphanedPages.length === 0) {
+        return NextResponse.json({ success: true, processedCount: 0, message: 'No orphaned career pages found.' });
+      }
+
+      const orphanedIds = orphanedPages.map(p => p.id);
+      await db.delete(careerPages).where(inArray(careerPages.id, orphanedIds));
+
+      await db.insert(adminAuditLog).values({
+        adminId: adminUser.userId,
+        action: 'purge_orphaned_career_pages',
+        targetType: 'career_page',
+        targetId: 'batch_purge',
+        metadata: { purgedCount: orphanedPages.length },
+      });
+
+      return NextResponse.json({
+        success: true,
+        processedCount: orphanedPages.length,
+        message: `Purged ${orphanedPages.length} orphaned career page(s) not attached to any watch list.`,
+      });
+    }
 
     if (!Array.isArray(pageIds) || pageIds.length === 0) {
       return NextResponse.json({ error: 'No career page IDs provided.' }, { status: 400 });

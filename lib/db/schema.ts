@@ -262,3 +262,24 @@ export const emailApprovals = pgTable('email_approvals', {
   approvedAt: timestamp('approved_at', { withTimezone: true }),
   approvedBy: uuid('approved_by').references(() => users.id),
 });
+
+// 16. Reported Issues & Feedback Table
+export const reportedIssues = pgTable('reported_issues', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+  reporterEmail: text('reporter_email').notNull(),
+  reporterName: text('reporter_name'),
+  category: text('category').default('general').notNull(), // 'broken_url' | 'scraper_bug' | 'ui_bug' | 'feature_request' | 'general'
+  subject: text('subject').notNull(),
+  description: text('description').notNull(),
+  targetUrl: text('target_url'),
+  status: text('status').default('open').notNull(), // 'open' | 'in_progress' | 'resolved' | 'closed'
+  priority: text('priority').default('medium').notNull(), // 'low' | 'medium' | 'high' | 'critical'
+  adminNotes: text('admin_notes'),
+  resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+  resolvedBy: uuid('resolved_by').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  statusIdx: index('idx_reported_issues_status').on(table.status),
+  categoryIdx: index('idx_reported_issues_category').on(table.category),
+}));

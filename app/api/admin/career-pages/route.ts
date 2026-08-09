@@ -73,10 +73,23 @@ export async function GET(req: NextRequest) {
   }
 
   const deduplicated = Array.from(uniqueMap.values());
-  const total = deduplicated.length;
+
+  // Count watch list attachments for each career page
+  const allListCareerPages = await db.select({ careerPageId: listCareerPages.careerPageId }).from(listCareerPages);
+  const countMap = new Map<string, number>();
+  for (const lcp of allListCareerPages) {
+    countMap.set(lcp.careerPageId, (countMap.get(lcp.careerPageId) || 0) + 1);
+  }
+
+  const itemsWithCounts = deduplicated.map(item => ({
+    ...item,
+    watchListCount: countMap.get(item.id) || 0,
+  }));
+
+  const total = itemsWithCounts.length;
   const totalPages = Math.ceil(total / limit) || 1;
   const offset = (page - 1) * limit;
-  const items = deduplicated.slice(offset, offset + limit);
+  const items = itemsWithCounts.slice(offset, offset + limit);
 
   return NextResponse.json({
     careerPages: items,

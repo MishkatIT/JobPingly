@@ -1,6 +1,6 @@
 import { db } from '@/lib/db/client';
-import { careerPages } from '@/lib/db/schema';
-import { lte, eq, and } from 'drizzle-orm';
+import { careerPages, listCareerPages } from '@/lib/db/schema';
+import { lte, eq, and, inArray } from 'drizzle-orm';
 import { runScraperPipeline, autoRemoveExpiredJobsFromDb } from '@/packages/scraper/src/pipeline';
 import { isFeatureEnabled } from '@/lib/flags/check';
 
@@ -30,10 +30,23 @@ export async function processDuePages() {
     }
 
     const now = new Date();
+
+    // 1. Get all careerPageIds that are linked to active watch lists and not paused
+    const activeListPages = await db.selectDistinct({ id: listCareerPages.careerPageId })
+      .from(listCareerPages)
+      .where(eq(listCareerPages.isPaused, false));
+
+    const activePageIds = activeListPages.map(p => p.id);
+    if (activePageIds.length === 0) {
+      return;
+    }
+
+    // 2. Only select due career pages that belong to at least 1 active watch list
     const duePages = await db.select()
       .from(careerPages)
       .where(and(
         eq(careerPages.status, 'active'),
+        inArray(careerPages.id, activePageIds),
         lte(careerPages.nextCheckAt, now)
       ))
       .limit(10);

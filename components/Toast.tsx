@@ -50,7 +50,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       {children}
 
       {/* Floating Bottom-Right Toast Stack Container */}
-      <div className="fixed bottom-6 right-6 z-[9999] flex flex-col gap-3 max-w-sm w-full pointer-events-none px-4 sm:px-0">
+      <div
+        className="fixed bottom-6 right-6 z-[999999] flex flex-col gap-3 max-w-sm w-full pointer-events-none px-4 sm:px-0"
+        style={{ zIndex: 999999 }}
+      >
         {toasts.map(t => (
           <div
             key={t.id}

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/client';
-import { careerPages, scrapeLogs } from '@/lib/db/schema';
-import { eq, and, lte, or, isNull } from 'drizzle-orm';
+import { careerPages, listCareerPages, scrapeLogs } from '@/lib/db/schema';
+import { eq, and, lte, or, isNull, inArray } from 'drizzle-orm';
 import { runScraperPipeline } from '@/packages/scraper/src/pipeline';
 import { isFeatureEnabled } from '@/lib/flags/check';
 
@@ -13,10 +13,27 @@ export async function POST(req: NextRequest) {
   const globalIntervalFlag = await isFeatureEnabled('scraper.global_check_interval_minutes', 180);
   const globalIntervalMinutes = typeof globalIntervalFlag === 'number' ? globalIntervalFlag : Number(globalIntervalFlag) || 180;
 
-  // Find all ACTIVE career pages due for check
+  // Get all active careerPageIds from listCareerPages
+  const activeListPages = await db.selectDistinct({ id: listCareerPages.careerPageId })
+    .from(listCareerPages)
+    .where(eq(listCareerPages.isPaused, false));
+
+  const activePageIds = activeListPages.map(p => p.id);
+  if (activePageIds.length === 0) {
+    return NextResponse.json({
+      duePagesFound: 0,
+      checkedCount: 0,
+      totalJobsFound: 0,
+      message: 'No career pages are currently attached to active watch lists.',
+      timestamp: now.toISOString(),
+    });
+  }
+
+  // Find all ACTIVE career pages due for check (and belonging to at least 1 active watch list)
   const duePages = await db.select().from(careerPages).where(
     and(
       eq(careerPages.status, 'active'),
+      inArray(careerPages.id, activePageIds),
       or(
         isNull(careerPages.nextCheckAt),
         lte(careerPages.nextCheckAt, now)

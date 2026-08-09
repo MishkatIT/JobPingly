@@ -1,6 +1,6 @@
 import { db } from '@/lib/db/client';
-import { careerPages } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
+import { careerPages, listCareerPages } from '@/lib/db/schema';
+import { eq, and, inArray } from 'drizzle-orm';
 import { cleanCareerPageContent } from '@/packages/scraper/src/cleaner';
 import { generateContentHash } from '@/packages/scraper/src/hash';
 import { extractJobsWithAI, ScrapedPageInput } from '@/packages/scraper/src/aiExtractor';
@@ -12,7 +12,15 @@ async function main() {
   // Automatic cleanup of expired deadline jobs
   await autoRemoveExpiredJobsFromDb();
 
-  const pages = await db.select().from(careerPages).where(eq(careerPages.status, 'active'));
+  // Get active career page IDs attached to watch lists
+  const activeListPages = await db.selectDistinct({ id: listCareerPages.careerPageId })
+    .from(listCareerPages)
+    .where(eq(listCareerPages.isPaused, false));
+
+  const activePageIds = activeListPages.map(p => p.id);
+  const pages = activePageIds.length > 0
+    ? await db.select().from(careerPages).where(and(eq(careerPages.status, 'active'), inArray(careerPages.id, activePageIds)))
+    : [];
 
   let pagesChecked = 0;
   let pagesChanged = 0;
