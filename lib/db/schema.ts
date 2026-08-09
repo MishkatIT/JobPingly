@@ -156,11 +156,17 @@ export const listCollaborators = pgTable('list_collaborators', {
   listId: uuid('list_id').notNull().references(() => lists.id, { onDelete: 'cascade' }),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   role: text('role').default('editor').notNull(), // 'editor' | 'moderator'
+  status: text('status').default('pending').notNull(), // 'pending' | 'accepted' | 'declined'
+  inviteToken: uuid('invite_token').defaultRandom().notNull(),
   invitedBy: uuid('invited_by').references(() => users.id),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
-  uniqueListCollaborator: uniqueIndex('unique_list_collaborator').on(table.listId, table.userId),
-  listCollabIdx: index('idx_list_collab_list').on(table.listId),
+  uniqueUserListCollab: uniqueIndex('unique_user_list_collab').on(table.userId, table.listId),
+  collabListIdx: index('idx_list_collab_list').on(table.listId),
+  collabUserIdx: index('idx_list_collab_user').on(table.userId),
+  collabStatusIdx: index('idx_list_collab_status').on(table.status),
+  collabTokenIdx: index('idx_list_collab_token').on(table.inviteToken),
 }));
 
 // 9. Subscriptions

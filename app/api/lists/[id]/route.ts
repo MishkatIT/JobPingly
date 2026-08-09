@@ -1,22 +1,62 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
-import { lists, listCareerPages, careerPages, jobs } from '@/lib/db/schema';
+import { lists, listCareerPages, careerPages, jobs, listCollaborators } from '@/lib/db/schema';
 import { eq, and, inArray } from 'drizzle-orm';
+
+import { users } from '@/lib/db/schema';
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await getAuthUser(req);
   const listId = params.id;
 
-  const [list] = await db.select().from(lists).where(eq(lists.id, listId));
-  if (!list) {
+  const [listData] = await db
+    .select({
+      id: lists.id,
+      name: lists.name,
+      slug: lists.slug,
+      description: lists.description,
+      visibility: lists.visibility,
+      userId: lists.userId,
+      isCanonical: lists.isCanonical,
+      followerCount: lists.followerCount,
+      createdAt: lists.createdAt,
+      updatedAt: lists.updatedAt,
+      userName: users.name,
+      userEmail: users.email,
+      userAvatar: users.avatarUrl,
+    })
+    .from(lists)
+    .leftJoin(users, eq(lists.userId, users.id))
+    .where(eq(lists.id, listId));
+
+  if (!listData) {
     return NextResponse.json({ error: 'Watch list not found' }, { status: 404 });
   }
 
-  // Check authorization if private (Admins bypass private restrictions)
+  const list = {
+    ...listData,
+    userName: listData.userName || listData.userEmail?.split('@')[0] || 'Curator',
+  };
+
+  // Check authorization if private (Owner, Admin, or Accepted Collaborators allowed)
   if (list.visibility === 'private') {
     const isOwnerOrAdmin = user && (user.role === 'admin' || user.userId === list.userId);
-    if (!isOwnerOrAdmin) {
+    let isAcceptedCollab = false;
+
+    if (user && !isOwnerOrAdmin) {
+      const [collab] = await db
+        .select()
+        .from(listCollaborators)
+        .where(and(
+          eq(listCollaborators.listId, listId),
+          eq(listCollaborators.userId, user.userId),
+          eq(listCollaborators.status, 'accepted')
+        ));
+      isAcceptedCollab = !!collab;
+    }
+
+    if (!isOwnerOrAdmin && !isAcceptedCollab) {
       return NextResponse.json({ error: 'Access denied to private list.' }, { status: 403 });
     }
   }

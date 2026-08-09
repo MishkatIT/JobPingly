@@ -4,10 +4,11 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Globe, Lock, Plus, ExternalLink, RefreshCw, CheckCircle, AlertTriangle, Briefcase, Zap, Trash2, MoreVertical, Edit3, Search, LayoutGrid, Grid2X2, List, PauseCircle } from 'lucide-react';
+import { ArrowLeft, Globe, Lock, Plus, ExternalLink, RefreshCw, CheckCircle, AlertTriangle, Briefcase, Zap, Trash2, MoreVertical, Edit3, Search, LayoutGrid, Grid2X2, List, PauseCircle, CheckSquare, Square, LogOut, Sliders, PlusCircle, UserPlus, Share2, Check, Crown, Users, XCircle } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { JobCard } from '@/components/JobCard';
+import { Badge } from '@/components/Badge';
 import { getCompanyColorTheme, getCompanyLogoUrl } from '@/lib/utils/companyBranding';
 
 export default function ListDetailPage() {
@@ -18,8 +19,13 @@ export default function ListDetailPage() {
 
   const [mounted, setMounted] = useState(false);
   const [data, setData] = useState<any>(null);
+  const [currentUser, setCurrentUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Selection state for Monitored Pages batch actions
+  const [selectedPageIds, setSelectedPageIds] = useState<string[]>([]);
+  const [syncingBatch, setSyncingBatch] = useState(false);
 
   // View Mode State (Grid, Tiles, Table)
   const [pageViewMode, setPageViewMode] = useState<'grid' | 'tiles' | 'table'>('grid');
@@ -59,14 +65,68 @@ export default function ListDetailPage() {
   const [keywords, setKeywords] = useState('');
   const [adding, setAdding] = useState(false);
 
+  // Share & Modal states
+  const [copied, setCopied] = useState(false);
+
+  // Contributions / Suggestions
+  const [contributions, setContributions] = useState<any[]>([]);
+  const [showContributionsModal, setShowContributionsModal] = useState(false);
+
+  // Collaborators
+  const [collaborators, setCollaborators] = useState<any[]>([]);
+  const [showCollaboratorsModal, setShowCollaboratorsModal] = useState(false);
+  const [collabEmail, setCollabEmail] = useState('');
+  const [collabSubmitting, setCollabSubmitting] = useState(false);
+
   const menuRef = useRef<HTMLDivElement>(null);
+
+  const fetchCollaborators = async () => {
+    try {
+      const res = await fetch(`/api/lists/${listId}/collaborators`);
+      if (res.ok) {
+        const json = await res.json();
+        setCollaborators(json.collaborators || []);
+      }
+    } catch (e) {}
+  };
+
+  const fetchContributions = async () => {
+    try {
+      const res = await fetch(`/api/lists/${listId}/contributions`);
+      if (res.ok) {
+        const json = await res.json();
+        setContributions(json.contributions || []);
+      }
+    } catch (e) {}
+  };
 
   const loadDetail = async () => {
     try {
-      const res = await fetch(`/api/lists/${listId}`);
+      const [res, meRes, collabRes, contribRes] = await Promise.all([
+        fetch(`/api/lists/${listId}`),
+        fetch('/api/me'),
+        fetch(`/api/lists/${listId}/collaborators`),
+        fetch(`/api/lists/${listId}/contributions`),
+      ]);
+
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to load list');
       setData(json);
+
+      if (meRes.ok) {
+        const meJson = await meRes.json();
+        setCurrentUser(meJson.user);
+      }
+
+      if (collabRes.ok) {
+        const collabJson = await collabRes.json();
+        setCollaborators(collabJson.collaborators || []);
+      }
+
+      if (contribRes.ok) {
+        const contribJson = await contribRes.json();
+        setContributions(contribJson.contributions || []);
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -77,6 +137,75 @@ export default function ListDetailPage() {
   useEffect(() => {
     if (listId) loadDetail();
   }, [listId]);
+
+  const handleAddCollaborator = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!collabEmail.trim()) return;
+    setCollabSubmitting(true);
+    try {
+      const res = await fetch(`/api/lists/${listId}/collaborators`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: collabEmail, role: 'editor' }),
+      });
+      const json = await res.json();
+      if (res.ok) {
+        toast.success(`Collaborator invitation sent to ${collabEmail}!`);
+        setCollabEmail('');
+        fetchCollaborators();
+      } else {
+        toast.error(json.error || 'Failed to add collaborator');
+      }
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setCollabSubmitting(false);
+    }
+  };
+
+  const handleRemoveCollaborator = async (targetUserId: string) => {
+    if (!confirm('Remove this collaborator from the watch list?')) return;
+    try {
+      const res = await fetch(`/api/lists/${listId}/collaborators?userId=${targetUserId}`, { method: 'DELETE' });
+      if (res.ok) {
+        toast.info('Collaborator removed');
+        fetchCollaborators();
+      } else {
+        const json = await res.json();
+        toast.error(json.error || 'Failed to remove collaborator');
+      }
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  };
+
+  const handleReviewContribution = async (contribId: string, action: 'approve' | 'reject') => {
+    try {
+      const res = await fetch(`/api/lists/${listId}/contributions/${contribId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      const json = await res.json();
+      if (res.ok) {
+        toast.success(action === 'approve' ? 'Suggestion approved and company added!' : 'Suggestion rejected');
+        fetchContributions();
+        loadDetail();
+      } else {
+        toast.error(json.error || 'Failed to review contribution');
+      }
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  };
+
+  const handleShareList = () => {
+    const url = `${window.location.origin}/lists/${list?.slug || listId}`;
+    navigator.clipboard.writeText(url);
+    setCopied(true);
+    toast.success('Public watch list link copied to clipboard!');
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -276,6 +405,66 @@ export default function ListDetailPage() {
     }
   };
 
+  const handleToggleSelectPage = (pageId: string) => {
+    setSelectedPageIds(prev =>
+      prev.includes(pageId) ? prev.filter(id => id !== pageId) : [...prev, pageId]
+    );
+  };
+
+  const handleOpenBatchUrls = () => {
+    if (!data?.pages || selectedPageIds.length === 0) return;
+    const selectedPages = data.pages.filter((p: any) => selectedPageIds.includes(p.id));
+
+    let openedCount = 0;
+    selectedPages.forEach((p: any, idx: number) => {
+      if (p.url) {
+        setTimeout(() => {
+          const win = window.open(p.url, '_blank', 'noopener,noreferrer');
+          if (win) win.focus();
+        }, idx * 120);
+        openedCount++;
+      }
+    });
+
+    toast.success(`Opening ${openedCount} career page link(s) in new tabs!`);
+  };
+
+  const handleSyncBatch = async () => {
+    if (selectedPageIds.length === 0) return;
+    setSyncingBatch(true);
+    toast.info(`Syncing ${selectedPageIds.length} selected company page(s)...`);
+
+    try {
+      await Promise.all(
+        selectedPageIds.map(id => fetch(`/api/career-pages/${id}`, { method: 'POST' }).catch(() => null))
+      );
+      toast.success(`Batch sync complete for ${selectedPageIds.length} company page(s)!`);
+      loadDetail();
+    } catch (e: any) {
+      toast.error(e.message || 'Batch sync failed');
+    } finally {
+      setSyncingBatch(false);
+    }
+  };
+
+  const handleDeleteBatch = async () => {
+    if (selectedPageIds.length === 0) return;
+    if (!confirm(`Remove ${selectedPageIds.length} selected company page(s) from this list?`)) return;
+
+    try {
+      await Promise.all(
+        selectedPageIds.map(id =>
+          fetch(`/api/lists/${listId}/career-pages?careerPageId=${id}`, { method: 'DELETE' }).catch(() => null)
+        )
+      );
+      toast.success(`Removed ${selectedPageIds.length} company page(s)!`);
+      setSelectedPageIds([]);
+      loadDetail();
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to remove selected pages');
+    }
+  };
+
   const handleVisibilityToggle = async () => {
     if (!data?.list) return;
     const newVis = data.list.visibility === 'public' ? 'private' : 'public';
@@ -331,50 +520,128 @@ export default function ListDetailPage() {
     );
   });
 
+  const handleLeaveWatchList = async () => {
+    if (!confirm(`Are you sure you want to leave collaboration on '${list.name}'?`)) return;
+    try {
+      const res = await fetch(`/api/lists/${listId}/collaborators`, { method: 'DELETE' });
+      const json = await res.json();
+      if (res.ok) {
+        toast.info(json.message || `You have left '${list.name}'`);
+        router.push('/dashboard');
+      } else {
+        toast.error(json.error || 'Failed to leave list');
+      }
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+  };
+
+  const isOwner = currentUser && list && currentUser.id === list.userId;
+
+  const pendingContribs = (contributions || []).filter((c: any) => c.status === 'pending');
+
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
-      {/* Top Header */}
-      <div>
-        <Link href="/dashboard/lists" className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white mb-4">
-          <ArrowLeft className="w-3.5 h-3.5" /> Back to Watch Lists
-        </Link>
+      <Link href="/dashboard" className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white mb-1">
+        <ArrowLeft className="w-3.5 h-3.5" /> Back to Dashboard &amp; Watch Lists
+      </Link>
 
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-3 mb-2">
-              <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">{list.name}</h1>
-              <button
-                onClick={handleVisibilityToggle}
-                className={`text-xs font-bold uppercase px-3 py-1 rounded-full flex items-center gap-1.5 transition-all cursor-pointer ${
-                  list.visibility === 'public'
-                    ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20'
-                    : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 hover:bg-slate-300 dark:hover:bg-slate-700'
-                }`}
-              >
-                {list.visibility === 'public' ? <Globe className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
-                {list.visibility} (Click to toggle)
-              </button>
-            </div>
-            <p className="text-sm text-slate-600 dark:text-slate-400">{list.description || 'No description provided.'}</p>
+      {/* Unified Watch List Header Panel */}
+      <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 space-y-6">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-200/60 dark:border-slate-800/60">
+          {/* Badges Inline Row */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              type="button"
+              onClick={handleVisibilityToggle}
+              className={`text-xs font-bold uppercase px-3 py-1 rounded-md flex items-center gap-1.5 transition-all cursor-pointer ${
+                list.visibility === 'public'
+                  ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20'
+                  : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 hover:bg-slate-300 dark:hover:bg-slate-700'
+              }`}
+              title="Click to toggle Public / Private visibility"
+            >
+              {list.visibility === 'public' ? <Globe className="w-3.5 h-3.5 text-emerald-500" /> : <Lock className="w-3.5 h-3.5 text-slate-400" />}
+              {list.visibility === 'public' ? 'Public Watchlist' : 'Private Watchlist'}
+            </button>
+
+            {isOwner ? (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-500/8 text-amber-700 dark:text-amber-300 border border-amber-500/20 text-xs font-medium tracking-tight">
+                <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" /> Your Watchlist (Owner)
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-purple-500/8 text-purple-600 dark:text-purple-400 border border-purple-500/20 text-xs font-medium tracking-tight">
+                <Users className="w-3.5 h-3.5 text-purple-500 shrink-0" /> Collaborator
+              </span>
+            )}
+            {list.isCanonical !== false && <Badge variant="canonical">Verified List</Badge>}
+            {list.followerCount > 0 && <Badge variant="follower" count={list.followerCount} />}
           </div>
 
-          <div className="flex items-center gap-3">
-            {list.visibility === 'public' && (
-              <Link
-                href={`/lists/${list.slug}`}
-                target="_blank"
-                className="text-xs font-semibold glass-panel px-4 py-2 rounded-xl text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white flex items-center gap-1.5"
+          {/* Action Controls Toolbar */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setShowContributionsModal(true)}
+              className="px-3.5 py-1.5 rounded-xl border border-amber-500/30 text-amber-700 dark:text-amber-300 bg-amber-500/5 hover:bg-amber-500/15 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-all"
+            >
+              <PlusCircle className="w-3.5 h-3.5 text-amber-500" />
+              Suggestions {pendingContribs.length > 0 && `(${pendingContribs.length})`}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowCollaboratorsModal(true)}
+              className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-all"
+            >
+              <UserPlus className="w-3.5 h-3.5 text-purple-500" />
+              Collaborators {collaborators.length > 0 && `(${collaborators.length})`}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleShareList}
+              className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              title="Share Watch List Link"
+            >
+              {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Share2 className="w-4 h-4" />}
+            </button>
+
+            {!isOwner && (
+              <button
+                onClick={handleLeaveWatchList}
+                className="px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/20 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-all"
+                title="Leave collaboration on this watch list"
               >
-                <Globe className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" /> View Public Page
-              </Link>
+                <LogOut className="w-3.5 h-3.5 text-rose-500" /> Leave
+              </button>
             )}
+          </div>
+        </div>
+
+        {/* Title, Description & Curator Details */}
+        <div className="space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">{list.name}</h1>
 
             <button
               onClick={() => setShowAdd(true)}
-              className="text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl shadow-md flex items-center gap-2 cursor-pointer"
+              className="text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl shadow-md flex items-center gap-2 cursor-pointer shrink-0"
             >
               <Plus className="w-4 h-4" /> Add Company Page
             </button>
+          </div>
+
+          <p className="text-sm text-slate-600 dark:text-slate-400 max-w-3xl leading-relaxed">{list.description || 'No description provided.'}</p>
+
+          <div className="flex items-center gap-2 pt-1 text-xs text-slate-500 dark:text-slate-400">
+            <span>Curated by:</span>
+            <div className="flex items-center gap-1.5 font-bold text-slate-800 dark:text-slate-200">
+              <div className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-[10px]">
+                {(list.userName?.[0] || 'U').toUpperCase()}
+              </div>
+              <span>{list.userName || 'User'}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -397,6 +664,62 @@ export default function ListDetailPage() {
             )}
           </h2>
 
+          {/* Batch Selection Action Bar */}
+          {selectedPageIds.length > 0 && (
+            <div className="p-3 rounded-2xl bg-blue-500/10 border border-blue-500/30 text-blue-700 dark:text-blue-300 flex items-center justify-between gap-2 text-xs font-bold animate-in fade-in duration-150 shadow-sm">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedPageIds.length === filteredPages.length) {
+                      setSelectedPageIds([]);
+                    } else {
+                      setSelectedPageIds(filteredPages.map((p: any) => p.id));
+                    }
+                  }}
+                  className="text-slate-400 hover:text-blue-600 cursor-pointer"
+                  title="Select / Deselect All"
+                >
+                  {selectedPageIds.length === filteredPages.length ? (
+                    <CheckSquare className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  ) : (
+                    <Square className="w-4 h-4" />
+                  )}
+                </button>
+                <span>{selectedPageIds.length} selected</span>
+              </div>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  onClick={handleSyncBatch}
+                  disabled={syncingBatch}
+                  title="Sync selected company pages"
+                  className="px-2.5 py-1 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 shadow-sm flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3 h-3 ${syncingBatch ? 'animate-spin' : ''}`} />
+                  Sync ({selectedPageIds.length})
+                </button>
+
+                <button
+                  onClick={handleOpenBatchUrls}
+                  title="Open selected company links in new tabs"
+                  className="px-2.5 py-1 rounded-xl bg-white dark:bg-slate-900 border border-blue-500/30 text-blue-600 dark:text-blue-400 font-bold hover:bg-blue-50 dark:hover:bg-slate-800 flex items-center gap-1 cursor-pointer"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  Open Links
+                </button>
+
+                <button
+                  onClick={handleDeleteBatch}
+                  title="Remove selected companies"
+                  className="px-2 py-1 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+          )}
+
           {filteredPages.length === 0 ? (
             <div className="glass-panel p-6 rounded-2xl text-center border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
               {searchQuery ? `No companies match "${searchQuery}"` : 'No career pages added to this list yet. Click "+ Add Company Page".'}
@@ -406,14 +729,20 @@ export default function ListDetailPage() {
               {filteredPages.map((p: any) => {
                 const colorTheme = getCompanyColorTheme(p.companyName || 'Company');
                 const logoUrl = getCompanyLogoUrl(p.url);
+                const isSelected = selectedPageIds.includes(p.id);
+                const hasAnySelected = selectedPageIds.length > 0;
 
                 return (
                   <div
                     key={p.id}
-                    className={`glass-card p-4 rounded-xl border border-slate-200/80 dark:border-slate-800/80 text-xs transition-all border-l-4 ${colorTheme.border} ${
-                      openMenuId === p.id ? 'z-50 relative' : 'z-0 relative'
+                    className={`glass-card p-4 rounded-xl border text-xs transition-all border-l-4 group relative ${colorTheme.border} ${
+                      isSelected
+                        ? 'ring-2 ring-blue-500 bg-blue-50/50 dark:bg-blue-950/20'
+                        : openMenuId === p.id
+                        ? 'z-50'
+                        : 'z-0'
                     }`}
-                    style={{ backgroundColor: colorTheme.bgLight }}
+                    style={{ backgroundColor: isSelected ? undefined : colorTheme.bgLight }}
                   >
                     <div className="flex items-center justify-between mb-1.5">
                       <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white text-sm">
@@ -431,7 +760,29 @@ export default function ListDetailPage() {
                           </span>
                         )}
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
+                        {/* Hover/Persistent Selection Checkbox */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleSelectPage(p.id);
+                          }}
+                          className={`p-1 rounded-md transition-all cursor-pointer ${
+                            isSelected
+                              ? 'text-blue-600 dark:text-blue-400 opacity-100'
+                              : hasAnySelected
+                              ? 'text-slate-400 hover:text-blue-600 opacity-100'
+                              : 'text-slate-400 hover:text-blue-600 opacity-0 group-hover:opacity-100'
+                          }`}
+                          title={isSelected ? 'Deselect company' : 'Select company'}
+                        >
+                          {isSelected ? (
+                            <CheckSquare className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                          ) : (
+                            <Square className="w-4 h-4" />
+                          )}
+                        </button>
                       {/* Three Dots Menu */}
                       <div className="relative">
                         <button
@@ -530,25 +881,70 @@ export default function ListDetailPage() {
               Active Open Positions ({filteredJobs.length})
             </h2>
 
-            {/* Instant Search Bar (0 DB/Server Calls) */}
-            <div className="relative w-full sm:w-64">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Search title, company, location..."
-                className="w-full pl-8 pr-7 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-blue-600 transition-all shadow-sm"
-              />
-              {searchQuery && (
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* 3-Type View Switcher (Grid, Tiles, Table List) */}
+              <div className="flex items-center bg-slate-100 dark:bg-slate-900/90 p-1 rounded-xl border border-slate-200 dark:border-slate-800 shrink-0">
                 <button
                   type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xs font-bold cursor-pointer"
+                  onClick={() => handlePageViewChange('grid')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                    pageViewMode === 'grid'
+                      ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="Grid Card View"
                 >
-                  &times;
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Grid</span>
                 </button>
-              )}
+                <button
+                  type="button"
+                  onClick={() => handlePageViewChange('tiles')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                    pageViewMode === 'tiles'
+                      ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="Tiles View (2 Columns)"
+                >
+                  <Grid2X2 className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Tiles</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handlePageViewChange('table')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                    pageViewMode === 'table'
+                      ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="Table List View"
+                >
+                  <List className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Table List</span>
+                </button>
+              </div>
+
+              {/* Instant Search Bar (0 DB/Server Calls) */}
+              <div className="relative w-full sm:w-56">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="Search title, company..."
+                  className="w-full pl-8 pr-7 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-blue-600 transition-all shadow-sm"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xs font-bold cursor-pointer"
+                  >
+                    &times;
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -571,11 +967,67 @@ export default function ListDetailPage() {
                 <p className="text-xs text-slate-500 dark:text-slate-400">No active positions currently detected for this list.</p>
               )}
             </div>
-          ) : (
+          ) : pageViewMode === 'grid' ? (
             <div className="space-y-3">
               {filteredJobs.map((j: any) => (
                 <JobCard key={j.id} job={j} />
               ))}
+            </div>
+          ) : pageViewMode === 'tiles' ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {filteredJobs.map((j: any) => (
+                <JobCard key={j.id} job={j} />
+              ))}
+            </div>
+          ) : (
+            /* Table List View */
+            <div className="glass-panel rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-100/80 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-slate-500 font-semibold">
+                    <tr>
+                      <th className="py-3 px-4">Job Title &amp; Company</th>
+                      <th className="py-3 px-4">Department &amp; Level</th>
+                      <th className="py-3 px-4">Location &amp; Type</th>
+                      <th className="py-3 px-4 text-right">Apply Link</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800/70">
+                    {filteredJobs.map((j: any) => (
+                      <tr key={j.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition-colors">
+                        <td className="py-3.5 px-4">
+                          <span className="font-extrabold text-sm text-slate-900 dark:text-white block">{j.title}</span>
+                          <span className="text-xs text-blue-600 dark:text-blue-400 font-semibold mt-0.5 block">{j.companyName || j.rawData?.company || 'Company'}</span>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span className="text-slate-700 dark:text-slate-300 font-medium block">{j.department || j.rawData?.department || 'General'}</span>
+                          {j.rawData?.experience && (
+                            <span className="text-[11px] text-slate-500 block">{j.rawData.experience}</span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span className="text-slate-700 dark:text-slate-300 font-medium block">{j.location || 'Remote / Unspecified'}</span>
+                          <span className="text-[11px] text-slate-500 block">{j.jobType || j.rawData?.employmentType || 'Full-time'}</span>
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          {j.url ? (
+                            <a
+                              href={j.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold inline-flex items-center gap-1.5 shadow-sm transition-all text-xs"
+                            >
+                              Apply <ExternalLink className="w-3.5 h-3.5" />
+                            </a>
+                          ) : (
+                            <span className="text-slate-400 text-xs font-semibold">No direct link</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>
@@ -689,6 +1141,149 @@ export default function ListDetailPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Community Suggestions / Contributions Modal */}
+      {showContributionsModal && mounted && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="glass-panel max-w-lg w-full p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 space-y-4 bg-white dark:bg-slate-900 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <h3 className="text-xl font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+              <PlusCircle className="w-5 h-5 text-amber-500" />
+              Community Suggestions ({pendingContribs.length})
+            </h3>
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+              Approve suggestions to add them to this watch list.
+            </p>
+
+            <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+              {pendingContribs.length === 0 ? (
+                <div className="p-8 text-center border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl space-y-2">
+                  <CheckCircle className="w-8 h-8 text-emerald-500 mx-auto" />
+                  <p className="text-xs font-bold text-slate-800 dark:text-slate-200">All suggestions reviewed!</p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">There are currently no pending community suggestions for this watchlist.</p>
+                </div>
+              ) : (
+                pendingContribs.map((c: any) => (
+                  <div key={c.id} className="glass-card p-4 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 text-xs">
+                    <div className="space-y-0.5 max-w-xs">
+                      <span className="font-bold text-slate-900 dark:text-white block">{c.companyName || 'Suggested Company'}</span>
+                      <span className="text-[11px] font-mono text-blue-500 block truncate">{c.url}</span>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleReviewContribution(c.id, 'approve')}
+                        className="p-2 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 font-bold flex items-center gap-1 cursor-pointer"
+                        title="Approve & Add"
+                      >
+                        <CheckCircle className="w-4 h-4" /> Approve
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleReviewContribution(c.id, 'reject')}
+                        className="p-2 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500/20 font-bold flex items-center gap-1 cursor-pointer"
+                        title="Reject"
+                      >
+                        <XCircle className="w-4 h-4" /> Reject
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="flex items-center justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setShowContributionsModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Collaborators Modal */}
+      {showCollaboratorsModal && mounted && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="glass-panel max-w-md w-full p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 space-y-4 bg-white dark:bg-slate-900 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <h3 className="text-xl font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+              <UserPlus className="w-5 h-5 text-purple-500" />
+              List Collaborators
+            </h3>
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+              Invite registered users to co-curate and manage <strong>{list.name}</strong>.
+            </p>
+
+            {isOwner && (
+              <form onSubmit={handleAddCollaborator} className="flex gap-2">
+                <input
+                  type="email"
+                  required
+                  value={collabEmail}
+                  onChange={e => setCollabEmail(e.target.value)}
+                  placeholder="collaborator@example.com"
+                  className="flex-1 px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs focus:outline-none focus:border-purple-500"
+                />
+                <button
+                  type="submit"
+                  disabled={collabSubmitting}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-md cursor-pointer disabled:opacity-50"
+                >
+                  {collabSubmitting ? 'Inviting...' : 'Invite'}
+                </button>
+              </form>
+            )}
+
+            <div className="space-y-2 max-h-56 overflow-y-auto pr-1 pt-1">
+              {collaborators.length === 0 ? (
+                <p className="text-xs text-slate-500 text-center py-4">No collaborators added yet.</p>
+              ) : (
+                collaborators.map((col: any) => (
+                  <div key={col.id} className="flex items-center justify-between p-3 rounded-xl glass-card border border-slate-200 dark:border-slate-800 text-xs">
+                    <div>
+                      <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-white">
+                        <span>{col.name || 'User'}</span>
+                        {col.status === 'pending' && (
+                          <span className="text-[10px] font-bold uppercase text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                            Pending Invite
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[11px] text-slate-500 block">{col.email}</span>
+                    </div>
+
+                    {isOwner && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveCollaborator(col.userId)}
+                        className="text-rose-500 hover:text-rose-700 p-1.5 rounded-lg hover:bg-rose-500/10 transition-colors cursor-pointer"
+                        title="Remove collaborator"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="flex items-center justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setShowCollaboratorsModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer"
+              >
+                Done
+              </button>
+            </div>
           </div>
         </div>,
         document.body

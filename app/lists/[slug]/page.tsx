@@ -375,6 +375,11 @@ export default function PublicListPageView() {
                   <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" /> Your Watchlist (Owner)
                 </span>
               )}
+              {!isOwner && (collaborators || []).some((c: any) => c.userId === currentUserId && c.status === 'accepted') && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-purple-500/8 text-purple-600 dark:text-purple-400 border border-purple-500/20 text-[11px] font-medium tracking-tight">
+                  <Users className="w-3.5 h-3.5 text-purple-500 shrink-0" /> Collaborator
+                </span>
+              )}
               {list.isCanonical !== false && <Badge variant="canonical">Verified List</Badge>}
               {list.followerCount > 0 && <Badge variant="follower" count={list.followerCount} />}
             </div>

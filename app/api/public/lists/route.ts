@@ -64,40 +64,82 @@ export async function GET(req: NextRequest) {
   const startIndex = (page - 1) * limit;
   const paginated = scored.slice(startIndex, startIndex + limit);
 
-  // Enrich ONLY the paginated items in parallel
-  const enriched = await Promise.all(paginated.map(async (l) => {
-    const pagesPromise = db.select().from(listCareerPages).where(eq(listCareerPages.listId, l.id));
-    const parentPromise = l.parentListId
-      ? db.select({ name: lists.name, slug: lists.slug }).from(lists).where(eq(lists.id, l.parentListId))
-      : Promise.resolve([]);
+  // Batch enrich paginated items in bulk constant queries
+  const paginatedListIds = paginated.map(l => l.id);
+  const parentListIds = paginated.map(l => l.parentListId).filter(Boolean) as string[];
 
-    const [pages, parentResult] = await Promise.all([pagesPromise, parentPromise]);
-    let jobCount = 0;
+  const [allPaginatedPages, parentListsResult] = await Promise.all([
+    paginatedListIds.length > 0
+      ? db.select().from(listCareerPages).where(inArray(listCareerPages.listId, paginatedListIds))
+      : [],
+    parentListIds.length > 0
+      ? db.select({ id: lists.id, name: lists.name, slug: lists.slug }).from(lists).where(inArray(lists.id, parentListIds))
+      : [],
+  ]);
 
-    if (pages.length > 0) {
-      const careerPageIds = pages.map(p => p.careerPageId);
-      const activeJobs = await db.select()
-        .from(jobs)
-        .where(and(
-          inArray(jobs.careerPageId, careerPageIds),
-          eq(jobs.status, 'active')
-        ));
-      jobCount = activeJobs.length;
-    }
+  const parentMap = new Map(parentListsResult.map(p => [p.id, p]));
 
-    const parent = parentResult[0] || null;
+  const pagesByListId = new Map<string, string[]>();
+  allPaginatedPages.forEach(p => {
+    const arr = pagesByListId.get(p.listId) || [];
+    arr.push(p.careerPageId);
+    pagesByListId.set(p.listId, arr);
+  });
+
+  const uniquePaginatedCareerPageIds = Array.from(new Set(allPaginatedPages.map(p => p.careerPageId)));
+  const activePaginatedJobs = uniquePaginatedCareerPageIds.length > 0
+    ? await db.select({ careerPageId: jobs.careerPageId }).from(jobs).where(and(inArray(jobs.careerPageId, uniquePaginatedCareerPageIds), eq(jobs.status, 'active')))
+    : [];
+
+  const jobCountByCareerPageId = new Map<string, number>();
+  activePaginatedJobs.forEach(j => {
+    jobCountByCareerPageId.set(j.careerPageId, (jobCountByCareerPageId.get(j.careerPageId) || 0) + 1);
+  });
+
+  const enriched = paginated.map(l => {
+    const cPageIds = pagesByListId.get(l.id) || [];
+    const jobCount = cPageIds.reduce((sum, cpId) => sum + (jobCountByCareerPageId.get(cpId) || 0), 0);
+    const parent = l.parentListId ? parentMap.get(l.parentListId) : null;
 
     return {
       ...l,
-      companyCount: pages.length,
+      companyCount: cPageIds.length,
       jobCount,
       parentListName: parent?.name || null,
       parentListSlug: parent?.slug || null,
     };
-  }));
+  });
+
+  // Summary Stats for Public Directory
+  const allPublicListIds = rawPublicLists.map(l => l.id);
+  let totalUniqueCompanies = 0;
+  let totalActiveJobs = 0;
+
+  if (allPublicListIds.length > 0) {
+    const publicListPages = await db
+      .select({ careerPageId: listCareerPages.careerPageId })
+      .from(listCareerPages)
+      .where(inArray(listCareerPages.listId, allPublicListIds));
+
+    const uniquePageIds = Array.from(new Set(publicListPages.map(p => p.careerPageId)));
+    totalUniqueCompanies = uniquePageIds.length;
+
+    if (uniquePageIds.length > 0) {
+      const activePublicJobs = await db
+        .select({ id: jobs.id })
+        .from(jobs)
+        .where(and(inArray(jobs.careerPageId, uniquePageIds), eq(jobs.status, 'active')));
+      totalActiveJobs = activePublicJobs.length;
+    }
+  }
 
   return NextResponse.json({
-    lists: paginated,
+    lists: enriched,
+    stats: {
+      totalLists: rawPublicLists.length,
+      totalUniqueCompanies,
+      totalActiveJobs,
+    },
     pagination: {
       total,
       page,

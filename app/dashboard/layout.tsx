@@ -40,8 +40,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   const mainNav = [
-    { label: 'Overview', href: '/dashboard', icon: Layers },
-    { label: 'My Watch Lists', href: '/dashboard/lists', icon: Briefcase },
+    { label: 'Dashboard & Watch Lists', href: '/dashboard', icon: Layers },
     { label: 'Public Directory', href: '/discover', icon: Globe },
     { label: 'Account Settings', href: '/dashboard/settings', icon: Settings },
   ];

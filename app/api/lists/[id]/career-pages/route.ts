@@ -16,7 +16,11 @@ async function canModifyList(userId: string, userRole: string, listId: string) {
   const [collab] = await db
     .select()
     .from(listCollaborators)
-    .where(and(eq(listCollaborators.listId, listId), eq(listCollaborators.userId, userId)));
+    .where(and(
+      eq(listCollaborators.listId, listId),
+      eq(listCollaborators.userId, userId),
+      eq(listCollaborators.status, 'accepted')
+    ));
 
   return !!collab;
 }

@@ -156,3 +156,83 @@ export async function sendOtpVerificationEmail(toEmail: string, otpCode: string)
     textContent,
   });
 }
+
+/**
+ * Sends a collaborator invitation email via Brevo when added to a watch list.
+ */
+export async function sendCollaboratorInviteEmail(options: {
+  toEmail: string;
+  toName?: string;
+  inviterName: string;
+  listName: string;
+  listId: string;
+  role: string;
+  inviteToken: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://jobpingly.com';
+  const acceptUrl = `${baseUrl}/api/collaborators/accept?token=${options.inviteToken}`;
+
+  const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Watch List Collaborator Invitation</title>
+</head>
+<body style="margin:0; padding:0; background-color:#0b0f19; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color:#e2e8f0;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#0b0f19; padding:40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="100%" max-width="520" border="0" cellspacing="0" cellpadding="0" style="max-width:520px; background-color:#1e293b; border-radius:16px; border:1px solid #334155; padding:32px; box-shadow:0 10px 25px rgba(0,0,0,0.5);">
+          <tr>
+            <td align="center" style="padding-bottom:24px;">
+              <div style="font-size:24px; font-weight:800; color:#ffffff;">
+                Job<span style="color:#2563eb;">Pingly</span>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding-bottom:12px;">
+              <h1 style="margin:0; font-size:20px; font-weight:700; color:#ffffff;">Watch List Collaboration Invitation</h1>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding-bottom:20px;">
+              <p style="margin:0; font-size:14px; color:#94a3b8; line-height:1.5;">
+                <strong style="color:#ffffff;">${options.inviterName}</strong> has invited you as a <strong style="color:#3b82f6; text-transform:uppercase;">${options.role}</strong> to collaborate on the watch list <strong style="color:#ffffff;">"${options.listName}"</strong>.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding-bottom:24px;">
+              <a href="${acceptUrl}" style="background-color:#2563eb; color:#ffffff; font-weight:700; text-decoration:none; padding:12px 28px; border-radius:10px; font-size:14px; display:inline-block; box-shadow:0 4px 12px rgba(37,99,235,0.4);">
+                Accept Invitation &amp; Join List &rarr;
+              </a>
+            </td>
+          </tr>
+          <hr style="border:none; border-top:1px solid #334155; margin:0 0 20px 0;">
+          <tr>
+            <td align="center">
+              <p style="margin:0; font-size:12px; color:#64748b;">
+                Clicking the button above confirms your access to monitor company career pages and receive job alerts.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `.trim();
+
+  const textContent = `JobPingly\n\n${options.inviterName} invited you as a ${options.role} to collaborate on watch list "${options.listName}".\n\nAccept invitation: ${acceptUrl}`;
+
+  return sendBrevoEmail({
+    toEmail: options.toEmail,
+    toName: options.toName,
+    subject: `Action Required: Collaboration Invitation for "${options.listName}"`,
+    htmlContent,
+    textContent,
+  });
+}
