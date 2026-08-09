@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { Logo } from '@/components/Logo';
 import { maskEmail } from '@/lib/auth/otp';
@@ -14,6 +15,7 @@ interface EmailVerificationModalProps {
 
 export function EmailVerificationModal({ email, onSuccess, onCancel }: EmailVerificationModalProps) {
   const router = useRouter();
+  const [mounted, setMounted] = useState<boolean>(false);
   const [otp, setOtp] = useState<string[]>(['', '', '', '', '', '']);
   const [error, setError] = useState<string>('');
   const [successMsg, setSuccessMsg] = useState<string>('');
@@ -22,6 +24,10 @@ export function EmailVerificationModal({ email, onSuccess, onCancel }: EmailVeri
   const [countdown, setCountdown] = useState<number>(60);
   
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Countdown timer effect
   useEffect(() => {
@@ -147,7 +153,9 @@ export function EmailVerificationModal({ email, onSuccess, onCancel }: EmailVeri
     }
   };
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
       <div className="w-full max-w-md glass-panel p-8 rounded-3xl border-slate-200 dark:border-slate-800 shadow-2xl relative bg-white/90 dark:bg-slate-900/90 text-slate-900 dark:text-white">
         
@@ -236,6 +244,7 @@ export function EmailVerificationModal({ email, onSuccess, onCancel }: EmailVeri
           </button>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

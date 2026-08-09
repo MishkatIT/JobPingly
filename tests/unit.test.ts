@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isUrlSafe } from '../lib/security/ssrf';
+import { isUrlSafe, normalizeCompanyUrl } from '../lib/security/ssrf';
 import { generateJobFingerprint } from '../packages/scraper/src/fingerprint';
 import { diffJobs } from '../packages/scraper/src/differ';
 import { matchKeywords } from '../packages/notifications/src/matcher';
@@ -9,6 +9,16 @@ describe('1. SSRF & URL Normalizer', () => {
     const res = isUrlSafe('https://company.com/careers/?utm_source=linkedin&ref=123');
     expect(res.safe).toBe(true);
     expect(res.normalizedUrl).toBe('https://company.com/careers');
+  });
+
+  it('should format URLs consistently to track uniqueness regardless of trailing slash, missing scheme, or extra slashes', () => {
+    // Both with and without trailing slash should yield the exact same formatted URL
+    expect(normalizeCompanyUrl('https://company.com/careers/')).toBe('https://company.com/careers');
+    expect(normalizeCompanyUrl('https://company.com/careers')).toBe('https://company.com/careers');
+    expect(normalizeCompanyUrl('company.com/careers/')).toBe('https://company.com/careers');
+    expect(normalizeCompanyUrl('https://company.com/')).toBe('https://company.com');
+    expect(normalizeCompanyUrl('https://company.com')).toBe('https://company.com');
+    expect(normalizeCompanyUrl('HTTPS://COMPANY.COM/careers///?ref=123#jobs')).toBe('https://company.com/careers');
   });
 
   it('should block localhost and private IPs', () => {

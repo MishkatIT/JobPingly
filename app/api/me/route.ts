@@ -29,6 +29,7 @@ export async function GET(req: NextRequest) {
       emailVerified: dbUser.emailVerified,
       emailNotificationsEnabled: dbUser.emailNotificationsEnabled,
       notificationPreference: dbUser.notificationPreference,
+      socials: dbUser.socials || {},
       emailApprovalStatus,
       createdAt: dbUser.createdAt,
     },

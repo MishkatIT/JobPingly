@@ -1,20 +1,41 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
-import { Layers, Plus, Globe, Lock, Trash2, ExternalLink, Briefcase, ChevronLeft, ChevronRight, MoreVertical, Edit3, Building } from 'lucide-react';
+import { Layers, Plus, Globe, Lock, Trash2, ExternalLink, Briefcase, ChevronLeft, ChevronRight, MoreVertical, Edit3, Building, LayoutGrid, Grid2X2, List } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import LoadingSpinner from '@/components/LoadingSpinner';
 
 export default function WatchListsPage() {
   const toast = useToast();
+  const [mounted, setMounted] = useState(false);
   const [lists, setLists] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // View Mode State (Grid, Tiles, List)
+  const [viewMode, setViewMode] = useState<'grid' | 'tiles' | 'list'>('grid');
+
+  useEffect(() => {
+    const saved = localStorage.getItem('jobpingly_dashboard_view');
+    if (saved === 'grid' || saved === 'tiles' || saved === 'list') {
+      setViewMode(saved);
+    }
+  }, []);
+
+  const handleViewChange = (mode: 'grid' | 'tiles' | 'list') => {
+    setViewMode(mode);
+    localStorage.setItem('jobpingly_dashboard_view', mode);
+  };
 
   // Modals & Menu State
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingList, setEditingList] = useState<any | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Pagination states
   const [page, setPage] = useState(1);
@@ -154,7 +175,50 @@ export default function WatchListsPage() {
           <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">Manage private and public career page watch lists</p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Google Drive Style View Switcher */}
+          <div className="flex items-center bg-slate-100 dark:bg-slate-900/80 p-1 rounded-xl border border-slate-200/80 dark:border-slate-800 shrink-0">
+            <button
+              type="button"
+              onClick={() => handleViewChange('grid')}
+              className={`px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-1 transition-all cursor-pointer ${
+                viewMode === 'grid'
+                  ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm font-semibold'
+                  : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+              }`}
+              title="Grid View"
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Grid</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleViewChange('tiles')}
+              className={`px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-1 transition-all cursor-pointer ${
+                viewMode === 'tiles'
+                  ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm font-semibold'
+                  : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+              }`}
+              title="Compact Tiles View"
+            >
+              <Grid2X2 className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Tiles</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleViewChange('list')}
+              className={`px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-1 transition-all cursor-pointer ${
+                viewMode === 'list'
+                  ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm font-semibold'
+                  : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+              }`}
+              title="List Table View"
+            >
+              <List className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">List</span>
+            </button>
+          </div>
+
           <select
             value={limit}
             onChange={e => {
@@ -200,110 +264,197 @@ export default function WatchListsPage() {
         </div>
       ) : (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {lists.map(l => (
-              <div key={l.id} className="glass-card p-6 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 flex flex-col justify-between hover:shadow-xl hover:border-blue-500/30 transition-all duration-300 group relative">
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <span className={`text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-full flex items-center gap-1.5 ${
-                      l.visibility === 'public'
-                        ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30'
-                        : 'bg-slate-200/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700'
-                    }`}>
-                      {l.visibility === 'public' ? <Globe className="w-3 h-3 text-emerald-500" /> : <Lock className="w-3 h-3 text-slate-400" />}
-                      {l.visibility}
-                    </span>
+          {viewMode !== 'list' ? (
+            <div className={viewMode === 'tiles' ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4' : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'}>
+              {lists.map(l => (
+                <div key={l.id} className={`glass-card border border-slate-200/80 dark:border-slate-800/80 flex flex-col justify-between hover:shadow-xl hover:border-blue-500/30 transition-all duration-300 group relative ${viewMode === 'tiles' ? 'p-4 rounded-2xl space-y-3' : 'p-6 rounded-3xl space-y-4'}`}>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className={`text-[11px] font-medium px-2 py-0.5 rounded-md flex items-center gap-1.5 ${
+                        l.visibility === 'public'
+                          ? 'bg-blue-500/8 text-blue-600 dark:text-blue-400 border border-blue-500/20'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                      }`}>
+                        {l.visibility === 'public' ? <Globe className="w-3.5 h-3.5 text-blue-500" /> : <Lock className="w-3.5 h-3.5 text-slate-400" />}
+                        {l.visibility === 'public' ? 'Public' : 'Private'}
+                      </span>
 
-                    {/* Three Dots Menu Button */}
-                    <div className="relative">
-                      <button
-                        onClick={() => setOpenMenuId(openMenuId === l.id ? null : l.id)}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-all cursor-pointer"
-                        title="Options"
-                      >
-                        <MoreVertical className="w-4 h-4" />
-                      </button>
-
-                      {/* Dropdown Menu */}
-                      {openMenuId === l.id && (
-                        <div
-                          ref={menuRef}
-                          className="absolute right-0 top-8 w-44 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl z-30 py-1 space-y-0.5 animate-in fade-in zoom-in-95 duration-100"
+                      {/* Three Dots Menu Button */}
+                      <div className="relative">
+                        <button
+                          onClick={() => setOpenMenuId(openMenuId === l.id ? null : l.id)}
+                          className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-all cursor-pointer"
+                          title="Options"
                         >
-                          <Link
-                            href={`/dashboard/lists/${l.id}`}
-                            className="w-full text-left px-3.5 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-2 transition-colors"
-                            onClick={() => setOpenMenuId(null)}
-                          >
-                            <Building className="w-3.5 h-3.5 text-blue-500" />
-                            Add Company Page
-                          </Link>
+                          <MoreVertical className="w-4 h-4" />
+                        </button>
 
-                          <button
-                            onClick={() => openEditModal(l)}
-                            className="w-full text-left px-3.5 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors cursor-pointer"
+                        {/* Dropdown Menu */}
+                        {openMenuId === l.id && (
+                          <div
+                            ref={menuRef}
+                            className="absolute right-0 top-8 w-44 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl z-30 py-1 space-y-0.5 animate-in fade-in zoom-in-95 duration-100"
                           >
-                            <Edit3 className="w-3.5 h-3.5 text-slate-500" />
-                            Edit List
-                          </button>
+                            <Link
+                              href={`/dashboard/lists/${l.id}`}
+                              className="w-full text-left px-3.5 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-2 transition-colors"
+                              onClick={() => setOpenMenuId(null)}
+                            >
+                              <Building className="w-3.5 h-3.5 text-blue-500" />
+                              Add Company Page
+                            </Link>
 
-                          <div className="my-1 border-t border-slate-200 dark:border-slate-800" />
+                            <button
+                              onClick={() => openEditModal(l)}
+                              className="w-full text-left px-3.5 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors cursor-pointer"
+                            >
+                              <Edit3 className="w-3.5 h-3.5 text-slate-500" />
+                              Edit List
+                            </button>
 
-                          <button
-                            onClick={() => handleDeleteList(l.id, l.name)}
-                            className="w-full text-left px-3.5 py-2 text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 flex items-center gap-2 transition-colors cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-                            Delete List
-                          </button>
-                        </div>
-                      )}
+                            <div className="my-1 border-t border-slate-200 dark:border-slate-800" />
+
+                            <button
+                              onClick={() => handleDeleteList(l.id, l.name)}
+                              className="w-full text-left px-3.5 py-2 text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 flex items-center gap-2 transition-colors cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                              Delete List
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 className={`font-bold text-slate-900 dark:text-white tracking-tight group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors ${viewMode === 'tiles' ? 'text-base leading-snug' : 'text-xl'}`}>
+                        {l.name}
+                      </h3>
+                      <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2 mt-1 leading-relaxed">
+                        {l.description || 'No description provided.'}
+                      </p>
+                    </div>
+
+                    {/* Stats Badges Bar */}
+                    <div className="flex items-center gap-1.5 pt-0.5">
+                      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 px-2 py-0.5 rounded-md">
+                        <Building className="w-3.5 h-3.5 text-slate-500" />
+                        {l.companyCount || 0} Pages
+                      </span>
+
+                      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-600 dark:text-blue-400 bg-blue-500/8 border border-blue-500/20 px-2 py-0.5 rounded-md">
+                        <Briefcase className="w-3.5 h-3.5 text-blue-500" />
+                        {l.jobCount || 0} Jobs
+                      </span>
                     </div>
                   </div>
 
-                  <div>
-                    <h3 className="text-xl font-extrabold text-slate-900 dark:text-white tracking-tight group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-                      {l.name}
-                    </h3>
-                    <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2 mt-1.5 leading-relaxed">
-                      {l.description || 'No description provided.'}
-                    </p>
-                  </div>
-
-                  {/* Stats Badges Bar */}
-                  <div className="flex items-center gap-2 pt-1">
-                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 px-2.5 py-1 rounded-xl">
-                      <Building className="w-3.5 h-3.5 text-slate-500" />
-                      {l.companyCount || 0} Pages
-                    </span>
-
-                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 dark:text-blue-300 bg-blue-500/10 border border-blue-500/20 px-2.5 py-1 rounded-xl">
-                      <Briefcase className="w-3.5 h-3.5 text-blue-500" />
-                      {l.jobCount || 0} Active Jobs
-                    </span>
-                  </div>
-                </div>
-
-                <div className="pt-4 mt-6 border-t border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between">
-                  <Link
-                    href={`/dashboard/lists/${l.id}`}
-                    className="text-xs font-bold text-blue-600 dark:text-blue-400 group-hover:translate-x-0.5 flex items-center gap-1.5 transition-all"
-                  >
-                    Manage Pages <ExternalLink className="w-3.5 h-3.5" />
-                  </Link>
-
-                  {l.visibility === 'public' && (
+                  <div className="pt-3 border-t border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between">
                     <Link
-                      href={`/lists/${l.slug}`}
-                      className="text-xs font-semibold text-slate-500 hover:text-slate-900 dark:hover:text-white flex items-center gap-1 transition-colors"
+                      href={`/dashboard/lists/${l.id}`}
+                      className="text-xs font-semibold text-blue-600 dark:text-blue-400 group-hover:translate-x-0.5 flex items-center gap-1 transition-all"
                     >
-                      Public Link <Globe className="w-3.5 h-3.5" />
+                      Manage Pages <ExternalLink className="w-3.5 h-3.5" />
                     </Link>
-                  )}
+
+                    {l.visibility === 'public' && (
+                      <Link
+                        href={`/lists/${l.slug}`}
+                        className="text-xs font-medium text-slate-500 hover:text-slate-900 dark:hover:text-white flex items-center gap-1 transition-colors"
+                      >
+                        Public Link <Globe className="w-3.5 h-3.5" />
+                      </Link>
+                    )}
+                  </div>
                 </div>
+              ))}
+            </div>
+          ) : (
+            /* List Table View */
+            <div className="glass-panel rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-100/80 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-slate-500 font-semibold">
+                    <tr>
+                      <th className="py-3.5 px-5">Watchlist Name</th>
+                      <th className="py-3.5 px-4">Visibility</th>
+                      <th className="py-3.5 px-4">Pages & Jobs</th>
+                      <th className="py-3.5 px-5 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800/70">
+                    {lists.map(l => (
+                      <tr key={l.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition-colors group">
+                        <td className="py-4 px-5">
+                          <div className="space-y-0.5">
+                            <Link href={`/dashboard/lists/${l.id}`} className="font-extrabold text-sm text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                              {l.name}
+                            </Link>
+                            {l.description && (
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1 max-w-md">{l.description}</p>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-4 px-4">
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-medium ${
+                            l.visibility === 'public'
+                              ? 'bg-blue-500/8 text-blue-600 dark:text-blue-400 border border-blue-500/20'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                          }`}>
+                            {l.visibility === 'public' ? <Globe className="w-3.5 h-3.5 text-blue-500" /> : <Lock className="w-3.5 h-3.5 text-slate-400" />}
+                            {l.visibility === 'public' ? 'Public' : 'Private'}
+                          </span>
+                        </td>
+                        <td className="py-4 px-4">
+                          <div className="flex items-center gap-1.5">
+                            <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-medium text-slate-700 dark:text-slate-300">
+                              {l.companyCount || 0} Pages
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md bg-blue-500/8 text-blue-600 dark:text-blue-400 border border-blue-500/20 text-[11px] font-medium">
+                              {l.jobCount || 0} Jobs
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-4 px-5 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            {l.visibility === 'public' && (
+                              <Link
+                                href={`/lists/${l.slug}`}
+                                className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                                title="Public View"
+                              >
+                                <Globe className="w-3.5 h-3.5 text-blue-500" />
+                              </Link>
+                            )}
+                            <button
+                              onClick={() => openEditModal(l)}
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                              title="Edit List"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteList(l.id, l.name)}
+                              className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-500/20 transition-colors"
+                              title="Delete List"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                            <Link
+                              href={`/dashboard/lists/${l.id}`}
+                              className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold transition-all shadow-sm"
+                            >
+                              Manage
+                            </Link>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            ))}
-          </div>
+            </div>
+          )}
 
           {/* Pagination Controls Bar */}
           {pagination.totalPages > 1 && (
@@ -335,7 +486,7 @@ export default function WatchListsPage() {
       )}
 
       {/* Create List Modal */}
-      {showCreateModal && (
+      {showCreateModal && mounted && createPortal(
         <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-md glass-panel p-6 rounded-3xl border-slate-200 dark:border-slate-800 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
             <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
@@ -396,11 +547,12 @@ export default function WatchListsPage() {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Edit List Modal */}
-      {editingList && (
+      {editingList && mounted && createPortal(
         <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-md glass-panel p-6 rounded-3xl border-slate-200 dark:border-slate-800 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
             <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
@@ -459,7 +611,8 @@ export default function WatchListsPage() {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

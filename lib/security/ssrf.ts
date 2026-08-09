@@ -8,9 +8,76 @@ const BLOCKED_HOSTNAMES = [
   'metadata.google.internal',
 ];
 
+export function normalizeCompanyUrl(inputUrl: string): string {
+  let raw = (inputUrl || '').trim();
+  if (!raw) return '';
+
+  // If missing protocol, prepend https://
+  if (!/^https?:\/\//i.test(raw)) {
+    raw = `https://${raw}`;
+  }
+
+  const parsed = new URL(raw);
+
+  // Standardize http:// -> https:// for canonical company uniqueness unless standard non-http/https
+  if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+    parsed.protocol = 'https:';
+  }
+
+  parsed.hostname = parsed.hostname.toLowerCase();
+
+  // Strip hash fragment
+  parsed.hash = '';
+
+  // Collapse multiple consecutive slashes in pathname
+  let cleanPathname = parsed.pathname.replace(/\/+/g, '/');
+
+  // Strip trailing slash if pathname has path segments
+  if (cleanPathname.length > 1 && cleanPathname.endsWith('/')) {
+    cleanPathname = cleanPathname.slice(0, -1);
+  }
+  parsed.pathname = cleanPathname;
+
+  // Strip tracking query parameters
+  const searchParams = new URLSearchParams(parsed.search);
+  const keysToDelete: string[] = [];
+  searchParams.forEach((_, key) => {
+    if (
+      key.startsWith('utm_') ||
+      key === 'ref' ||
+      key === 'fbclid' ||
+      key === 'gclid' ||
+      key === 'mc_eid' ||
+      key === '_ga'
+    ) {
+      keysToDelete.push(key);
+    }
+  });
+  keysToDelete.forEach(key => searchParams.delete(key));
+
+  parsed.search = searchParams.toString() ? `?${searchParams.toString()}` : '';
+
+  let result = parsed.toString();
+
+  // If root domain ends with trailing slash (e.g. 'https://company.com/'), trim it to 'https://company.com'
+  if (result.endsWith('/') && parsed.pathname === '/') {
+    result = result.slice(0, -1);
+  }
+
+  return result;
+}
+
 export function isUrlSafe(inputUrl: string): { safe: boolean; reason?: string; normalizedUrl?: string } {
   try {
-    const parsed = new URL(inputUrl);
+    let raw = (inputUrl || '').trim();
+    if (!raw) {
+      return { safe: false, reason: 'Invalid or empty URL format.' };
+    }
+    if (!/^https?:\/\//i.test(raw)) {
+      raw = `https://${raw}`;
+    }
+
+    const parsed = new URL(raw);
 
     // Protocol check
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
@@ -41,27 +108,9 @@ export function isUrlSafe(inputUrl: string): { safe: boolean; reason?: string; n
       if (p1 === 169 && p2 === 254) return { safe: false, reason: 'Link-local addresses are not permitted.' };
     }
 
-    // Normalize URL
-    parsed.hostname = hostname;
+    const normalizedUrl = normalizeCompanyUrl(raw);
 
-    // Trailing slash normalization
-    if (parsed.pathname.length > 1 && parsed.pathname.endsWith('/')) {
-      parsed.pathname = parsed.pathname.slice(0, -1);
-    }
-
-    // Strip tracking query parameters
-    const searchParams = new URLSearchParams(parsed.search);
-    const keysToDelete: string[] = [];
-    searchParams.forEach((_, key) => {
-      if (key.startsWith('utm_') || key === 'ref' || key === 'fbclid' || key === 'gclid') {
-        keysToDelete.push(key);
-      }
-    });
-    keysToDelete.forEach(key => searchParams.delete(key));
-
-    parsed.search = searchParams.toString() ? `?${searchParams.toString()}` : '';
-
-    return { safe: true, normalizedUrl: parsed.toString() };
+    return { safe: true, normalizedUrl };
   } catch (err: any) {
     return { safe: false, reason: 'Invalid URL format.' };
   }

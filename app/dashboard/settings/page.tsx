@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Settings, Bell, User, CheckCircle2, Clock, AlertTriangle, Trash2, Camera, Check } from 'lucide-react';
+import { Settings, Bell, User, CheckCircle2, Clock, AlertTriangle, Trash2, Camera, Check, Globe } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import LoadingSpinner from '@/components/LoadingSpinner';
 
@@ -17,6 +17,12 @@ export default function SettingsPage() {
   const [approvalStatus, setApprovalStatus] = useState('pending');
   const [savingField, setSavingField] = useState<string | null>(null);
 
+  // Social Links State
+  const [github, setGithub] = useState('');
+  const [linkedin, setLinkedin] = useState('');
+  const [twitter, setTwitter] = useState('');
+  const [website, setWebsite] = useState('');
+
   useEffect(() => {
     fetch('/api/me')
       .then(res => res.json())
@@ -28,6 +34,12 @@ export default function SettingsPage() {
           setEmailNotificationsEnabled(data.user.emailNotificationsEnabled ?? true);
           setNotificationPreference(data.user.notificationPreference || 'daily');
           setApprovalStatus(data.user.emailApprovalStatus || 'pending');
+
+          const soc = data.user.socials || {};
+          setGithub(soc.github || '');
+          setLinkedin(soc.linkedin || '');
+          setTwitter(soc.twitter || '');
+          setWebsite(soc.website || '');
         }
       });
   }, []);
@@ -37,6 +49,7 @@ export default function SettingsPage() {
     avatarUrl?: string;
     emailNotificationsEnabled?: boolean;
     notificationPreference?: string;
+    socials?: { github?: string; linkedin?: string; twitter?: string; website?: string };
   }, fieldKey?: string) => {
     if (fieldKey) setSavingField(fieldKey);
 
@@ -44,6 +57,12 @@ export default function SettingsPage() {
     const updatedAvatarUrl = fields.avatarUrl !== undefined ? fields.avatarUrl : avatarUrl;
     const updatedEnabled = fields.emailNotificationsEnabled !== undefined ? fields.emailNotificationsEnabled : emailNotificationsEnabled;
     const updatedPref = fields.notificationPreference !== undefined ? fields.notificationPreference : notificationPreference;
+    const updatedSocials = fields.socials !== undefined ? fields.socials : {
+      github: github.trim(),
+      linkedin: linkedin.trim(),
+      twitter: twitter.trim(),
+      website: website.trim(),
+    };
 
     try {
       const res = await fetch('/api/me/notification-settings', {
@@ -54,6 +73,7 @@ export default function SettingsPage() {
           avatarUrl: updatedAvatarUrl,
           emailNotificationsEnabled: updatedEnabled,
           notificationPreference: updatedPref,
+          socials: updatedSocials,
         }),
       });
 
@@ -159,6 +179,28 @@ export default function SettingsPage() {
     }
   };
 
+  const handleSocialsSave = async () => {
+    const currentSocials = user?.socials || {};
+    const newSocials = {
+      github: github.trim(),
+      linkedin: linkedin.trim(),
+      twitter: twitter.trim(),
+      website: website.trim(),
+    };
+
+    if (
+      newSocials.github !== (currentSocials.github || '') ||
+      newSocials.linkedin !== (currentSocials.linkedin || '') ||
+      newSocials.twitter !== (currentSocials.twitter || '') ||
+      newSocials.website !== (currentSocials.website || '')
+    ) {
+      const ok = await saveSetting({ socials: newSocials }, 'socials');
+      if (ok) {
+        toast.success('Social profiles saved successfully!');
+      }
+    }
+  };
+
   if (!user) return <LoadingSpinner message="Loading settings & preferences..." fullPage />;
 
   return (
@@ -179,7 +221,7 @@ export default function SettingsPage() {
           Settings &amp; Preferences
         </h1>
         <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400 mt-1">
-          Manage your account profile, profile picture, email approval status, and job alert notification preferences
+          Manage your account profile, profile picture, social links, email approval status, and job alert notification preferences
         </p>
       </div>
 
@@ -276,6 +318,85 @@ export default function SettingsPage() {
                 disabled
                 value={user.email}
                 className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 text-sm cursor-not-allowed"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Social Profiles & Public Links Card */}
+        <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-6 shadow-sm">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2.5">
+              <Globe className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+              Social Profiles &amp; Public Links
+            </h2>
+            {savingField === 'socials' && (
+              <span className="text-[10px] text-blue-500 font-semibold animate-pulse">Saving...</span>
+            )}
+          </div>
+
+          <p className="text-xs text-slate-600 dark:text-slate-400">
+            These links are displayed on your public curator profile when visitors view your public watch lists.
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-2">
+                GitHub Profile
+              </label>
+              <input
+                type="text"
+                value={github}
+                onChange={e => setGithub(e.target.value)}
+                onBlur={handleSocialsSave}
+                onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                placeholder="https://github.com/username"
+                className="w-full px-4 py-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-blue-600 transition-colors font-mono"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-2">
+                LinkedIn Profile
+              </label>
+              <input
+                type="text"
+                value={linkedin}
+                onChange={e => setLinkedin(e.target.value)}
+                onBlur={handleSocialsSave}
+                onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                placeholder="https://linkedin.com/in/username"
+                className="w-full px-4 py-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-blue-600 transition-colors font-mono"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-2">
+                Twitter / X
+              </label>
+              <input
+                type="text"
+                value={twitter}
+                onChange={e => setTwitter(e.target.value)}
+                onBlur={handleSocialsSave}
+                onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                placeholder="https://x.com/username"
+                className="w-full px-4 py-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-blue-600 transition-colors font-mono"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-2">
+                Portfolio / Personal Website
+              </label>
+              <input
+                type="text"
+                value={website}
+                onChange={e => setWebsite(e.target.value)}
+                onBlur={handleSocialsSave}
+                onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                placeholder="https://yourdomain.com"
+                className="w-full px-4 py-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-blue-600 transition-colors font-mono"
               />
             </div>
           </div>

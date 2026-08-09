@@ -27,6 +27,18 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     if (!ssrf.safe || !ssrf.normalizedUrl) {
       return NextResponse.json({ error: ssrf.reason || 'Invalid or prohibited career page URL.' }, { status: 400 });
     }
+
+    // Check if another company page already uses this unique URL
+    const existing = await db.select()
+      .from(careerPages)
+      .where(eq(careerPages.url, ssrf.normalizedUrl));
+
+    if (existing.length > 0 && existing[0].id !== params.id) {
+      return NextResponse.json({
+        error: `Another company page already uses this unique URL (${ssrf.normalizedUrl}).`
+      }, { status: 400 });
+    }
+
     updateFields.url = ssrf.normalizedUrl;
     updateFields.lastContentHash = null; // Reset content hash so edited URL scrapes afresh
   }

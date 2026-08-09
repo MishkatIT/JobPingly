@@ -3,16 +3,24 @@
 @import 'tailwindcss/utilities';
 
 /* Base styles for Light and Dark themes */
-html.light body {
-  background-color: #f1f5f9;
-  color: #0f172a;
+html, body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
 }
 
-html.dark body, body {
+html.light, html.light body {
+  background-color: #f1f5f9;
+  color: #0f172a;
+  color-scheme: light;
+}
+
+html.dark, html.dark body, body {
   background-color: #080c14;
   color: #f8fafc;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   overflow-x: hidden;
+  color-scheme: dark;
 }
 
 /* Premium Card & Panel Glassmorphism */
@@ -32,14 +40,14 @@ html.light .glass-panel {
 }
 
 html.dark .glass-card {
-  background: rgba(30, 41, 59, 0.45);
+  background-color: rgba(30, 41, 59, 0.45);
   backdrop-filter: blur(14px);
   border: 1px solid rgba(255, 255, 255, 0.07);
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 html.light .glass-card {
-  background: #ffffff;
+  background-color: #ffffff;
   backdrop-filter: blur(14px);
   border: 1px solid #e2e8f0;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);

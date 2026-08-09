@@ -12,7 +12,7 @@ export async function PUT(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { name, avatarUrl, emailNotificationsEnabled, notificationPreference } = body;
+  const { name, avatarUrl, emailNotificationsEnabled, notificationPreference, socials } = body;
 
   const updateFields: any = {
     name,
@@ -22,6 +22,10 @@ export async function PUT(req: NextRequest) {
 
   if (avatarUrl !== undefined) {
     updateFields.avatarUrl = avatarUrl ? String(avatarUrl).trim() : null;
+  }
+
+  if (socials !== undefined) {
+    updateFields.socials = socials;
   }
 
   const [updated] = await db.update(users).set(updateFields).where(eq(users.id, authUser.userId)).returning();

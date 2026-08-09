@@ -20,7 +20,9 @@ export async function GET(req: NextRequest, { params }: { params: { slug: string
     visibility: lists.visibility,
     createdAt: lists.createdAt,
     updatedAt: lists.updatedAt,
+    userId: lists.userId,
     userName: users.name,
+    userAvatarUrl: users.avatarUrl,
   })
   .from(lists)
   .leftJoin(users, eq(lists.userId, users.id))

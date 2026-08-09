@@ -1,5 +1,7 @@
-import React from 'react';
-import { ExternalLink, MapPin, Calendar, Clock, DollarSign, Award, Building, Briefcase, Zap } from 'lucide-react';
+import React, { useState } from 'react';
+import { ExternalLink, MapPin, Calendar, Clock, DollarSign, Award, Building, Briefcase, Zap, Share2, Check } from 'lucide-react';
+import { useToast } from '@/components/Toast';
+import { getCompanyColorTheme, getCompanyLogoUrl } from '@/lib/utils/companyBranding';
 
 interface JobCardProps {
   job: {
@@ -39,6 +41,8 @@ function getSeniorityBadge(title: string, rawExp?: string | null) {
 }
 
 export function JobCard({ job }: JobCardProps) {
+  const toast = useToast();
+  const [copied, setCopied] = useState(false);
   const raw = job.rawData || {};
 
   const company = (job as any).companyName || raw.company || null;
@@ -51,31 +55,51 @@ export function JobCard({ job }: JobCardProps) {
   const jobType = job.jobType || raw.employmentType || 'Full-Time';
 
   const seniority = getSeniorityBadge(job.title, experience);
+  const colorTheme = getCompanyColorTheme(company || job.title);
+  const logoUrl = getCompanyLogoUrl(job.url);
+
+  const handleShareJob = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (job.url && typeof window !== 'undefined') {
+      navigator.clipboard.writeText(job.url);
+      setCopied(true);
+      toast.success('Job application link copied to clipboard!');
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   return (
-    <div className="group glass-card p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm hover:shadow-md transition-all duration-200 space-y-3 relative">
+    <div
+      className={`group glass-card p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm hover:shadow-md transition-all duration-200 space-y-3 relative border-l-4 ${colorTheme.border}`}
+      style={{ backgroundColor: colorTheme.bgLight }}
+    >
       {/* Top Header badges & Apply link */}
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2 mb-1">
             {company && (
-              <span className="text-[11px] font-extrabold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2.5 py-0.5 rounded-lg flex items-center gap-1.5">
-                <Building className="w-3.5 h-3.5 text-blue-500" /> {company}
+              <span className={`text-[11px] font-extrabold px-2.5 py-0.5 rounded-lg flex items-center gap-1.5 border ${colorTheme.badgeBg} ${colorTheme.text} ${colorTheme.badgeBorder}`}>
+                {logoUrl ? (
+                  <img src={logoUrl} alt={company} className="w-4 h-4 rounded object-contain shrink-0 bg-white p-0.5 border border-slate-200/50" />
+                ) : (
+                  <Building className="w-3.5 h-3.5 shrink-0" />
+                )}
+                {company}
               </span>
             )}
 
             {seniority && (
-              <span className={`text-[10px] font-extrabold uppercase tracking-wider px-2.5 py-0.5 rounded-full border ${seniority.color}`}>
+              <span className={`text-[11px] font-medium px-2 py-0.5 rounded-md border ${seniority.color}`}>
                 {seniority.label}
               </span>
             )}
 
-            <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2.5 py-0.5 rounded-full">
+            <span className="text-[11px] font-medium text-blue-600 dark:text-blue-400 bg-blue-500/8 border border-blue-500/20 px-2 py-0.5 rounded-md">
               {jobType}
             </span>
 
             {workplaceType && (
-              <span className="text-[10px] font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400 bg-purple-500/10 border border-purple-500/20 px-2.5 py-0.5 rounded-full">
+              <span className="text-[11px] font-medium text-purple-600 dark:text-purple-400 bg-purple-500/8 border border-purple-500/20 px-2 py-0.5 rounded-md">
                 {workplaceType}
               </span>
             )}
@@ -92,16 +116,29 @@ export function JobCard({ job }: JobCardProps) {
           </h3>
         </div>
 
-        {job.url && (
-          <a
-            href={job.url}
-            target="_blank"
-            rel="noreferrer"
-            className="text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl shadow-md hover:shadow-lg flex items-center gap-1.5 shrink-0 transition-all duration-200 cursor-pointer opacity-100 sm:opacity-90 md:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 active:opacity-100 transform md:translate-x-1 md:group-hover:translate-x-0"
-          >
-            Apply <ExternalLink className="w-3.5 h-3.5" />
-          </a>
-        )}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {job.url && (
+            <button
+              type="button"
+              onClick={handleShareJob}
+              className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+              title="Copy Job Link"
+            >
+              {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Share2 className="w-3.5 h-3.5" />}
+            </button>
+          )}
+
+          {job.url && (
+            <a
+              href={job.url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2 rounded-xl shadow-md hover:shadow-lg flex items-center gap-1.5 transition-all duration-200 cursor-pointer"
+            >
+              Apply <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          )}
+        </div>
       </div>
 
       {/* Description Snippet if extracted */}

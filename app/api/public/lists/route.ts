@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/client';
 import { lists, listCareerPages, users, jobs } from '@/lib/db/schema';
 import { isFeatureEnabled } from '@/lib/flags/check';
+import { computeListQualityScore } from '@/lib/lists/anti-redundancy';
 import { eq, inArray, and } from 'drizzle-orm';
 
 export async function GET(req: NextRequest) {
@@ -15,19 +16,25 @@ export async function GET(req: NextRequest) {
   const limit = Math.max(1, Math.min(100, Number(searchParams.get('limit')) || 9));
   const search = searchParams.get('search') || '';
 
-  const rawPublicLists = await db.select({
-    id: lists.id,
-    name: lists.name,
-    slug: lists.slug,
-    description: lists.description,
-    createdAt: lists.createdAt,
-    updatedAt: lists.updatedAt,
-    userId: lists.userId,
-    userName: users.name,
-  })
-  .from(lists)
-  .leftJoin(users, eq(lists.userId, users.id))
-  .where(eq(lists.visibility, 'public'));
+  const rawPublicLists = await db
+    .select({
+      id: lists.id,
+      name: lists.name,
+      slug: lists.slug,
+      description: lists.description,
+      isCanonical: lists.isCanonical,
+      parentListId: lists.parentListId,
+      followerCount: lists.followerCount,
+      contributionCount: lists.contributionCount,
+      createdAt: lists.createdAt,
+      updatedAt: lists.updatedAt,
+      userId: lists.userId,
+      userName: users.name,
+      userAvatarUrl: users.avatarUrl,
+    })
+    .from(lists)
+    .leftJoin(users, eq(lists.userId, users.id))
+    .where(eq(lists.visibility, 'public'));
 
   let filtered = rawPublicLists;
   if (search.trim()) {
@@ -38,12 +45,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const total = filtered.length;
-  const totalPages = Math.ceil(total / limit) || 1;
-  const startIndex = (page - 1) * limit;
-  const paginated = filtered.slice(startIndex, startIndex + limit);
-
-  const enriched = await Promise.all(paginated.map(async (l) => {
+  const enriched = await Promise.all(filtered.map(async (l) => {
     const pages = await db.select().from(listCareerPages).where(eq(listCareerPages.listId, l.id));
     let jobCount = 0;
 
@@ -58,21 +60,49 @@ export async function GET(req: NextRequest) {
       jobCount = activeJobs.length;
     }
 
+    const qualityScore = computeListQualityScore({
+      followerCount: l.followerCount || 0,
+      contributionCount: l.contributionCount || 0,
+      companyCount: pages.length,
+      isCanonical: l.isCanonical ?? true,
+    });
+
+    let parentListName: string | null = null;
+    let parentListSlug: string | null = null;
+
+    if (l.parentListId) {
+      const [parent] = await db.select({ name: lists.name, slug: lists.slug }).from(lists).where(eq(lists.id, l.parentListId));
+      if (parent) {
+        parentListName = parent.name;
+        parentListSlug = parent.slug;
+      }
+    }
+
     return {
       ...l,
       companyCount: pages.length,
       jobCount,
+      qualityScore,
+      parentListName,
+      parentListSlug,
     };
   }));
 
+  // Anti-Redundancy Quality Ranking: Sort by Quality Score descending
+  enriched.sort((a, b) => b.qualityScore - a.qualityScore);
+
+  const total = enriched.length;
+  const totalPages = Math.ceil(total / limit) || 1;
+  const startIndex = (page - 1) * limit;
+  const paginated = enriched.slice(startIndex, startIndex + limit);
+
   return NextResponse.json({
-    lists: enriched,
+    lists: paginated,
     pagination: {
       total,
       page,
       limit,
       totalPages,
-      hasMore: page < totalPages,
     },
   });
 }

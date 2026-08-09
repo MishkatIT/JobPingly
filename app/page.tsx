@@ -70,21 +70,13 @@ export default function HomePage() {
               user ? (
                 <UserProfileDropdown user={user} onLogout={handleLogout} />
               ) : (
-                <>
-                  <Link
-                    href="/login"
-                    className="text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white px-3.5 py-2 rounded-xl transition-colors"
-                  >
-                    Sign In
-                  </Link>
-                  <Link
-                    href="/register"
-                    className="text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl shadow-md transition-all flex items-center gap-2"
-                  >
-                    Get Started
-                    <ArrowRight className="w-4 h-4" />
-                  </Link>
-                </>
+                <Link
+                  href="/login"
+                  className="text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl shadow-md transition-all flex items-center gap-2"
+                >
+                  Sign In
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
               )
             )}
           </div>
@@ -111,10 +103,10 @@ export default function HomePage() {
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
           <Link
-            href={user ? "/dashboard" : "/register"}
+            href={user ? "/dashboard" : "/login"}
             className="w-full sm:w-auto text-base font-semibold bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-xl shadow-lg transition-all flex items-center justify-center gap-3"
           >
-            {user ? "Open Your Dashboard" : "Create Your First Watch List"}
+            {user ? "Open Your Dashboard" : "Sign In to Get Started"}
             <ArrowRight className="w-5 h-5" />
           </Link>
           <Link

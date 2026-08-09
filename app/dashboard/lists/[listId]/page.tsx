@@ -1,12 +1,14 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Globe, Lock, Plus, ExternalLink, RefreshCw, CheckCircle, AlertTriangle, Briefcase, Zap, Trash2, MoreVertical, Edit3, Search } from 'lucide-react';
+import { ArrowLeft, Globe, Lock, Plus, ExternalLink, RefreshCw, CheckCircle, AlertTriangle, Briefcase, Zap, Trash2, MoreVertical, Edit3, Search, LayoutGrid, Grid2X2, List } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { JobCard } from '@/components/JobCard';
+import { getCompanyColorTheme, getCompanyLogoUrl } from '@/lib/utils/companyBranding';
 
 export default function ListDetailPage() {
   const toast = useToast();
@@ -14,9 +16,29 @@ export default function ListDetailPage() {
   const router = useRouter();
   const listId = params.listId as string;
 
+  const [mounted, setMounted] = useState(false);
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // View Mode State (Grid, Tiles, Table)
+  const [pageViewMode, setPageViewMode] = useState<'grid' | 'tiles' | 'table'>('grid');
+
+  useEffect(() => {
+    const saved = localStorage.getItem('jobpingly_list_detail_view');
+    if (saved === 'grid' || saved === 'tiles' || saved === 'table') {
+      setPageViewMode(saved);
+    }
+  }, []);
+
+  const handlePageViewChange = (mode: 'grid' | 'tiles' | 'table') => {
+    setPageViewMode(mode);
+    localStorage.setItem('jobpingly_list_detail_view', mode);
+  };
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Instant Job Search State (0 DB/Server calls)
   const [searchQuery, setSearchQuery] = useState('');
@@ -361,16 +383,30 @@ export default function ListDetailPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {filteredPages.map((p: any) => (
-                <div
-                  key={p.id}
-                  className={`glass-card p-4 rounded-xl border-slate-200 dark:border-slate-800 text-xs transition-all ${
-                    openMenuId === p.id ? 'z-50 relative' : 'z-0 relative'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-bold text-slate-900 dark:text-white text-sm">{p.companyName || 'Company'}</span>
-                    <div className="flex items-center gap-2">
+              {filteredPages.map((p: any) => {
+                const colorTheme = getCompanyColorTheme(p.companyName || 'Company');
+                const logoUrl = getCompanyLogoUrl(p.url);
+
+                return (
+                  <div
+                    key={p.id}
+                    className={`glass-card p-4 rounded-xl border border-slate-200/80 dark:border-slate-800/80 text-xs transition-all border-l-4 ${colorTheme.border} ${
+                      openMenuId === p.id ? 'z-50 relative' : 'z-0 relative'
+                    }`}
+                    style={{ backgroundColor: colorTheme.bgLight }}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white text-sm">
+                        {logoUrl ? (
+                          <img src={logoUrl} alt={p.companyName || 'Company'} className="w-5 h-5 rounded object-contain bg-white p-0.5 border border-slate-200 dark:border-slate-700 shrink-0" />
+                        ) : (
+                          <div className={`w-5 h-5 rounded flex items-center justify-center font-extrabold text-[10px] ${colorTheme.bg} ${colorTheme.text} shrink-0`}>
+                            {(p.companyName?.[0] || 'C').toUpperCase()}
+                          </div>
+                        )}
+                        <span>{p.companyName || 'Company'}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
                       {/* Three Dots Menu */}
                       <div className="relative">
                         <button
@@ -438,12 +474,9 @@ export default function ListDetailPage() {
                     {p.url}
                   </a>
 
-                  <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 pt-2 border-t border-slate-200 dark:border-slate-800">
-                    <span>Status: {p.status}</span>
-                    <span>Interval: {p.checkIntervalMinutes}m</span>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -507,7 +540,7 @@ export default function ListDetailPage() {
       </div>
 
       {/* Add Page Modal */}
-      {showAdd && (
+      {showAdd && mounted && createPortal(
         <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-md glass-panel p-6 rounded-3xl border-slate-200 dark:border-slate-800 shadow-2xl space-y-4">
             <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
@@ -560,11 +593,12 @@ export default function ListDetailPage() {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Edit Company Details Modal */}
-      {editingCompany && (
+      {editingCompany && mounted && createPortal(
         <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-md glass-panel p-6 rounded-3xl border-slate-200 dark:border-slate-800 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
             <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
@@ -614,7 +648,8 @@ export default function ListDetailPage() {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

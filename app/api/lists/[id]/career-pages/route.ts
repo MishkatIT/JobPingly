@@ -1,11 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
-import { lists, careerPages, listCareerPages, subscriptions } from '@/lib/db/schema';
+import { lists, careerPages, listCareerPages, subscriptions, listCollaborators } from '@/lib/db/schema';
 import { isUrlSafe } from '@/lib/security/ssrf';
 import { isFeatureEnabled } from '@/lib/flags/check';
 import { eq, and } from 'drizzle-orm';
 import { runScraperPipeline } from '@/packages/scraper/src/pipeline';
+
+async function canModifyList(userId: string, userRole: string, listId: string) {
+  if (userRole === 'admin') return true;
+  const [list] = await db.select().from(lists).where(eq(lists.id, listId));
+  if (!list) return false;
+  if (list.userId === userId) return true;
+
+  const [collab] = await db
+    .select()
+    .from(listCollaborators)
+    .where(and(eq(listCollaborators.listId, listId), eq(listCollaborators.userId, userId)));
+
+  return !!collab;
+}
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await getAuthUser(req);
@@ -14,10 +28,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   const listId = params.id;
-  const [list] = await db.select().from(lists).where(and(eq(lists.id, listId), eq(lists.userId, user.userId)));
-  if (!list) {
+  const allowed = await canModifyList(user.userId, user.role, listId);
+  if (!allowed) {
     return NextResponse.json({ error: 'Watch list not found or unauthorized' }, { status: 404 });
   }
+
+  const [list] = await db.select().from(lists).where(eq(lists.id, listId));
 
   const body = await req.json();
   const { url, companyName, positiveKeywords } = body;
@@ -68,7 +84,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       url: normalizedUrl,
       companyName: hostCompany,
       status: 'active',
-      nextCheckAt: new Date(), // Immediate initial check
+      nextCheckAt: new Date(),
     }).returning();
   }
 
@@ -120,8 +136,8 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     return NextResponse.json({ error: 'careerPageId parameter is required.' }, { status: 400 });
   }
 
-  const [list] = await db.select().from(lists).where(and(eq(lists.id, listId), eq(lists.userId, user.userId)));
-  if (!list) {
+  const allowed = await canModifyList(user.userId, user.role, listId);
+  if (!allowed) {
     return NextResponse.json({ error: 'Watch list not found or unauthorized' }, { status: 404 });
   }
 

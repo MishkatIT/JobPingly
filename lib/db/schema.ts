@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, integer, uuid, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, boolean, integer, uuid, jsonb, index, uniqueIndex, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 // 1. Users table
@@ -11,8 +11,12 @@ export const users = pgTable('users', {
   googleId: text('google_id').unique(),
   emailVerified: boolean('email_verified').default(false).notNull(),
   role: text('role').default('user').notNull(), // 'user' | 'admin' | 'moderator'
+  isBlocked: boolean('is_blocked').default(false).notNull(),
+  blockedReason: text('blocked_reason'),
+  blockedAt: timestamp('blocked_at', { withTimezone: true }),
   emailNotificationsEnabled: boolean('email_notifications_enabled').default(true).notNull(),
   notificationPreference: text('notification_preference').default('daily').notNull(), // 'instant' | 'daily' | 'weekly'
+  socials: jsonb('socials'), // { github?: string, linkedin?: string, twitter?: string, website?: string }
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -74,11 +78,16 @@ export const lists = pgTable('lists', {
   slug: text('slug').notNull().unique(),
   description: text('description'),
   visibility: text('visibility').default('private').notNull(), // 'private' | 'public'
+  parentListId: uuid('parent_list_id').references((): AnyPgColumn => lists.id, { onDelete: 'set null' }),
+  isCanonical: boolean('is_canonical').default(true).notNull(),
+  followerCount: integer('follower_count').default(0).notNull(),
+  contributionCount: integer('contribution_count').default(0).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   userIdIdx: index('idx_list_user').on(table.userId),
   visibilityIdx: index('idx_list_visibility').on(table.visibility),
+  parentListIdx: index('idx_list_parent').on(table.parentListId),
 }));
 
 // 7. Career Pages
@@ -107,6 +116,50 @@ export const listCareerPages = pgTable('list_career_pages', {
 }, (table) => ({
   uniqueListPages: uniqueIndex('unique_list_career_page').on(table.listId, table.careerPageId),
   listIdIdx: index('idx_list_pages_list').on(table.listId),
+}));
+
+// 8a. List Subscriptions (Following Public Lists with Job Alert Keywords)
+export const listSubscriptions = pgTable('list_subscriptions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  listId: uuid('list_id').notNull().references(() => lists.id, { onDelete: 'cascade' }),
+  positiveKeywords: text('positive_keywords').array(),
+  negativeKeywords: text('negative_keywords').array(),
+  digestFrequency: text('digest_frequency').default('instant').notNull(), // 'instant' | 'daily' | 'weekly'
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  uniqueUserListSub: uniqueIndex('unique_user_list_sub').on(table.userId, table.listId),
+  listSubIdx: index('idx_list_sub_list').on(table.listId),
+  userSubIdx: index('idx_list_sub_user').on(table.userId),
+}));
+
+// 8b. List Contributions (Community Company Suggestions & Owner Approvals)
+export const listContributions = pgTable('list_contributions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  listId: uuid('list_id').notNull().references(() => lists.id, { onDelete: 'cascade' }),
+  contributorUserId: uuid('contributor_user_id').references(() => users.id, { onDelete: 'set null' }),
+  url: text('url').notNull(),
+  companyName: text('company_name'),
+  atsType: text('ats_type').default('unknown'),
+  status: text('status').default('pending').notNull(), // 'pending' | 'approved' | 'rejected'
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+}, (table) => ({
+  listContribIdx: index('idx_list_contrib_list').on(table.listId),
+  statusIdx: index('idx_list_contrib_status').on(table.status),
+}));
+
+// 8c. List Collaborators (Multi-Maintainer Permissions)
+export const listCollaborators = pgTable('list_collaborators', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  listId: uuid('list_id').notNull().references(() => lists.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  role: text('role').default('editor').notNull(), // 'editor' | 'moderator'
+  invitedBy: uuid('invited_by').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  uniqueListCollaborator: uniqueIndex('unique_list_collaborator').on(table.listId, table.userId),
+  listCollabIdx: index('idx_list_collab_list').on(table.listId),
 }));
 
 // 9. Subscriptions

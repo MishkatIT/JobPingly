@@ -1,20 +1,26 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import {
   ShieldAlert, Cpu, Zap, RefreshCw, Flag, Layers, Users, Activity, History, UserCheck,
-  ExternalLink, Play, Search, ArrowLeft, Mail, CheckCircle2, Clock, XCircle, Plus, CheckCheck, CheckSquare, Square, PauseCircle, PlayCircle, Timer, Sliders, ChevronLeft, ChevronRight, Lock
+  ExternalLink, Play, Search, ArrowLeft, Mail, CheckCircle2, Clock, XCircle, Plus, CheckCheck, CheckSquare, Square, PauseCircle, PlayCircle, Timer, Sliders, ChevronLeft, ChevronRight, Lock, Trash2
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import LoadingSpinner from '@/components/LoadingSpinner';
 
 export default function AdminDashboardPage() {
   const toast = useToast();
+  const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'emails' | 'users' | 'audit'>('overview');
   const [data, setData] = useState<any>(null);
   const [flags, setFlags] = useState<any[]>([]);
   const [userList, setUserList] = useState<any[]>([]);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Email Approvals Paginated State
   const [emailApprovals, setEmailApprovals] = useState<any[]>([]);
@@ -39,6 +45,11 @@ export default function AdminDashboardPage() {
   const [companyPagination, setCompanyPagination] = useState({ total: 0, page: 1, limit: 10, totalPages: 1 });
   const [loadingPages, setLoadingPages] = useState(false);
 
+  // Multi-select state for Company Career Pages
+  const [selectedCompanyIds, setSelectedCompanyIds] = useState<string[]>([]);
+  const [deletingCompanyId, setDeletingCompanyId] = useState<string | null>(null);
+  const [processingCompanyBatch, setProcessingCompanyBatch] = useState(false);
+
   const [loading, setLoading] = useState(true);
   const [triggeringId, setTriggeringId] = useState<string | null>(null);
   const [userSearch, setUserSearch] = useState('');
@@ -54,6 +65,13 @@ export default function AdminDashboardPage() {
   const [showAddEmailModal, setShowAddEmailModal] = useState(false);
   const [manualEmail, setManualEmail] = useState('');
   const [addingEmail, setAddingEmail] = useState(false);
+
+  // Manual Add Company Modal State
+  const [showAddCompanyModal, setShowAddCompanyModal] = useState(false);
+  const [newCompanyUrl, setNewCompanyUrl] = useState('');
+  const [newCompanyName, setNewCompanyName] = useState('');
+  const [newCompanyInterval, setNewCompanyInterval] = useState(180);
+  const [addingCompany, setAddingCompany] = useState(false);
 
   // Flexible Custom Time Modal State
   const [showCustomTimerModal, setShowCustomTimerModal] = useState(false);
@@ -544,6 +562,111 @@ export default function AdminDashboardPage() {
     }
   };
 
+  const handleAddCompany = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCompanyUrl.trim()) return;
+
+    setAddingCompany(true);
+    try {
+      const res = await fetch('/api/admin/career-pages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: newCompanyUrl.trim(),
+          companyName: newCompanyName.trim() || undefined,
+          checkIntervalMinutes: newCompanyInterval,
+        }),
+      });
+
+      const json = await res.json();
+      if (res.ok) {
+        toast.success(json.message || `Added unique company '${json.careerPage.companyName}'!`);
+        setNewCompanyUrl('');
+        setNewCompanyName('');
+        setShowAddCompanyModal(false);
+        fetchPaginatedCareerPages(companyPage, debouncedCompanySearch, companyLimit);
+      } else {
+        toast.error(json.error || 'Failed to add company career page');
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'An error occurred');
+    } finally {
+      setAddingCompany(false);
+    }
+  };
+
+  // Company Selection & Batch Deletion Helpers
+  const isAllCompaniesSelected = careerPagesList.length > 0 && careerPagesList.every(p => selectedCompanyIds.includes(p.id));
+
+  const toggleSelectAllCompanies = () => {
+    if (isAllCompaniesSelected) {
+      setSelectedCompanyIds(selectedCompanyIds.filter(id => !careerPagesList.some(p => p.id === id)));
+    } else {
+      const allIds = Array.from(new Set([...selectedCompanyIds, ...careerPagesList.map(p => p.id)]));
+      setSelectedCompanyIds(allIds);
+    }
+  };
+
+  const toggleSelectCompanyRow = (id: string) => {
+    if (selectedCompanyIds.includes(id)) {
+      setSelectedCompanyIds(selectedCompanyIds.filter(i => i !== id));
+    } else {
+      setSelectedCompanyIds([...selectedCompanyIds, id]);
+    }
+  };
+
+  const handleDeleteSingleCompany = async (id: string, name: string) => {
+    if (!confirm(`Are you sure you want to delete '${name}'? This action cannot be undone.`)) {
+      return;
+    }
+    setDeletingCompanyId(id);
+    try {
+      const res = await fetch(`/api/admin/career-pages/${id}`, {
+        method: 'DELETE',
+      });
+      const json = await res.json();
+      if (res.ok) {
+        toast.success(json.message || 'Company page deleted successfully!');
+        setSelectedCompanyIds(prev => prev.filter(i => i !== id));
+        fetchPaginatedCareerPages(companyPage, debouncedCompanySearch, companyLimit);
+      } else {
+        toast.error(json.error || 'Failed to delete company page');
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'An error occurred');
+    } finally {
+      setDeletingCompanyId(null);
+    }
+  };
+
+  const handleBatchDeleteCompanies = async () => {
+    if (selectedCompanyIds.length === 0) return;
+    if (!confirm(`Are you sure you want to delete ${selectedCompanyIds.length} selected company career page(s)? This action cannot be undone.`)) {
+      return;
+    }
+
+    setProcessingCompanyBatch(true);
+    try {
+      const res = await fetch('/api/admin/career-pages/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pageIds: selectedCompanyIds, action: 'delete' }),
+      });
+      const json = await res.json();
+      if (res.ok) {
+        toast.success(json.message || `Deleted ${json.processedCount} company page(s)!`);
+        setSelectedCompanyIds([]);
+        fetchPaginatedCareerPages(companyPage, debouncedCompanySearch, companyLimit);
+      } else {
+        toast.error(json.error || 'Batch delete failed');
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'An error occurred');
+    } finally {
+      setProcessingCompanyBatch(false);
+    }
+  };
+
   if (loading) {
     return <LoadingSpinner message="Loading Admin Control Suite..." fullPage />;
   }
@@ -974,6 +1097,14 @@ export default function AdminDashboardPage() {
               </div>
 
               <div className="flex items-center gap-3 flex-wrap">
+                {/* Add Monitored Company Button */}
+                <button
+                  onClick={() => setShowAddCompanyModal(true)}
+                  className="text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 px-3.5 py-2 rounded-xl flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Add Company
+                </button>
+
                 {/* Check All Companies Button */}
                 {careerPagesList.length > 0 && (
                   <button
@@ -1017,10 +1148,42 @@ export default function AdminDashboardPage() {
               </div>
             </div>
 
+            {/* Batch Action Bar for Company Career Pages */}
+            {selectedCompanyIds.length > 0 && (
+              <div className="flex items-center justify-between gap-4 p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300 animate-in fade-in duration-150">
+                <div className="flex items-center gap-2 font-bold text-xs">
+                  <CheckSquare className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+                  <span>{selectedCompanyIds.length} company career page(s) selected</span>
+                </div>
+                <button
+                  onClick={handleBatchDeleteCompanies}
+                  disabled={processingCompanyBatch}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50 transition-all"
+                >
+                  <Trash2 className={`w-3.5 h-3.5 ${processingCompanyBatch ? 'animate-spin' : ''}`} />
+                  {processingCompanyBatch ? 'Deleting...' : `Delete Selected (${selectedCompanyIds.length})`}
+                </button>
+              </div>
+            )}
+
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs sm:text-sm text-slate-800 dark:text-slate-200">
                 <thead className="bg-slate-100 dark:bg-slate-900/90 text-slate-600 dark:text-slate-400 uppercase font-semibold border-b border-slate-200 dark:border-slate-800 text-xs">
                   <tr>
+                    <th className="py-3.5 px-4 w-10 text-center">
+                      <button
+                        type="button"
+                        onClick={toggleSelectAllCompanies}
+                        className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                        title={isAllCompaniesSelected ? 'Deselect All' : 'Select All'}
+                      >
+                        {isAllCompaniesSelected ? (
+                          <CheckSquare className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                        ) : (
+                          <Square className="w-4 h-4" />
+                        )}
+                      </button>
+                    </th>
                     <th className="py-3.5 px-4">Company &amp; Target URL</th>
                     <th className="py-3.5 px-4">Monitoring Status</th>
                     <th className="py-3.5 px-4">Check Interval (Period)</th>
@@ -1031,14 +1194,29 @@ export default function AdminDashboardPage() {
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800/80">
                   {loadingPages ? (
                     <tr>
-                      <td colSpan={5} className="py-8 text-center">
+                      <td colSpan={6} className="py-8 text-center">
                         <LoadingSpinner message="Loading company career pages..." fullPage={false} />
                       </td>
                     </tr>
                   ) : careerPagesList.map((p: any) => {
                     const isPaused = p.status === 'paused';
+                    const isSelected = selectedCompanyIds.includes(p.id);
                     return (
-                      <tr key={p.id} className="hover:bg-slate-100/60 dark:hover:bg-slate-900/40 transition-colors">
+                      <tr key={p.id} className={`hover:bg-slate-100/60 dark:hover:bg-slate-900/40 transition-colors ${isSelected ? 'bg-purple-50/50 dark:bg-purple-950/20' : ''}`}>
+                        <td className="py-3.5 px-4 text-center">
+                          <button
+                            type="button"
+                            onClick={() => toggleSelectCompanyRow(p.id)}
+                            className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                          >
+                            {isSelected ? (
+                              <CheckSquare className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                            ) : (
+                              <Square className="w-4 h-4" />
+                            )}
+                          </button>
+                        </td>
+
                         <td className="py-3.5 px-4">
                           <span className="font-bold text-slate-900 dark:text-white text-sm block">{p.companyName || 'Unknown'}</span>
                           <a href={p.url} target="_blank" rel="noreferrer" className="font-mono text-xs text-blue-600 dark:text-blue-400 hover:underline truncate max-w-sm block mt-0.5">
@@ -1098,19 +1276,41 @@ export default function AdminDashboardPage() {
                           )}
                         </td>
 
-                        <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 text-xs">
-                          {p.lastScrapedAt ? new Date(p.lastScrapedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Never'}
+                        <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 text-xs whitespace-nowrap">
+                          {p.lastScrapedAt ? (
+                            <div className="flex flex-col">
+                              <span className="font-semibold text-slate-800 dark:text-slate-200">
+                                {new Date(p.lastScrapedAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                              </span>
+                              <span className="text-[11px] text-slate-500">
+                                {new Date(p.lastScrapedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                          ) : (
+                            'Never'
+                          )}
                         </td>
 
                         <td className="py-3.5 px-4 text-right">
-                          <button
-                            onClick={() => handleForceScrape(p.id)}
-                            disabled={triggeringId === p.id}
-                            className="px-4 py-2 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 inline-flex items-center gap-1.5 shadow-sm cursor-pointer"
-                          >
-                            <RefreshCw className={`w-3.5 h-3.5 ${triggeringId === p.id ? 'animate-spin' : ''}`} />
-                            {triggeringId === p.id ? 'Checking...' : 'Check Now'}
-                          </button>
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => handleForceScrape(p.id)}
+                              disabled={triggeringId === p.id}
+                              className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 inline-flex items-center gap-1.5 shadow-sm cursor-pointer transition-all"
+                            >
+                              <RefreshCw className={`w-3.5 h-3.5 ${triggeringId === p.id ? 'animate-spin' : ''}`} />
+                              {triggeringId === p.id ? 'Checking...' : 'Check Now'}
+                            </button>
+
+                            <button
+                              onClick={() => handleDeleteSingleCompany(p.id, p.companyName || p.url)}
+                              disabled={deletingCompanyId === p.id}
+                              className="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/20 cursor-pointer transition-all disabled:opacity-50 flex items-center justify-center"
+                              title="Delete company career page"
+                            >
+                              <Trash2 className={`w-3.5 h-3.5 ${deletingCompanyId === p.id ? 'animate-spin' : ''}`} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -1118,7 +1318,7 @@ export default function AdminDashboardPage() {
 
                   {!loadingPages && careerPagesList.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="py-8 text-center text-slate-500 text-xs">
+                      <td colSpan={6} className="py-8 text-center text-slate-500 text-xs">
                         No company career pages match the search criteria.
                       </td>
                     </tr>
@@ -1591,7 +1791,7 @@ export default function AdminDashboardPage() {
       )}
 
       {/* Manual Add Email Modal */}
-      {showAddEmailModal && (
+      {showAddEmailModal && mounted && createPortal(
         <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-md glass-panel p-6 rounded-3xl border-slate-200 dark:border-slate-800 shadow-2xl">
             <h3 className="text-base font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
@@ -1632,11 +1832,12 @@ export default function AdminDashboardPage() {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Flexible Custom Time Interval Modal */}
-      {showCustomTimerModal && (
+      {showCustomTimerModal && mounted && createPortal(
         <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between">
@@ -1716,7 +1917,98 @@ export default function AdminDashboardPage() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Add Monitored Company Modal */}
+      {showAddCompanyModal && mounted && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Plus className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                Add Monitored Company
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowAddCompanyModal(false)}
+                className="text-slate-400 hover:text-slate-900 dark:hover:text-white text-xl font-bold cursor-pointer"
+              >
+                &times;
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+              Enter the company career page URL. URLs are automatically formatted (trimming trailing slashes, adding scheme, removing tracking params) so each company has max one unique entry.
+            </p>
+
+            <form onSubmit={handleAddCompany} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
+                  Career Page URL *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newCompanyUrl}
+                  onChange={e => setNewCompanyUrl(e.target.value)}
+                  placeholder="e.g. stripe.com/jobs/ or https://stripe.com/jobs"
+                  className="w-full px-4 py-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-purple-600 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
+                  Company Name (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={newCompanyName}
+                  onChange={e => setNewCompanyName(e.target.value)}
+                  placeholder="e.g. Stripe (leave empty to auto-derive from domain)"
+                  className="w-full px-4 py-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-purple-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
+                  Default Check Interval
+                </label>
+                <select
+                  value={newCompanyInterval}
+                  onChange={e => setNewCompanyInterval(Number(e.target.value))}
+                  className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs font-bold focus:outline-none focus:border-purple-600 cursor-pointer"
+                >
+                  <option value={30}>Every 30 mins</option>
+                  <option value={60}>Every 1 hour</option>
+                  <option value={180}>Every 3 hours (Default)</option>
+                  <option value={360}>Every 6 hours</option>
+                  <option value={720}>Every 12 hours</option>
+                  <option value={1440}>Every 24 hours (1 day)</option>
+                </select>
+              </div>
+
+              <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowAddCompanyModal(false)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={addingCompany}
+                  className="px-5 py-2.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-md cursor-pointer transition-all disabled:opacity-50"
+                >
+                  {addingCompany ? 'Adding...' : 'Add Unique Company'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );

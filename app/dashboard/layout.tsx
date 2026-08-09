@@ -115,7 +115,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       {/* Main Workspace Area */}
-      <main className="flex-1 overflow-y-auto px-6 sm:px-10 lg:px-16 py-8">
+      <main className="flex-1 overflow-y-auto px-6 sm:px-10 lg:px-16 py-8 bg-slate-50 dark:bg-[#080c14]">
         {/* Mobile Header */}
         <div className="lg:hidden glass-panel border-b border-slate-200 dark:border-slate-800 px-5 py-3.5 flex items-center justify-between sticky top-0 z-40 mb-6">
           <Logo />
