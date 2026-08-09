@@ -168,9 +168,10 @@ export async function sendCollaboratorInviteEmail(options: {
   listId: string;
   role: string;
   inviteToken: string;
+  baseUrl?: string;
 }): Promise<{ success: boolean; error?: string }> {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://jobpingly.com';
-  const acceptUrl = `${baseUrl}/api/collaborators/accept?token=${options.inviteToken}`;
+  const hostUrl = options.baseUrl || process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000';
+  const acceptUrl = `${hostUrl.replace(/\/$/, '')}/api/collaborators/accept?token=${options.inviteToken}`;
 
   const htmlContent = `
 <!DOCTYPE html>

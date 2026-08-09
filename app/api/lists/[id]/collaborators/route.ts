@@ -5,6 +5,8 @@ import { lists, listCollaborators, users } from '@/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { sendCollaboratorInviteEmail } from '@/lib/email/brevo';
 
+import { getBaseUrl } from '@/lib/utils/url';
+
 // GET list collaborators (owner or collaborator)
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await getAuthUser(req);
@@ -99,6 +101,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     listId: params.id,
     role: collab.role,
     inviteToken: collab.inviteToken,
+    baseUrl: getBaseUrl(req),
   }).catch(err => console.error('[Brevo Collaborator Invite Error]', err));
 
   return NextResponse.json({ success: true, collaborator: collab });

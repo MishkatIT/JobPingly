@@ -3,13 +3,14 @@ import { db } from '@/lib/db/client';
 import { listCollaborators, lists } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { getAuthUser } from '@/lib/auth/guard';
+import { getBaseUrl } from '@/lib/utils/url';
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const token = searchParams.get('token');
   const action = searchParams.get('action') || 'accept'; // 'accept' | 'decline'
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin || 'http://localhost:3000';
+  const baseUrl = getBaseUrl(req);
 
   if (!token) {
     return NextResponse.redirect(`${baseUrl}/dashboard?error=invalid_token`);
