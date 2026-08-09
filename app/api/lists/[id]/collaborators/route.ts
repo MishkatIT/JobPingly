@@ -99,6 +99,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     inviterName: inviterUser?.name || inviterUser?.email || 'A list owner',
     listName: list.name,
     listId: params.id,
+    listSlug: list.slug,
     role: collab.role,
     inviteToken: collab.inviteToken,
     baseUrl: getBaseUrl(req),

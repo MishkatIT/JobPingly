@@ -166,12 +166,15 @@ export async function sendCollaboratorInviteEmail(options: {
   inviterName: string;
   listName: string;
   listId: string;
+  listSlug?: string;
   role: string;
   inviteToken: string;
   baseUrl?: string;
 }): Promise<{ success: boolean; error?: string }> {
   const hostUrl = options.baseUrl || process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000';
-  const acceptUrl = `${hostUrl.replace(/\/$/, '')}/api/collaborators/accept?token=${options.inviteToken}`;
+  const cleanHost = hostUrl.replace(/\/$/, '');
+  const acceptUrl = `${cleanHost}/api/collaborators/accept?token=${options.inviteToken}`;
+  const browseUrl = options.listSlug ? `${cleanHost}/lists/${options.listSlug}` : `${cleanHost}/discover`;
 
   const htmlContent = `
 <!DOCTYPE html>
@@ -184,7 +187,7 @@ export async function sendCollaboratorInviteEmail(options: {
   <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#0b0f19; padding:40px 20px;">
     <tr>
       <td align="center">
-        <table width="100%" max-width="520" border="0" cellspacing="0" cellpadding="0" style="max-width:520px; background-color:#1e293b; border-radius:16px; border:1px solid #334155; padding:32px; box-shadow:0 10px 25px rgba(0,0,0,0.5);">
+        <table width="100%" max-width="560" border="0" cellspacing="0" cellpadding="0" style="max-width:560px; background-color:#1e293b; border-radius:16px; border:1px solid #334155; padding:32px; box-shadow:0 10px 25px rgba(0,0,0,0.5);">
           <tr>
             <td align="center" style="padding-bottom:24px;">
               <div style="font-size:24px; font-weight:800; color:#ffffff;">
@@ -206,16 +209,27 @@ export async function sendCollaboratorInviteEmail(options: {
           </tr>
           <tr>
             <td align="center" style="padding-bottom:24px;">
-              <a href="${acceptUrl}" style="background-color:#2563eb; color:#ffffff; font-weight:700; text-decoration:none; padding:12px 28px; border-radius:10px; font-size:14px; display:inline-block; box-shadow:0 4px 12px rgba(37,99,235,0.4);">
-                Accept Invitation &amp; Join List &rarr;
-              </a>
+              <table border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td align="center" style="padding:4px;">
+                    <a href="${acceptUrl}" style="background-color:#2563eb; color:#ffffff; font-weight:700; text-decoration:none; padding:12px 20px; border-radius:10px; font-size:13px; display:inline-block; box-shadow:0 4px 12px rgba(37,99,235,0.4);">
+                      Accept Invitation &amp; Join List &rarr;
+                    </a>
+                  </td>
+                  <td align="center" style="padding:4px;">
+                    <a href="${browseUrl}" style="background-color:#334155; color:#cbd5e1; font-weight:600; text-decoration:none; padding:12px 20px; border-radius:10px; font-size:13px; display:inline-block; border:1px solid #475569;">
+                      Browse Watch List &rarr;
+                    </a>
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
           <hr style="border:none; border-top:1px solid #334155; margin:0 0 20px 0;">
           <tr>
             <td align="center">
               <p style="margin:0; font-size:12px; color:#64748b;">
-                Clicking the button above confirms your access to monitor company career pages and receive job alerts.
+                You can accept the invitation to co-manage career pages or browse public lists anytime on JobPingly.
               </p>
             </td>
           </tr>
@@ -227,7 +241,7 @@ export async function sendCollaboratorInviteEmail(options: {
 </html>
   `.trim();
 
-  const textContent = `JobPingly\n\n${options.inviterName} invited you as a ${options.role} to collaborate on watch list "${options.listName}".\n\nAccept invitation: ${acceptUrl}`;
+  const textContent = `JobPingly\n\n${options.inviterName} invited you as a ${options.role} to collaborate on watch list "${options.listName}".\n\nAccept invitation: ${acceptUrl}\nBrowse watch list: ${browseUrl}`;
 
   return sendBrevoEmail({
     toEmail: options.toEmail,
