@@ -45,8 +45,33 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const enriched = await Promise.all(filtered.map(async (l) => {
-    const pages = await db.select().from(listCareerPages).where(eq(listCareerPages.listId, l.id));
+  // Compute quality score for sorting
+  const scored = filtered.map(l => ({
+    ...l,
+    qualityScore: computeListQualityScore({
+      followerCount: l.followerCount || 0,
+      contributionCount: l.contributionCount || 0,
+      companyCount: 0, // Base ranking prior to page fetch
+      isCanonical: l.isCanonical ?? true,
+    }),
+  }));
+
+  // Anti-Redundancy Quality Ranking: Sort by Quality Score descending
+  scored.sort((a, b) => b.qualityScore - a.qualityScore);
+
+  const total = scored.length;
+  const totalPages = Math.ceil(total / limit) || 1;
+  const startIndex = (page - 1) * limit;
+  const paginated = scored.slice(startIndex, startIndex + limit);
+
+  // Enrich ONLY the paginated items in parallel
+  const enriched = await Promise.all(paginated.map(async (l) => {
+    const pagesPromise = db.select().from(listCareerPages).where(eq(listCareerPages.listId, l.id));
+    const parentPromise = l.parentListId
+      ? db.select({ name: lists.name, slug: lists.slug }).from(lists).where(eq(lists.id, l.parentListId))
+      : Promise.resolve([]);
+
+    const [pages, parentResult] = await Promise.all([pagesPromise, parentPromise]);
     let jobCount = 0;
 
     if (pages.length > 0) {
@@ -60,41 +85,16 @@ export async function GET(req: NextRequest) {
       jobCount = activeJobs.length;
     }
 
-    const qualityScore = computeListQualityScore({
-      followerCount: l.followerCount || 0,
-      contributionCount: l.contributionCount || 0,
-      companyCount: pages.length,
-      isCanonical: l.isCanonical ?? true,
-    });
-
-    let parentListName: string | null = null;
-    let parentListSlug: string | null = null;
-
-    if (l.parentListId) {
-      const [parent] = await db.select({ name: lists.name, slug: lists.slug }).from(lists).where(eq(lists.id, l.parentListId));
-      if (parent) {
-        parentListName = parent.name;
-        parentListSlug = parent.slug;
-      }
-    }
+    const parent = parentResult[0] || null;
 
     return {
       ...l,
       companyCount: pages.length,
       jobCount,
-      qualityScore,
-      parentListName,
-      parentListSlug,
+      parentListName: parent?.name || null,
+      parentListSlug: parent?.slug || null,
     };
   }));
-
-  // Anti-Redundancy Quality Ranking: Sort by Quality Score descending
-  enriched.sort((a, b) => b.qualityScore - a.qualityScore);
-
-  const total = enriched.length;
-  const totalPages = Math.ceil(total / limit) || 1;
-  const startIndex = (page - 1) * limit;
-  const paginated = enriched.slice(startIndex, startIndex + limit);
 
   return NextResponse.json({
     lists: paginated,

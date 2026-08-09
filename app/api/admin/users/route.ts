@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
     createdAt: users.createdAt,
   })
   .from(users)
+  .where(eq(users.emailVerified, true))
   .orderBy(desc(users.createdAt));
 
   let results = rawUsers.map(u => ({

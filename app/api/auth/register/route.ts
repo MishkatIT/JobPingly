@@ -105,17 +105,7 @@ export async function POST(req: NextRequest) {
       emailNotificationsEnabled: true,
     }).returning();
 
-    // Check email auto-approve feature flag
-    const autoApprove = await isFeatureEnabled('email.auto_approve_enabled', false) || isAdminBootstrap;
-    const initialStatus = autoApprove ? 'approved' : 'pending';
-
-    await db.insert(emailApprovals).values({
-      email: cleanEmail,
-      userId: newUser.id,
-      status: initialStatus,
-      requestedAt: new Date(),
-      approvedAt: autoApprove ? new Date() : null,
-    });
+    // Note: emailApprovals entry is created after the user verifies their OTP email address
 
     // Generate cryptographically secure 6-digit OTP
     const otp = generateOtp();

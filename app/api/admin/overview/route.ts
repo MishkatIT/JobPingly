@@ -10,12 +10,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden: Admin access required.' }, { status: 403 });
   }
 
-  const allUsers = await db.select().from(users);
-  const allLists = await db.select().from(lists);
-  const allPages = await db.select().from(careerPages);
-  const activeJobs = await db.select().from(jobs).where(eq(jobs.status, 'active'));
-  const recentLogs = await db.select().from(scrapeLogs).limit(50);
-  const pendingNotifications = await db.select().from(notificationQueue).where(isNull(notificationQueue.sentAt));
+  const [allUsers, allLists, allPages, activeJobs, recentLogs, pendingNotifications] = await Promise.all([
+    db.select().from(users),
+    db.select().from(lists),
+    db.select().from(careerPages),
+    db.select().from(jobs).where(eq(jobs.status, 'active')),
+    db.select().from(scrapeLogs).limit(50),
+    db.select().from(notificationQueue).where(isNull(notificationQueue.sentAt)),
+  ]);
 
   const totalScrapes = recentLogs.length;
   const successfulScrapes = recentLogs.filter(l => l.success).length;
@@ -24,7 +26,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     metrics: {
-      totalUsers: allUsers.length,
+      totalUsers: allUsers.filter(u => u.emailVerified).length,
       totalLists: allLists.length,
       publicLists: allLists.filter(l => l.visibility === 'public').length,
       totalCareerPages: allPages.length,

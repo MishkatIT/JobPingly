@@ -88,7 +88,7 @@ export default function PublicDiscoverPage() {
       <div className="p-6 md:p-12 max-w-6xl mx-auto w-full space-y-8 flex-1">
 
         {/* Title & Search Bar */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
           <div>
             <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center gap-3">
               <Globe className="w-8 h-8 text-blue-600 dark:text-blue-400" />
@@ -100,7 +100,18 @@ export default function PublicDiscoverPage() {
           </div>
 
           {!errorMsg && (
-            <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center justify-start lg:justify-end gap-3 flex-wrap lg:ml-auto">
+              <div className="relative w-full sm:w-64">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                  placeholder="Search watch lists..."
+                  className="w-full pl-10 pr-4 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 text-xs focus:outline-none focus:border-blue-600"
+                />
+              </div>
+
               {/* Google Drive Style View Switcher */}
               <div className="flex items-center bg-slate-100 dark:bg-slate-900/80 p-1 rounded-xl border border-slate-200/80 dark:border-slate-800 shrink-0">
                 <button
@@ -157,17 +168,6 @@ export default function PublicDiscoverPage() {
                 <option value={15}>15 per page</option>
                 <option value={30}>30 per page</option>
               </select>
-
-              <div className="relative w-full md:w-64">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={e => setSearchTerm(e.target.value)}
-                  placeholder="Search watch lists..."
-                  className="w-full pl-10 pr-4 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 text-xs focus:outline-none focus:border-blue-600"
-                />
-              </div>
             </div>
           )}
         </div>

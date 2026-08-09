@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/client';
-import { users, emailVerifications, refreshTokens } from '@/lib/db/schema';
+import { users, emailVerifications, refreshTokens, emailApprovals } from '@/lib/db/schema';
 import { verifyOtpHash } from '@/lib/auth/otp';
 import { signAccessToken, generateRandomToken, hashToken } from '@/lib/auth/jwt';
+import { isFeatureEnabled } from '@/lib/flags/check';
 import { checkRateLimit, getClientIp } from '@/lib/security/rateLimit';
 import { eq, desc } from 'drizzle-orm';
 
@@ -120,6 +121,22 @@ export async function POST(req: NextRequest) {
 
     await db.delete(emailVerifications)
       .where(eq(emailVerifications.userId, user.id));
+
+    // Create email approval record now that user is verified
+    const [existingApproval] = await db.select().from(emailApprovals).where(eq(emailApprovals.email, cleanEmail));
+    if (!existingApproval) {
+      const isAdminBootstrap = process.env.ADMIN_BOOTSTRAP_EMAIL && cleanEmail === process.env.ADMIN_BOOTSTRAP_EMAIL.toLowerCase().trim();
+      const autoApprove = await isFeatureEnabled('email.auto_approve_enabled', false) || isAdminBootstrap;
+      const initialStatus = autoApprove ? 'approved' : 'pending';
+
+      await db.insert(emailApprovals).values({
+        email: cleanEmail,
+        userId: user.id,
+        status: initialStatus,
+        requestedAt: new Date(),
+        approvedAt: autoApprove ? new Date() : null,
+      });
+    }
 
     // Issue existing auth tokens & cookies
     const accessToken = await signAccessToken({

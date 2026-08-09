@@ -22,6 +22,7 @@ export async function GET(req: NextRequest) {
     email: emailApprovals.email,
     userId: emailApprovals.userId,
     userName: users.name,
+    userVerified: users.emailVerified,
     status: emailApprovals.status,
     requestedAt: emailApprovals.requestedAt,
     approvedAt: emailApprovals.approvedAt,
@@ -31,6 +32,9 @@ export async function GET(req: NextRequest) {
   .orderBy(desc(emailApprovals.requestedAt));
 
   let results = await query;
+
+  // Filter out any approval record belonging to an unverified user
+  results = results.filter(r => r.userVerified !== false);
 
   if (statusFilter && statusFilter !== 'all') {
     results = results.filter(r => r.status === statusFilter);
