@@ -149,3 +149,42 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
 
   return NextResponse.json({ success: true });
 }
+
+export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  const user = await getAuthUser(req);
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const listId = params.id;
+  const body = await req.json();
+  const { careerPageId, isPaused } = body;
+
+  if (!careerPageId) {
+    return NextResponse.json({ error: 'careerPageId is required.' }, { status: 400 });
+  }
+
+  const allowed = await canModifyList(user.userId, user.role, listId);
+  if (!allowed) {
+    return NextResponse.json({ error: 'Watch list not found or unauthorized' }, { status: 404 });
+  }
+
+  const [updated] = await db.update(listCareerPages).set({
+    isPaused: !!isPaused,
+  }).where(and(
+    eq(listCareerPages.listId, listId),
+    eq(listCareerPages.careerPageId, careerPageId)
+  )).returning();
+
+  if (!updated) {
+    return NextResponse.json({ error: 'Company page not found on this list.' }, { status: 404 });
+  }
+
+  return NextResponse.json({
+    success: true,
+    isPaused: updated.isPaused,
+    message: updated.isPaused
+      ? 'Monitoring paused for this list. Jobs are hidden on this list feed.'
+      : 'Monitoring resumed for this list. Jobs will appear on this list feed.',
+  });
+}

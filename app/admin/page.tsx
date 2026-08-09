@@ -5,10 +5,12 @@ import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import {
   ShieldAlert, Cpu, Zap, RefreshCw, Flag, Layers, Users, Activity, History, UserCheck,
-  ExternalLink, Play, Search, ArrowLeft, Mail, CheckCircle2, Clock, XCircle, Plus, CheckCheck, CheckSquare, Square, PauseCircle, PlayCircle, Timer, Sliders, ChevronLeft, ChevronRight, Lock, Trash2
+  ExternalLink, Play, Search, ArrowLeft, Mail, CheckCircle2, Clock, XCircle, Plus, CheckCheck, CheckSquare, Square, PauseCircle, PlayCircle, Timer, Sliders, ChevronLeft, ChevronRight, Lock, Trash2, Ban
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import LoadingSpinner from '@/components/LoadingSpinner';
+import { Navbar } from '@/components/Navbar';
+import { Footer } from '@/components/Footer';
 
 export default function AdminDashboardPage() {
   const toast = useToast();
@@ -28,6 +30,14 @@ export default function AdminDashboardPage() {
   const [emailLimit, setEmailLimit] = useState(10);
   const [emailPagination, setEmailPagination] = useState({ total: 0, page: 1, limit: 10, totalPages: 1 });
   const [loadingEmails, setLoadingEmails] = useState(false);
+
+  // User Moderation Paginated State
+  const [userPage, setUserPage] = useState(1);
+  const [userLimit, setUserLimit] = useState(10);
+  const [userPagination, setUserPagination] = useState({ total: 0, page: 1, limit: 10, totalPages: 1 });
+  const [userRoleFilter, setUserRoleFilter] = useState<'all' | 'admin' | 'user'>('all');
+  const [debouncedUserSearch, setDebouncedUserSearch] = useState('');
+  const [loadingUsers, setLoadingUsers] = useState(false);
 
   // Audit Logs Infinite Scroll State
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
@@ -81,6 +91,14 @@ export default function AdminDashboardPage() {
   const [customValue, setCustomValue] = useState(2);
   const [customUnit, setCustomUnit] = useState<number>(60); // 1=mins, 60=hrs, 1440=days, 10080=weeks, 43200=months, 525600=years
 
+  // Test Email Dispatcher Modal State
+  const [showTestEmailModal, setShowTestEmailModal] = useState(false);
+  const [testRecipientEmail, setTestRecipientEmail] = useState('');
+  const [testEmailTemplate, setTestEmailTemplate] = useState<'otp' | 'digest' | 'custom'>('otp');
+  const [testCustomSubject, setTestCustomSubject] = useState('');
+  const [testCustomMessage, setTestCustomMessage] = useState('');
+  const [sendingTestEmail, setSendingTestEmail] = useState(false);
+
   // Debounce search input for company pages (300ms)
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -131,13 +149,40 @@ export default function AdminDashboardPage() {
     }
   };
 
+  // User search debounce (300ms)
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedUserSearch(userSearch);
+      setUserPage(1);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [userSearch]);
+
+  const fetchPaginatedUsers = async (p: number, q: string, l: number, r: string) => {
+    setLoadingUsers(true);
+    try {
+      const res = await fetch(`/api/admin/users?page=${p}&limit=${l}&search=${encodeURIComponent(q)}&role=${r}`);
+      if (res.ok) {
+        const json = await res.json();
+        setUserList(json.users || []);
+        setUserPagination(json.pagination || { total: 0, page: p, limit: l, totalPages: 1 });
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+
   useEffect(() => {
     if (activeTab === 'overview') {
       fetchPaginatedCareerPages(companyPage, debouncedCompanySearch, companyLimit);
     } else if (activeTab === 'emails') {
       fetchPaginatedEmails(emailPage, debouncedEmailSearch, emailLimit, emailStatusFilter);
+    } else if (activeTab === 'users') {
+      fetchPaginatedUsers(userPage, debouncedUserSearch, userLimit, userRoleFilter);
     }
-  }, [companyPage, debouncedCompanySearch, companyLimit, emailPage, debouncedEmailSearch, emailLimit, emailStatusFilter, activeTab]);
+  }, [companyPage, debouncedCompanySearch, companyLimit, emailPage, debouncedEmailSearch, emailLimit, emailStatusFilter, userPage, debouncedUserSearch, userLimit, userRoleFilter, activeTab]);
 
   // Audit Logs fetch helper
   const fetchAuditLogsPage = async (pageToFetch: number, append = false) => {
@@ -194,13 +239,30 @@ export default function AdminDashboardPage() {
     setCompanyPage(1);
   };
 
-  const loadAdminData = async () => {
+  const [currentUser, setCurrentUser] = useState<any>(null);
+
+  useEffect(() => {
+    fetch('/api/me')
+      .then(res => res.ok ? res.json() : null)
+      .then(d => { if (d?.user) setCurrentUser(d.user); })
+      .catch(() => setCurrentUser(null));
+  }, []);
+
+  const loadAdminData = async (retryCount = 0) => {
     try {
       const [overviewRes, flagsRes, usersRes] = await Promise.all([
         fetch('/api/admin/overview'),
         fetch('/api/admin/flags'),
         fetch('/api/admin/users'),
       ]);
+
+      if (overviewRes.status === 401 && retryCount < 1) {
+        // Access token expired, attempt refresh
+        const refreshRes = await fetch('/api/auth/refresh', { method: 'POST' });
+        if (refreshRes.ok) {
+          return loadAdminData(retryCount + 1);
+        }
+      }
 
       if (overviewRes.ok) {
         const json = await overviewRes.json();
@@ -281,6 +343,75 @@ export default function AdminDashboardPage() {
     });
     toast.success(`Auto Approve New Emails is now ${newValue ? 'ENABLED' : 'DISABLED'}`);
     loadAdminData();
+  };
+
+  const handleToggleBlockUser = async (userId: string, currentBlocked: boolean, userEmail: string, isEnvAdmin: boolean) => {
+    if (isEnvAdmin) {
+      toast.error('ENV Superadmin account cannot be blocked.');
+      return;
+    }
+
+    let reason: string | null = null;
+    if (!currentBlocked) {
+      const input = prompt(`Enter block/suspension reason for ${userEmail}:`, 'Violated terms / abuse');
+      if (input === null) return; // Cancelled
+      reason = input.trim() || 'Blocked by administrator';
+    }
+
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/block`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ block: !currentBlocked, reason }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.error || 'Failed to update user block status');
+      }
+      toast.success(json.message || `User block status updated.`);
+      fetchPaginatedUsers(userPage, debouncedUserSearch, userLimit, userRoleFilter);
+    } catch (err: any) {
+      toast.error(err.message || 'Error updating user block status');
+    }
+  };
+
+  const openTestEmailModalFor = (email?: string) => {
+    setTestRecipientEmail(email || '');
+    setTestEmailTemplate('otp');
+    setTestCustomSubject('');
+    setTestCustomMessage('');
+    setShowTestEmailModal(true);
+  };
+
+  const handleSendTestEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!testRecipientEmail || !testRecipientEmail.includes('@')) {
+      toast.error('Please enter a valid email address');
+      return;
+    }
+    setSendingTestEmail(true);
+    try {
+      const res = await fetch('/api/admin/emails/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          toEmail: testRecipientEmail,
+          template: testEmailTemplate,
+          customSubject: testCustomSubject,
+          customMessage: testCustomMessage,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.error || 'Failed to send test email.');
+      }
+      toast.success(json.message || 'Test email dispatched successfully via Brevo!');
+      setShowTestEmailModal(false);
+    } catch (err: any) {
+      toast.error(err.message || 'Error sending test email');
+    } finally {
+      setSendingTestEmail(false);
+    }
   };
 
   const handleToggleGlobalTimer = async () => {
@@ -671,7 +802,49 @@ export default function AdminDashboardPage() {
     return <LoadingSpinner message="Loading Admin Control Suite..." fullPage />;
   }
 
-  if (!data) return <div className="text-rose-600 text-sm p-4">Forbidden or Admin Access Error</div>;
+  if (!data) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-[#080c14] text-slate-900 dark:text-slate-100 flex flex-col justify-between">
+        <Navbar showBackHome />
+        <div className="p-6 md:p-12 max-w-xl mx-auto w-full flex-1 flex items-center justify-center">
+          <div className="glass-panel p-8 sm:p-12 rounded-3xl border-slate-200 dark:border-slate-800 text-center space-y-5 shadow-2xl w-full">
+            <div className="w-16 h-16 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-500 flex items-center justify-center mx-auto">
+              <ShieldAlert className="w-8 h-8" />
+            </div>
+            <h2 className="text-2xl font-extrabold text-slate-900 dark:text-white">Admin Access Required</h2>
+            {currentUser ? (
+              <div className="bg-rose-500/10 border border-rose-500/20 p-3 rounded-2xl text-xs text-rose-700 dark:text-rose-400 space-y-1">
+                <div>Logged in as: <strong>{currentUser.email}</strong></div>
+                <div>Current Role: <span className="uppercase font-extrabold">{currentUser.role || 'user'}</span></div>
+              </div>
+            ) : null}
+            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+              {currentUser ? (
+                <>Your account (<strong>{currentUser.email}</strong>) has the <strong>{currentUser.role || 'user'}</strong> role. You must be an <strong>admin</strong> to access this page.</>
+              ) : (
+                <>You must be logged in with an authorized Administrator account to view and manage the JobPingly Admin Suite.</>
+              )}
+            </p>
+            <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
+              <Link
+                href="/login"
+                className="w-full sm:w-auto px-6 py-3 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-md transition-all text-center cursor-pointer"
+              >
+                Sign In as Admin
+              </Link>
+              <Link
+                href="/"
+                className="w-full sm:w-auto px-6 py-3 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition-all text-center cursor-pointer"
+              >
+                Return to Homepage
+              </Link>
+            </div>
+          </div>
+        </div>
+        <Footer />
+      </div>
+    );
+  }
 
   const { metrics } = data;
   const pendingEmailCount = metrics.pendingEmailsCount || 0;
@@ -1395,65 +1568,75 @@ export default function AdminDashboardPage() {
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-3 border-t border-slate-200 dark:border-slate-800">
-            <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-900 p-1.5 rounded-2xl flex-wrap">
-              <button
-                onClick={() => { setEmailStatusFilter('pending'); setEmailPage(1); }}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  emailStatusFilter === 'pending'
-                    ? 'bg-amber-500 text-white shadow-sm'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                Pending Queue
-              </button>
+          <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+            {/* Top Row: Filter Tabs on Left, Primary Actions on Right */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-900 p-1.5 rounded-2xl overflow-x-auto">
+                <button
+                  onClick={() => { setEmailStatusFilter('pending'); setEmailPage(1); }}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    emailStatusFilter === 'pending'
+                      ? 'bg-amber-500 text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  Pending Queue
+                </button>
 
-              <button
-                onClick={() => { setEmailStatusFilter('approved'); setEmailPage(1); }}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  emailStatusFilter === 'approved'
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                Approved
-              </button>
+                <button
+                  onClick={() => { setEmailStatusFilter('approved'); setEmailPage(1); }}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    emailStatusFilter === 'approved'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  Approved
+                </button>
 
-              <button
-                onClick={() => { setEmailStatusFilter('unapproved'); setEmailPage(1); }}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  emailStatusFilter === 'unapproved'
-                    ? 'bg-rose-600 text-white shadow-sm'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                Unapproved
-              </button>
+                <button
+                  onClick={() => { setEmailStatusFilter('unapproved'); setEmailPage(1); }}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    emailStatusFilter === 'unapproved'
+                      ? 'bg-rose-600 text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  Unapproved
+                </button>
 
-              <button
-                onClick={() => { setEmailStatusFilter('all'); setEmailPage(1); }}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  emailStatusFilter === 'all'
-                    ? 'bg-slate-800 text-white shadow-sm'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                All Statuses
-              </button>
+                <button
+                  onClick={() => { setEmailStatusFilter('all'); setEmailPage(1); }}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    emailStatusFilter === 'all'
+                      ? 'bg-slate-800 text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  All Statuses
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => openTestEmailModalFor()}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors whitespace-nowrap"
+                >
+                  <Mail className="w-4 h-4" /> Send Test Email
+                </button>
+
+                <button
+                  onClick={() => setShowAddEmailModal(true)}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-sm flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors whitespace-nowrap"
+                >
+                  <Plus className="w-4 h-4" /> Add Email
+                </button>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
-              <select
-                value={emailLimit}
-                onChange={e => { setEmailLimit(Number(e.target.value)); setEmailPage(1); }}
-                className="px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
-              >
-                <option value={10}>10 per page</option>
-                <option value={25}>25 per page</option>
-                <option value={50}>50 per page</option>
-              </select>
-
-              <div className="relative w-full sm:w-64">
+            {/* Bottom Row: Full-width Search Bar & Page Limit Dropdown */}
+            <div className="flex items-center justify-between gap-3">
+              <div className="relative flex-1">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
@@ -1464,12 +1647,15 @@ export default function AdminDashboardPage() {
                 />
               </div>
 
-              <button
-                onClick={() => setShowAddEmailModal(true)}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-sm flex items-center gap-1.5 shrink-0 cursor-pointer"
+              <select
+                value={emailLimit}
+                onChange={e => { setEmailLimit(Number(e.target.value)); setEmailPage(1); }}
+                className="px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer shrink-0"
               >
-                <Plus className="w-4 h-4" /> Add Email
-              </button>
+                <option value={10}>10 per page</option>
+                <option value={25}>25 per page</option>
+                <option value={50}>50 per page</option>
+              </select>
             </div>
           </div>
 
@@ -1591,18 +1777,25 @@ export default function AdminDashboardPage() {
                         {new Date(e.requestedAt).toLocaleString()}
                       </td>
 
-                      <td className="py-3.5 px-4 text-right">
+                      <td className="py-3.5 px-4 text-right flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => openTestEmailModalFor(e.email)}
+                          title="Send Brevo Test Email to this address"
+                          className="px-3 py-2 rounded-xl text-xs font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 flex items-center gap-1.5 cursor-pointer shrink-0"
+                        >
+                          <Mail className="w-3.5 h-3.5" /> Test Email
+                        </button>
                         {e.status === 'pending' || e.status === 'unapproved' ? (
                           <button
                             onClick={() => handleApproveEmail(e.id)}
-                            className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm cursor-pointer"
+                            className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm cursor-pointer shrink-0"
                           >
                             Approve Email
                           </button>
                         ) : (
                           <button
                             onClick={() => handleUnapproveEmail(e.id)}
-                            className="px-4 py-2 rounded-xl text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30 hover:bg-rose-500/20 cursor-pointer"
+                            className="px-4 py-2 rounded-xl text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30 hover:bg-rose-500/20 cursor-pointer shrink-0"
                           >
                             Unapprove / Revoke
                           </button>
@@ -1652,24 +1845,82 @@ export default function AdminDashboardPage() {
         </div>
       )}
 
-      {/* USER MODERATION TAB WITH ENV ADMIN PROTECTION */}
+      {/* USER MODERATION TAB WITH ENV ADMIN PROTECTION & PAGINATION */}
       {activeTab === 'users' && (
         <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-5">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
-              <UserCheck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-              Registered User Moderation
-            </h2>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                <UserCheck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                Registered User Moderation ({userPagination.total})
+              </h2>
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                Manage user access permissions, upgrade/downgrade roles, and enforce ENV Superadmin safety locks.
+              </p>
+            </div>
+          </div>
 
-            <div className="relative w-72">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={userSearch}
-                onChange={e => setUserSearch(e.target.value)}
-                placeholder="Filter users..."
-                className="w-full pl-10 pr-4 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-blue-600"
-              />
+          <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+            {/* Top Row: Role Filters */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-900 p-1.5 rounded-2xl overflow-x-auto">
+                <button
+                  onClick={() => { setUserRoleFilter('all'); setUserPage(1); }}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    userRoleFilter === 'all'
+                      ? 'bg-slate-800 text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  All Roles ({userPagination.total})
+                </button>
+
+                <button
+                  onClick={() => { setUserRoleFilter('admin'); setUserPage(1); }}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    userRoleFilter === 'admin'
+                      ? 'bg-rose-600 text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  Administrators
+                </button>
+
+                <button
+                  onClick={() => { setUserRoleFilter('user'); setUserPage(1); }}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    userRoleFilter === 'user'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  Standard Users
+                </button>
+              </div>
+
+              {/* Search & Limit dropdown */}
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1 sm:w-64">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={userSearch}
+                    onChange={e => setUserSearch(e.target.value)}
+                    placeholder="Search users..."
+                    className="w-full pl-10 pr-4 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-blue-600"
+                  />
+                </div>
+
+                <select
+                  value={userLimit}
+                  onChange={e => { setUserLimit(Number(e.target.value)); setUserPage(1); }}
+                  className="px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer shrink-0"
+                >
+                  <option value={10}>10 per page</option>
+                  <option value={25}>25 per page</option>
+                  <option value={50}>50 per page</option>
+                </select>
+              </div>
             </div>
           </div>
 
@@ -1679,12 +1930,19 @@ export default function AdminDashboardPage() {
                 <tr>
                   <th className="py-3.5 px-4">User Account</th>
                   <th className="py-3.5 px-4">Role</th>
+                  <th className="py-3.5 px-4">Status</th>
                   <th className="py-3.5 px-4">Joined Date</th>
                   <th className="py-3.5 px-4 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800/80">
-                {filteredUsers.map((u: any) => (
+                {loadingUsers ? (
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center">
+                      <LoadingSpinner message="Loading user accounts..." fullPage={false} />
+                    </td>
+                  </tr>
+                ) : userList.map((u: any) => (
                   <tr key={u.id} className="hover:bg-slate-100/60 dark:hover:bg-slate-900/40">
                     <td className="py-3.5 px-4">
                       <div className="flex items-center gap-2">
@@ -1708,6 +1966,21 @@ export default function AdminDashboardPage() {
                       </span>
                     </td>
 
+                    <td className="py-3.5 px-4">
+                      {u.isBlocked ? (
+                        <span
+                          title={u.blockedReason || 'Blocked by administrator'}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/30 text-xs font-bold uppercase"
+                        >
+                          <Ban className="w-3.5 h-3.5" /> Blocked
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 text-xs font-bold uppercase">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Active
+                        </span>
+                      )}
+                    </td>
+
                     <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 text-xs">
                       {new Date(u.createdAt).toLocaleDateString()}
                     </td>
@@ -1718,19 +1991,67 @@ export default function AdminDashboardPage() {
                           <Lock className="w-3 h-3" /> Protected ENV Admin
                         </span>
                       ) : (
-                        <button
-                          onClick={() => handleChangeRole(u.id, u.role, u.isEnvAdmin)}
-                          className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-700 cursor-pointer"
-                        >
-                          Toggle {u.role === 'admin' ? 'to User' : 'to Admin'}
-                        </button>
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => handleChangeRole(u.id, u.role, u.isEnvAdmin)}
+                            className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-700 cursor-pointer"
+                          >
+                            Toggle Role
+                          </button>
+
+                          <button
+                            onClick={() => handleToggleBlockUser(u.id, Boolean(u.isBlocked), u.email, Boolean(u.isEnvAdmin))}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                              u.isBlocked
+                                ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm'
+                                : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30 hover:bg-rose-500/20'
+                            }`}
+                          >
+                            {u.isBlocked ? 'Unblock User' : 'Block User'}
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>
                 ))}
+
+                {!loadingUsers && userList.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center text-slate-500 text-xs">
+                      No user accounts found matching criteria.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
+
+          {/* User Pagination Controls */}
+          {userPagination.totalPages > 1 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-200 dark:border-slate-800/80">
+              <span className="text-xs text-slate-500">
+                Page <span className="font-bold text-slate-900 dark:text-white">{userPagination.page}</span> of <span className="font-bold text-slate-900 dark:text-white">{userPagination.totalPages}</span> ({userPagination.total} total registered users)
+              </span>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setUserPage(prev => Math.max(1, prev - 1))}
+                  disabled={userPage <= 1}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 flex items-center gap-1 cursor-pointer"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" /> Previous
+                </button>
+
+                <button
+                  onClick={() => setUserPage(prev => Math.min(userPagination.totalPages, prev + 1))}
+                  disabled={userPage >= userPagination.totalPages}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 flex items-center gap-1 cursor-pointer"
+                >
+                  Next <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1828,6 +2149,141 @@ export default function AdminDashboardPage() {
                   className="px-5 py-2.5 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-md cursor-pointer"
                 >
                   {addingEmail ? 'Adding...' : 'Add to Approved Emails'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Test Email Dispatcher Modal */}
+      {showTestEmailModal && mounted && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Mail className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                Send Brevo Test Email
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowTestEmailModal(false)}
+                className="text-slate-400 hover:text-slate-900 dark:hover:text-white text-xl font-bold cursor-pointer"
+              >
+                &times;
+              </button>
+            </div>
+
+            <form onSubmit={handleSendTestEmailSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
+                  Recipient Email Address *
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={testRecipientEmail}
+                  onChange={e => setTestRecipientEmail(e.target.value)}
+                  placeholder="e.g. targetuser@gmail.com"
+                  className="w-full px-4 py-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-indigo-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
+                  Select Email Format / Template *
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTestEmailTemplate('otp')}
+                    className={`px-3 py-2.5 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                      testEmailTemplate === 'otp'
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-indigo-500'
+                    }`}
+                  >
+                    🔑 6-Digit OTP Code
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTestEmailTemplate('digest')}
+                    className={`px-3 py-2.5 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                      testEmailTemplate === 'digest'
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-indigo-500'
+                    }`}
+                  >
+                    📬 Job Digest Alert
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTestEmailTemplate('custom')}
+                    className={`px-3 py-2.5 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                      testEmailTemplate === 'custom'
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-indigo-500'
+                    }`}
+                  >
+                    ✏️ Custom Message
+                  </button>
+                </div>
+              </div>
+
+              {testEmailTemplate === 'custom' && (
+                <div className="space-y-3 pt-1 animate-in fade-in duration-150">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
+                      Custom Email Subject
+                    </label>
+                    <input
+                      type="text"
+                      value={testCustomSubject}
+                      onChange={e => setTestCustomSubject(e.target.value)}
+                      placeholder="e.g. System Maintenance Notice"
+                      className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-indigo-600"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
+                      Custom Message Body
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={testCustomMessage}
+                      onChange={e => setTestCustomMessage(e.target.value)}
+                      placeholder="Type your message body content here..."
+                      className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-indigo-600 resize-none"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-3 flex justify-end gap-3 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowTestEmailModal(false)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={sendingTestEmail}
+                  className="px-5 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-md flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                >
+                  {sendingTestEmail ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <Mail className="w-4 h-4" /> Send Test Email via Brevo
+                    </>
+                  )}
                 </button>
               </div>
             </form>

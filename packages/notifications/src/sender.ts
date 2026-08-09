@@ -1,12 +1,8 @@
-import { Resend } from 'resend';
+import { sendBrevoEmail } from '@/lib/email/brevo';
 import { isFeatureEnabled } from '@/lib/flags/check';
 import { db } from '@/lib/db/client';
 import { emailApprovals } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
-
-const resendApiKey = process.env.RESEND_API_KEY;
-const resend = resendApiKey ? new Resend(resendApiKey) : null;
-const EMAIL_FROM = process.env.EMAIL_FROM || 'notifications@jobpingly.com';
 
 export async function sendEmailDigest(toEmail: string, userName: string, jobListings: { companyName: string; title: string; url?: string }[]) {
   // 1. Check feature flag
@@ -26,8 +22,8 @@ export async function sendEmailDigest(toEmail: string, userName: string, jobList
     return { success: false, unapproved: true, error: `Email address is ${statusStr} for admin approval.` };
   }
 
-  if (!resend) {
-    console.log(`[Email Dev Fallback] Sending Digest to ${toEmail} with ${jobListings.length} jobs.`);
+  if (!process.env.BREVO_API_KEY) {
+    console.log(`[Brevo Dev Fallback] Sending Digest to ${toEmail} with ${jobListings.length} jobs (BREVO_API_KEY is missing).`);
     return { success: true, mocked: true };
   }
 
@@ -45,20 +41,19 @@ export async function sendEmailDigest(toEmail: string, userName: string, jobList
       <p>Here are ${jobListings.length} new job openings matching your watch list preferences today:</p>
       ${jobsHtml}
       <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
-      <p style="font-size: 12px; color: #94a3b8;">You are receiving this digest from your JobPingly active subscriptions. <a href="${process.env.NEXT_PUBLIC_APP_URL}/dashboard/settings">Manage Preferences</a></p>
+      <p style="font-size: 12px; color: #94a3b8;">You are receiving this digest from your JobPingly active subscriptions. <a href="${process.env.NEXT_PUBLIC_APP_URL || ''}/dashboard/settings">Manage Preferences</a></p>
     </div>
   `;
 
-  try {
-    await resend.emails.send({
-      from: EMAIL_FROM,
-      to: toEmail,
-      subject: `[JobPingly] ${jobListings.length} New Job Openings Found Today`,
-      html,
-    });
-    return { success: true };
-  } catch (err: any) {
-    console.error('Failed to send Resend email digest:', err);
-    return { success: false, error: err.message };
-  }
+  const textContent = `JobPingly Daily Digest\n\nHi ${userName},\n\nHere are ${jobListings.length} new job openings matching your watch list preferences today:\n\n` +
+    jobListings.map(j => `- [${j.companyName}] ${j.title}: ${j.url || ''}`).join('\n') +
+    `\n\nManage Preferences: ${process.env.NEXT_PUBLIC_APP_URL || ''}/dashboard/settings`;
+
+  return sendBrevoEmail({
+    toEmail,
+    toName: userName,
+    subject: `[JobPingly] ${jobListings.length} New Job Openings Found Today`,
+    htmlContent: html,
+    textContent,
+  });
 }

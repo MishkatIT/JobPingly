@@ -38,9 +38,8 @@ export function UserProfileDropdown({ user, onLogout, direction = 'down' }: User
     await fetch('/api/auth/logout', { method: 'POST' });
     if (onLogout) {
       onLogout();
-    } else {
-      router.push('/login');
     }
+    router.push('/');
   };
 
   const initial = user.name?.[0]?.toUpperCase() || user.email?.[0]?.toUpperCase() || 'U';

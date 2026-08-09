@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Globe, Lock, Plus, ExternalLink, RefreshCw, CheckCircle, AlertTriangle, Briefcase, Zap, Trash2, MoreVertical, Edit3, Search, LayoutGrid, Grid2X2, List } from 'lucide-react';
+import { ArrowLeft, Globe, Lock, Plus, ExternalLink, RefreshCw, CheckCircle, AlertTriangle, Briefcase, Zap, Trash2, MoreVertical, Edit3, Search, LayoutGrid, Grid2X2, List, PauseCircle } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { JobCard } from '@/components/JobCard';
@@ -256,6 +256,26 @@ export default function ListDetailPage() {
     }
   };
 
+  const handleTogglePauseCompany = async (careerPageId: string, newPausedState: boolean, companyName: string) => {
+    setOpenMenuId(null);
+    try {
+      const res = await fetch(`/api/lists/${listId}/career-pages`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ careerPageId, isPaused: newPausedState }),
+      });
+      const json = await res.json();
+      if (res.ok) {
+        toast.info(json.message || (newPausedState ? `Paused monitoring for '${companyName}' on this list` : `Resumed monitoring for '${companyName}' on this list`));
+        loadDetail();
+      } else {
+        toast.error(json.error || 'Failed to update company monitoring status');
+      }
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+  };
+
   const handleVisibilityToggle = async () => {
     if (!data?.list) return;
     const newVis = data.list.visibility === 'public' ? 'private' : 'public';
@@ -405,6 +425,11 @@ export default function ListDetailPage() {
                           </div>
                         )}
                         <span>{p.companyName || 'Company'}</span>
+                        {p.isPaused && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md">
+                            <PauseCircle className="w-3 h-3 text-amber-500" /> Paused
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                       {/* Three Dots Menu */}
@@ -420,7 +445,7 @@ export default function ListDetailPage() {
                         {openMenuId === p.id && (
                           <div
                             ref={menuRef}
-                            className="absolute right-0 top-6 w-44 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl z-[100] py-1 space-y-0.5 animate-in fade-in zoom-in-95 duration-100"
+                            className="absolute right-0 top-6 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl z-[100] py-1 space-y-0.5 animate-in fade-in zoom-in-95 duration-100"
                           >
                             <button
                               onClick={() => handleSyncPage(p.id, p.companyName || 'Company')}
@@ -429,6 +454,23 @@ export default function ListDetailPage() {
                             >
                               <RefreshCw className={`w-3.5 h-3.5 text-blue-500 ${scrapingMap[p.id] ? 'animate-spin' : ''}`} />
                               {scrapingMap[p.id] ? 'Syncing...' : 'Sync Now'}
+                            </button>
+
+                            <button
+                              onClick={() => handleTogglePauseCompany(p.id, !p.isPaused, p.companyName || 'Company')}
+                              className="w-full text-left px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors cursor-pointer"
+                            >
+                              {p.isPaused ? (
+                                <>
+                                  <Zap className="w-3.5 h-3.5 text-emerald-500" />
+                                  Resume Monitoring
+                                </>
+                              ) : (
+                                <>
+                                  <PauseCircle className="w-3.5 h-3.5 text-amber-500" />
+                                  Pause on this List
+                                </>
+                              )}
                             </button>
 
                             <button

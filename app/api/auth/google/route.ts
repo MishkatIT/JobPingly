@@ -70,6 +70,13 @@ export async function POST(req: NextRequest) {
     let [user] = await db.select().from(users).where(eq(users.googleId, googleSub));
 
     if (user) {
+      if (user.isBlocked) {
+        return NextResponse.json(
+          { error: `Account suspended: ${user.blockedReason || 'Blocked by administrator.'}` },
+          { status: 403 }
+        );
+      }
+
       // Returning Google user
       if (user.role !== 'admin' && !loginEnabled) {
         return NextResponse.json(

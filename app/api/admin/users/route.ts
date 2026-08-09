@@ -8,12 +8,18 @@ const getBootstrapEmail = () => {
   return (process.env.ADMIN_BOOTSTRAP_EMAIL || process.env.ADMIN_EMAIL || 'admin@jobpingly.com').toLowerCase();
 };
 
-// GET all users for admin management
+// GET list of users with backend pagination + search + role filter
 export async function GET(req: NextRequest) {
   const adminUser = await requireAdmin(req);
   if (!adminUser) {
     return NextResponse.json({ error: 'Forbidden: Admin access required.' }, { status: 403 });
   }
+
+  const { searchParams } = new URL(req.url);
+  const roleFilter = searchParams.get('role');
+  const search = searchParams.get('search');
+  const page = Math.max(1, Number(searchParams.get('page')) || 1);
+  const limit = Math.max(1, Math.min(100, Number(searchParams.get('limit')) || 10));
 
   const bootstrapEmail = getBootstrapEmail();
 
@@ -23,17 +29,46 @@ export async function GET(req: NextRequest) {
     name: users.name,
     role: users.role,
     emailVerified: users.emailVerified,
+    isBlocked: users.isBlocked,
+    blockedReason: users.blockedReason,
+    blockedAt: users.blockedAt,
     createdAt: users.createdAt,
   })
   .from(users)
   .orderBy(desc(users.createdAt));
 
-  const allUsers = rawUsers.map(u => ({
+  let results = rawUsers.map(u => ({
     ...u,
     isEnvAdmin: u.email.toLowerCase() === bootstrapEmail,
   }));
 
-  return NextResponse.json({ users: allUsers });
+  if (roleFilter && roleFilter !== 'all') {
+    results = results.filter(u => u.role === roleFilter);
+  }
+
+  if (search) {
+    const s = search.toLowerCase();
+    results = results.filter(u =>
+      u.email.toLowerCase().includes(s) ||
+      (u.name && u.name.toLowerCase().includes(s))
+    );
+  }
+
+  const total = results.length;
+  const totalPages = Math.ceil(total / limit) || 1;
+  const startIndex = (page - 1) * limit;
+  const paginatedUsers = results.slice(startIndex, startIndex + limit);
+
+  return NextResponse.json({
+    users: paginatedUsers,
+    pagination: {
+      total,
+      page,
+      limit,
+      totalPages,
+      hasMore: page < totalPages,
+    },
+  });
 }
 
 // POST update user role (protecting ENV bootstrap administrator from downgrade)

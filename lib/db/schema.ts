@@ -112,6 +112,7 @@ export const listCareerPages = pgTable('list_career_pages', {
   id: uuid('id').defaultRandom().primaryKey(),
   listId: uuid('list_id').notNull().references(() => lists.id, { onDelete: 'cascade' }),
   careerPageId: uuid('career_page_id').notNull().references(() => careerPages.id, { onDelete: 'cascade' }),
+  isPaused: boolean('is_paused').default(false).notNull(),
   addedAt: timestamp('added_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   uniqueListPages: uniqueIndex('unique_list_career_page').on(table.listId, table.careerPageId),

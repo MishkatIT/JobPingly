@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Globe, Search, ShieldAlert, ChevronLeft, ChevronRight, Building, Briefcase, ExternalLink, Users, GitFork, Crown, LayoutGrid, Grid2X2, List, Share2, Check } from 'lucide-react';
+import { Globe, Search, ShieldAlert, ChevronLeft, ChevronRight, Building, Briefcase, ExternalLink, Users, GitFork, Crown, LayoutGrid, Grid2X2, List, Share2, Check, Sliders } from 'lucide-react';
 import { Navbar } from '@/components/Navbar';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { Footer } from '@/components/Footer';
@@ -274,12 +274,21 @@ export default function PublicDiscoverPage() {
                           <Share2 className="w-3.5 h-3.5" />
                         </button>
 
-                        <Link
-                          href={`/lists/${l.slug}`}
-                          className="text-xs font-semibold text-blue-600 dark:text-blue-400 group-hover:translate-x-0.5 flex items-center gap-1 transition-all"
-                        >
-                          Openings <ExternalLink className="w-3 h-3" />
-                        </Link>
+                        {user && (user.role === 'admin' || user.id === l.userId || user.userId === l.userId) ? (
+                          <Link
+                            href={`/dashboard/lists/${l.id}`}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-all shadow-sm"
+                          >
+                            <Sliders className="w-3.5 h-3.5" /> Manage
+                          </Link>
+                        ) : (
+                          <Link
+                            href={`/lists/${l.slug}`}
+                            className="text-xs font-semibold text-blue-600 dark:text-blue-400 group-hover:translate-x-0.5 flex items-center gap-1 transition-all"
+                          >
+                            Openings <ExternalLink className="w-3 h-3" />
+                          </Link>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -361,12 +370,21 @@ export default function PublicDiscoverPage() {
                               >
                                 <Share2 className="w-3.5 h-3.5" />
                               </button>
-                              <Link
-                                href={`/lists/${l.slug}`}
-                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold transition-all shadow-sm"
-                              >
-                                View Openings <ExternalLink className="w-3 h-3" />
-                              </Link>
+                              {user && (user.role === 'admin' || user.id === l.userId || user.userId === l.userId) ? (
+                                <Link
+                                  href={`/dashboard/lists/${l.id}`}
+                                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-all shadow-sm"
+                                >
+                                  <Sliders className="w-3.5 h-3.5" /> Manage
+                                </Link>
+                              ) : (
+                                <Link
+                                  href={`/lists/${l.slug}`}
+                                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-all shadow-sm"
+                                >
+                                  View Openings <ExternalLink className="w-3 h-3" />
+                                </Link>
+                              )}
                             </div>
                           </td>
                         </tr>

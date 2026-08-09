@@ -45,6 +45,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid email or password.' }, { status: 401 });
     }
 
+    // Check if user is blocked / suspended
+    if (user.isBlocked) {
+      return NextResponse.json(
+        { error: `Account suspended: ${user.blockedReason || 'Blocked by administrator.'}` },
+        { status: 403 }
+      );
+    }
+
     // Check if email is verified
     if (!user.emailVerified) {
       return NextResponse.json(

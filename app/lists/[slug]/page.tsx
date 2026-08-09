@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Globe, ArrowLeft, ExternalLink, Briefcase, ShieldAlert, Building, Share2, Check, Search, Bell, GitFork, PlusCircle, CheckCircle, XCircle, Users, Crown, Sliders, UserPlus, Trash2, Shield, Ban, LayoutGrid, Grid2X2, List } from 'lucide-react';
+import { Globe, ArrowLeft, ExternalLink, Briefcase, ShieldAlert, Building, Share2, Check, Search, Bell, GitFork, PlusCircle, CheckCircle, XCircle, Users, Crown, Sliders, UserPlus, Trash2, Shield, Ban, LayoutGrid, Grid2X2, List, Plus, PauseCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Navbar } from '@/components/Navbar';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { JobCard } from '@/components/JobCard';
@@ -27,8 +27,10 @@ export default function PublicListPageView() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
-  // Job Feed View Mode State (Grid, Tiles, Table)
+  // Job Feed View Mode & Pagination State
   const [jobViewMode, setJobViewMode] = useState<'grid' | 'tiles' | 'table'>('grid');
+  const [jobPage, setJobPage] = useState(1);
+  const [jobLimit, setJobLimit] = useState(10);
 
   useEffect(() => {
     const saved = localStorage.getItem('jobpingly_job_view');
@@ -502,7 +504,17 @@ export default function PublicListPageView() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Companies List */}
           <div className="lg:col-span-1 space-y-4">
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white">Monitored Companies ({filteredPages.length})</h2>
+            <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center justify-between">
+              <span>Monitored Companies ({filteredPages.length})</span>
+              {isMaintainer && (
+                <Link
+                  href={`/dashboard/lists/${list.id}`}
+                  className="px-2.5 py-1 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] flex items-center gap-1 shadow-sm transition-all"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Add Page
+                </Link>
+              )}
+            </h2>
             {filteredPages.length === 0 ? (
               <div className="glass-panel p-6 rounded-2xl text-center border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
                 No monitored companies in this list.
@@ -519,15 +531,31 @@ export default function PublicListPageView() {
                       className={`glass-card p-4 rounded-xl text-xs border border-slate-200/80 dark:border-slate-800/80 border-l-4 ${colorTheme.border}`}
                       style={{ backgroundColor: colorTheme.bgLight }}
                     >
-                      <div className="flex items-center gap-2 mb-1.5 font-bold text-slate-900 dark:text-white text-sm">
-                        {logoUrl ? (
-                          <img src={logoUrl} alt={p.companyName || 'Company'} className="w-5 h-5 rounded object-contain bg-white p-0.5 border border-slate-200 dark:border-slate-700 shrink-0" />
-                        ) : (
-                          <div className={`w-5 h-5 rounded flex items-center justify-center font-extrabold text-[10px] ${colorTheme.bg} ${colorTheme.text} shrink-0`}>
-                            {(p.companyName?.[0] || 'C').toUpperCase()}
-                          </div>
+                      <div className="flex items-center justify-between mb-1.5 gap-2">
+                        <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white text-sm truncate">
+                          {logoUrl ? (
+                            <img src={logoUrl} alt={p.companyName || 'Company'} className="w-5 h-5 rounded object-contain bg-white p-0.5 border border-slate-200 dark:border-slate-700 shrink-0" />
+                          ) : (
+                            <div className={`w-5 h-5 rounded flex items-center justify-center font-extrabold text-[10px] ${colorTheme.bg} ${colorTheme.text} shrink-0`}>
+                              {(p.companyName?.[0] || 'C').toUpperCase()}
+                            </div>
+                          )}
+                          <span className="truncate">{p.companyName || 'Company'}</span>
+                          {p.isPaused && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md shrink-0">
+                              <PauseCircle className="w-3 h-3 text-amber-500" /> Paused
+                            </span>
+                          )}
+                        </div>
+
+                        {isMaintainer && (
+                          <Link
+                            href={`/dashboard/lists/${list.id}`}
+                            className="text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline shrink-0 bg-blue-500/10 px-2 py-0.5 rounded-md"
+                          >
+                            Manage
+                          </Link>
                         )}
-                        <span>{p.companyName || 'Company'}</span>
                       </div>
                       <a href={p.url} target="_blank" rel="noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline truncate block text-[11px] font-mono">
                         {p.url}
@@ -608,66 +636,102 @@ export default function PublicListPageView() {
                 <Briefcase className="w-10 h-10 text-slate-400 dark:text-slate-600 mx-auto mb-2" />
                 <p className="text-xs text-slate-500 dark:text-slate-400">No active positions currently reported.</p>
               </div>
-            ) : jobViewMode === 'grid' ? (
-              <div className="space-y-3">
-                {filteredJobs.map((j: any) => (
-                  <JobCard key={j.id} job={j} />
-                ))}
-              </div>
-            ) : jobViewMode === 'tiles' ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {filteredJobs.map((j: any) => (
-                  <JobCard key={j.id} job={j} />
-                ))}
-              </div>
-            ) : (
-              /* Table View for Jobs */
-              <div className="glass-panel rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-100/80 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-slate-500 font-semibold">
-                      <tr>
-                        <th className="py-3 px-4">Position Title</th>
-                        <th className="py-3 px-3">Company</th>
-                        <th className="py-3 px-3">Location</th>
-                        <th className="py-3 px-3">Type</th>
-                        <th className="py-3 px-4 text-right">Apply</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800/70">
-                      {filteredJobs.map((j: any) => (
-                        <tr key={j.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition-colors">
-                          <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">
-                            {j.title}
-                          </td>
-                          <td className="py-3.5 px-3 font-semibold text-blue-600 dark:text-blue-400">
-                            {j.companyName || j.rawData?.company || 'Company'}
-                          </td>
-                          <td className="py-3.5 px-3 text-slate-600 dark:text-slate-400 truncate max-w-[140px]">
-                            {j.location || 'Remote'}
-                          </td>
-                          <td className="py-3.5 px-3">
-                            <span className="px-2 py-0.5 rounded-md bg-blue-500/8 text-blue-600 dark:text-blue-400 border border-blue-500/20 text-[11px] font-medium">
-                              {j.jobType || 'Full-Time'}
-                            </span>
-                          </td>
-                          <td className="py-3.5 px-4 text-right">
-                            <a
-                              href={j.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold transition-all shadow-sm"
-                            >
-                              Apply <ExternalLink className="w-3 h-3" />
-                            </a>
-                          </td>
-                        </tr>
+            ) : (() => {
+              const totalJobPages = Math.ceil(filteredJobs.length / jobLimit) || 1;
+              const paginatedJobs = filteredJobs.slice((jobPage - 1) * jobLimit, jobPage * jobLimit);
+
+              return (
+                <div className="space-y-4">
+                  {jobViewMode === 'grid' ? (
+                    <div className="space-y-3">
+                      {paginatedJobs.map((j: any) => (
+                        <JobCard key={j.id} job={j} />
                       ))}
-                    </tbody>
-                  </table>
+                    </div>
+                  ) : jobViewMode === 'tiles' ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {paginatedJobs.map((j: any) => (
+                        <JobCard key={j.id} job={j} />
+                      ))}
+                    </div>
+                  ) : (
+                    /* Table View for Jobs */
+                    <div className="glass-panel rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-slate-100/80 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-slate-500 font-semibold">
+                            <tr>
+                              <th className="py-3 px-4">Position Title</th>
+                              <th className="py-3 px-3">Company</th>
+                              <th className="py-3 px-3">Location</th>
+                              <th className="py-3 px-3">Type</th>
+                              <th className="py-3 px-4 text-right">Apply</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800/70">
+                            {paginatedJobs.map((j: any) => (
+                              <tr key={j.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition-colors">
+                                <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">
+                                  {j.title}
+                                </td>
+                                <td className="py-3.5 px-3 font-semibold text-blue-600 dark:text-blue-400">
+                                  {j.companyName || j.rawData?.company || 'Company'}
+                                </td>
+                                <td className="py-3.5 px-3 text-slate-600 dark:text-slate-400 truncate max-w-[140px]">
+                                  {j.location || 'Remote'}
+                                </td>
+                                <td className="py-3.5 px-3">
+                                  <span className="px-2 py-0.5 rounded-md bg-blue-500/8 text-blue-600 dark:text-blue-400 border border-blue-500/20 text-[11px] font-medium">
+                                    {j.jobType || 'Full-Time'}
+                                  </span>
+                                </td>
+                                <td className="py-3.5 px-4 text-right">
+                                  <a
+                                    href={j.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold transition-all shadow-sm"
+                                  >
+                                    Apply <ExternalLink className="w-3 h-3" />
+                                  </a>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Job Feed Pagination Bar */}
+                  {totalJobPages > 1 && (
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-200 dark:border-slate-800/80">
+                      <span className="text-xs text-slate-500">
+                        Page <span className="font-bold text-slate-900 dark:text-white">{jobPage}</span> of <span className="font-bold text-slate-900 dark:text-white">{totalJobPages}</span> ({filteredJobs.length} open positions)
+                      </span>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setJobPage(prev => Math.max(1, prev - 1))}
+                          disabled={jobPage <= 1}
+                          className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 flex items-center gap-1 cursor-pointer"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" /> Previous
+                        </button>
+
+                        <button
+                          onClick={() => setJobPage(prev => Math.min(totalJobPages, prev + 1))}
+                          disabled={jobPage >= totalJobPages}
+                          className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 flex items-center gap-1 cursor-pointer"
+                        >
+                          Next <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
         </div>
       </div>

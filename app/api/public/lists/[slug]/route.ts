@@ -33,17 +33,24 @@ export async function GET(req: NextRequest, { params }: { params: { slug: string
   }
 
   const listPages = await db.select().from(listCareerPages).where(eq(listCareerPages.listId, list.id));
-  const pageIds = listPages.map(p => p.careerPageId);
+  const listPageMap = new Map(listPages.map(lp => [lp.careerPageId, lp]));
+  const allPageIds = listPages.map(p => p.careerPageId);
+  const activePageIdsForList = listPages.filter(p => !p.isPaused).map(p => p.careerPageId);
 
-  const pages = pageIds.length > 0
-    ? await db.select().from(careerPages).where(inArray(careerPages.id, pageIds))
+  const pages = allPageIds.length > 0
+    ? await db.select().from(careerPages).where(inArray(careerPages.id, allPageIds))
     : [];
 
-  const activeJobs = pageIds.length > 0
-    ? await db.select().from(jobs).where(and(inArray(jobs.careerPageId, pageIds), eq(jobs.status, 'active')))
+  const pagesWithListStatus = pages.map(p => ({
+    ...p,
+    isPaused: listPageMap.get(p.id)?.isPaused || false,
+  }));
+
+  const activeJobs = activePageIdsForList.length > 0
+    ? await db.select().from(jobs).where(and(inArray(jobs.careerPageId, activePageIdsForList), eq(jobs.status, 'active')))
     : [];
 
-  const pageMap = new Map(pages.map(p => [p.id, p]));
+  const pageMap = new Map(pagesWithListStatus.map(p => [p.id, p]));
   const jobsWithCompany = activeJobs.map(j => {
     const parentPage = pageMap.get(j.careerPageId);
     return {
@@ -54,7 +61,7 @@ export async function GET(req: NextRequest, { params }: { params: { slug: string
 
   return NextResponse.json({
     list,
-    pages,
+    pages: pagesWithListStatus,
     jobs: jobsWithCompany,
   });
 }
