@@ -251,3 +251,94 @@ export async function sendCollaboratorInviteEmail(options: {
     textContent,
   });
 }
+
+/**
+ * Sends a password reset link email via Brevo.
+ */
+export async function sendPasswordResetEmail(toEmail: string, resetUrl: string, userName?: string): Promise<{ success: boolean; error?: string }> {
+  const displayName = userName || toEmail.split('@')[0];
+
+  const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reset your password</title>
+</head>
+<body style="margin:0; padding:0; background-color:#0b0f19; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color:#e2e8f0;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#0b0f19; padding:40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="100%" max-width="500" border="0" cellspacing="0" cellpadding="0" style="max-width:500px; background-color:#1e293b; border-radius:16px; border:1px solid #334155; padding:32px; box-shadow:0 10px 25px rgba(0,0,0,0.5);">
+          <!-- Header / Logo -->
+          <tr>
+            <td align="center" style="padding-bottom:24px;">
+              <div style="font-size:24px; font-weight:800; color:#ffffff;">
+                Job<span style="color:#2563eb;">Pingly</span>
+              </div>
+            </td>
+          </tr>
+          
+          <!-- Title -->
+          <tr>
+            <td align="center" style="padding-bottom:12px;">
+              <h1 style="margin:0; font-size:20px; font-weight:700; color:#ffffff;">Reset Your Password</h1>
+            </td>
+          </tr>
+          
+          <!-- Body Text -->
+          <tr>
+            <td align="center" style="padding-bottom:24px;">
+              <p style="margin:0; font-size:14px; color:#94a3b8; line-height:1.5;">
+                Hello ${displayName}, we received a request to reset your password for your JobPingly account. Click the button below to choose a new password.
+              </p>
+            </td>
+          </tr>
+          
+          <!-- Button -->
+          <tr>
+            <td align="center" style="padding-bottom:24px;">
+              <a href="${resetUrl}" style="background-color:#2563eb; color:#ffffff; font-weight:700; text-decoration:none; padding:14px 28px; border-radius:12px; font-size:14px; display:inline-block; box-shadow:0 4px 14px rgba(37,99,235,0.4);">
+                Reset Password &rarr;
+              </a>
+            </td>
+          </tr>
+          
+          <!-- Expiration Notice -->
+          <tr>
+            <td align="center" style="padding-bottom:24px;">
+              <p style="margin:0; font-size:13px; color:#64748b;">
+                This password reset link will expire in <strong>1 hour</strong>.
+              </p>
+            </td>
+          </tr>
+          
+          <hr style="border:none; border-top:1px solid #334155; margin:0 0 20px 0;">
+          
+          <!-- Footer -->
+          <tr>
+            <td align="center">
+              <p style="margin:0; font-size:12px; color:#64748b;">
+                If you didn't request a password reset, please ignore this email or contact support if you have concerns.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `.trim();
+
+  const textContent = `JobPingly\n\nReset Your Password\n\nHello ${displayName},\n\nWe received a request to reset your password. Use the link below to set a new password:\n\n${resetUrl}\n\nThis link expires in 1 hour.\n\nIf you didn't request this, you can safely ignore this email.`;
+
+  return sendBrevoEmail({
+    toEmail,
+    subject: 'JobPingly - Password Reset Request',
+    htmlContent,
+    textContent,
+  });
+}
+

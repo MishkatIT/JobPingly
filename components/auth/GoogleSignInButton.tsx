@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 
@@ -19,23 +19,11 @@ declare global {
 export function GoogleSignInButton({ onSuccess, onError, text = 'Continue with Google' }: GoogleSignInButtonProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [sdkReady, setSdkReady] = useState(false);
+  const googleContainerRef = useRef<HTMLDivElement>(null);
   const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '';
 
-  useEffect(() => {
-    if (!clientId) return;
-
-    // Load Google Identity Services script if not already loaded
-    if (!window.google && !document.getElementById('google-jssdk')) {
-      const script = document.createElement('script');
-      script.id = 'google-jssdk';
-      script.src = 'https://accounts.google.com/gsi/client';
-      script.async = true;
-      script.defer = true;
-      document.head.appendChild(script);
-    }
-  }, [clientId]);
-
-  const handleCredentialResponse = async (response: any) => {
+  const handleCredentialResponse = useCallback(async (response: any) => {
     if (!response.credential) {
       if (onError) onError('Google sign in did not return a credential.');
       return;
@@ -65,7 +53,55 @@ export function GoogleSignInButton({ onSuccess, onError, text = 'Continue with G
     } finally {
       setLoading(false);
     }
-  };
+  }, [onError, onSuccess, router]);
+
+  useEffect(() => {
+    if (!clientId) return;
+
+    const initGsi = () => {
+      if (window.google?.accounts?.id) {
+        try {
+          window.google.accounts.id.initialize({
+            client_id: clientId,
+            callback: handleCredentialResponse,
+            auto_select: false,
+          });
+
+          if (googleContainerRef.current) {
+            googleContainerRef.current.innerHTML = '';
+            window.google.accounts.id.renderButton(googleContainerRef.current, {
+              theme: 'outline',
+              size: 'large',
+              width: googleContainerRef.current.clientWidth || 360,
+              text: 'continue_with',
+              shape: 'rectangular',
+              logo_alignment: 'center',
+            });
+          }
+          setSdkReady(true);
+        } catch (err) {
+          console.error('[Google Auth Initialization Error]', err);
+        }
+      }
+    };
+
+    if (window.google?.accounts?.id) {
+      initGsi();
+    } else {
+      const existingScript = document.getElementById('google-jssdk') as HTMLScriptElement | null;
+      if (!existingScript) {
+        const script = document.createElement('script');
+        script.id = 'google-jssdk';
+        script.src = 'https://accounts.google.com/gsi/client';
+        script.async = true;
+        script.defer = true;
+        script.onload = initGsi;
+        document.head.appendChild(script);
+      } else {
+        existingScript.addEventListener('load', initGsi);
+      }
+    }
+  }, [clientId, handleCredentialResponse]);
 
   const handleGoogleClick = () => {
     if (!clientId) {
@@ -74,33 +110,45 @@ export function GoogleSignInButton({ onSuccess, onError, text = 'Continue with G
     }
 
     if (window.google?.accounts?.id) {
+      // Pre-initialize and trigger prompt immediately
       window.google.accounts.id.initialize({
         client_id: clientId,
         callback: handleCredentialResponse,
+        auto_select: false,
       });
 
-      window.google.accounts.id.prompt((notification: any) => {
-        if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-          // Fallback to custom popup flow if prompt was dismissed or blocked
-          console.warn('[Google Auth] One Tap prompt not displayed, requesting standard token');
-        }
-      });
+      // Try triggering rendered button click if available, else prompt
+      const renderedBtn = googleContainerRef.current?.querySelector('[role="button"]') as HTMLElement | null;
+      if (renderedBtn) {
+        renderedBtn.click();
+      } else {
+        window.google.accounts.id.prompt();
+      }
     } else {
       if (onError) onError('Google Sign-In SDK is loading. Please try again in a moment.');
     }
   };
 
   return (
-    <button
-      type="button"
-      onClick={handleGoogleClick}
-      disabled={loading}
-      className="w-full py-3 px-4 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-800 font-semibold shadow-sm hover:shadow transition-all flex items-center justify-center gap-3 text-sm disabled:opacity-50"
-    >
-      {loading ? (
-        <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
-      ) : (
-        <>
+    <div className="w-full relative">
+      {loading && (
+        <div className="w-full py-3 px-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-semibold shadow-sm flex items-center justify-center gap-3 text-sm">
+          <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+          <span>Authenticating...</span>
+        </div>
+      )}
+
+      <div
+        ref={googleContainerRef}
+        className={`w-full flex justify-center ${loading ? 'hidden' : sdkReady ? 'block' : 'hidden'}`}
+      />
+
+      {!loading && !sdkReady && (
+        <button
+          type="button"
+          onClick={handleGoogleClick}
+          className="w-full py-3 px-4 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-800 font-semibold shadow-sm hover:shadow transition-all flex items-center justify-center gap-3 text-sm"
+        >
           <svg className="w-5 h-5" viewBox="0 0 24 24">
             <path
               fill="#4285F4"
@@ -120,8 +168,8 @@ export function GoogleSignInButton({ onSuccess, onError, text = 'Continue with G
             />
           </svg>
           <span>{text}</span>
-        </>
+        </button>
       )}
-    </button>
+    </div>
   );
 }
