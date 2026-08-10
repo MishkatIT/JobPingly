@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { callOllamaCloud } from '@/lib/ai/ollamaClient';
+import { callOllamaCloud } from '../../../lib/ai/ollamaClient';
 
 // Zod validation schema for extracted job item
 export const ExtractedJobSchema = z.object({

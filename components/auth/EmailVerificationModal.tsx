@@ -153,11 +153,27 @@ export function EmailVerificationModal({ email, onSuccess, onCancel }: EmailVeri
     }
   };
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && onCancel) {
+        onCancel();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onCancel]);
+
   if (!mounted) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
-      <div className="w-full max-w-md glass-panel p-8 rounded-3xl border-slate-200 dark:border-slate-800 shadow-2xl relative bg-white/90 dark:bg-slate-900/90 text-slate-900 dark:text-white">
+    <div
+      onClick={() => onCancel && onCancel()}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn cursor-pointer"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md glass-panel p-8 rounded-3xl border-slate-200 dark:border-slate-800 shadow-2xl relative bg-white/90 dark:bg-slate-900/90 text-slate-900 dark:text-white cursor-default"
+      >
         
         {/* Header */}
         <div className="text-center mb-6">

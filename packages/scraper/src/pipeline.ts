@@ -1,5 +1,6 @@
 import { GreenhouseAdapter } from './adapters/greenhouse';
 import { LeverAdapter } from './adapters/lever';
+import { WorkdayAdapter } from './adapters/workday';
 import { ApiDetectorsAdapter } from './adapters/apiDetectors';
 import { GenericAdapter } from './adapters/generic';
 import { generateJobFingerprint } from './fingerprint';
@@ -10,12 +11,12 @@ import { runPlaywrightFallback } from './playwrightFallback';
 import { cleanCareerPageContent } from './cleaner';
 import { generateContentHash } from './hash';
 import { extractJobsWithAI } from './aiExtractor';
-import { db } from '@/lib/db/client';
-import { careerPages, jobs, scrapeLogs, subscriptions, notificationQueue } from '@/lib/db/schema';
+import { db } from '../../../lib/db/client';
+import { careerPages, jobs, scrapeLogs, subscriptions, notificationQueue } from '../../../lib/db/schema';
 import { eq, and, sql } from 'drizzle-orm';
-import { matchKeywords } from '@/packages/notifications/src/matcher';
+import { matchKeywords } from '../../notifications/src/matcher';
 
-const adapters: ATSAdapter[] = [GreenhouseAdapter, LeverAdapter, ApiDetectorsAdapter, GenericAdapter];
+const adapters: ATSAdapter[] = [GreenhouseAdapter, LeverAdapter, WorkdayAdapter, ApiDetectorsAdapter, GenericAdapter];
 
 /**
  * Checks if a date string or timestamp represents an expired deadline.

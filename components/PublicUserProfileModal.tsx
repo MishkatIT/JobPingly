@@ -55,6 +55,18 @@ export function PublicUserProfileModal({ userId, onClose }: PublicUserProfileMod
       });
   }, [userId]);
 
+  // Handle Escape key to close modal
+  useEffect(() => {
+    if (!userId) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [userId, onClose]);
+
   if (!userId || !mounted) return null;
 
   const socials = data?.user?.socials || {};
@@ -65,8 +77,14 @@ export function PublicUserProfileModal({ userId, onClose }: PublicUserProfileMod
   const hasSocials = Boolean(githubUrl || linkedinUrl || twitterUrl || websiteUrl);
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl space-y-6 relative max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 cursor-pointer"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl space-y-6 relative max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-150 cursor-default"
+      >
         
         {/* Close Button */}
         <button
@@ -211,9 +229,11 @@ export function PublicUserProfileModal({ userId, onClose }: PublicUserProfileMod
                         <h4 className="text-sm font-bold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
                           {l.name}
                         </h4>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1">
-                          {l.description || 'Public watch list of monitored company career pages.'}
-                        </p>
+                        {l.description && l.description.trim() ? (
+                          <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1">
+                            {l.description.trim()}
+                          </p>
+                        ) : null}
                         <div className="flex items-center gap-3 pt-1 text-[11px] text-slate-500 font-medium">
                           <span>{l.companyCount || 0} Companies</span>
                           <span>&bull;</span>

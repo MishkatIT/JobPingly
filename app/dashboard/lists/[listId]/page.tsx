@@ -9,6 +9,7 @@ import { useToast } from '@/components/Toast';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { JobCard } from '@/components/JobCard';
 import { Badge } from '@/components/Badge';
+import { PublicUserProfileModal } from '@/components/PublicUserProfileModal';
 import { getCompanyColorTheme, getCompanyLogoUrl } from '@/lib/utils/companyBranding';
 
 export default function ListDetailPage() {
@@ -22,6 +23,7 @@ export default function ListDetailPage() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
   // Selection state for Monitored Pages batch actions
   const [selectedPageIds, setSelectedPageIds] = useState<string[]>([]);
@@ -632,16 +634,30 @@ export default function ListDetailPage() {
             </button>
           </div>
 
-          <p className="text-sm text-slate-600 dark:text-slate-400 max-w-3xl leading-relaxed">{list.description || 'No description provided.'}</p>
+          {list.description && list.description.trim() ? (
+            <p className="text-sm text-slate-600 dark:text-slate-400 max-w-3xl leading-relaxed">{list.description.trim()}</p>
+          ) : null}
 
           <div className="flex items-center gap-2 pt-1 text-xs text-slate-500 dark:text-slate-400">
             <span>Curated by:</span>
-            <div className="flex items-center gap-1.5 font-bold text-slate-800 dark:text-slate-200">
-              <div className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-[10px]">
-                {(list.userName?.[0] || 'U').toUpperCase()}
-              </div>
-              <span>{list.userName || 'User'}</span>
-            </div>
+            <button
+              type="button"
+              onClick={() => list.userId && setSelectedUserId(list.userId)}
+              className="flex items-center gap-1.5 font-bold text-slate-800 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 group/user transition-colors cursor-pointer text-left"
+            >
+              {list.userAvatarUrl ? (
+                <img
+                  src={list.userAvatarUrl}
+                  alt={list.userName || 'User'}
+                  className="w-5 h-5 rounded-full object-cover border border-slate-200 dark:border-slate-700 shrink-0"
+                />
+              ) : (
+                <div className="w-5 h-5 rounded-full bg-blue-600 text-white font-bold text-[9px] flex items-center justify-center shrink-0 shadow-sm">
+                  {(list.userName?.[0] || 'U').toUpperCase()}
+                </div>
+              )}
+              <span className="underline-offset-2 group-hover/user:underline">{list.userName || 'User'}</span>
+            </button>
           </div>
         </div>
       </div>
@@ -1288,6 +1304,8 @@ export default function ListDetailPage() {
         </div>,
         document.body
       )}
+
+      <PublicUserProfileModal userId={selectedUserId} onClose={() => setSelectedUserId(null)} />
     </div>
   );
 }

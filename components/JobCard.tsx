@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ExternalLink, MapPin, Calendar, Clock, DollarSign, Award, Building, Briefcase, Zap, Share2, Check } from 'lucide-react';
+import { ExternalLink, MapPin, Calendar, Clock, DollarSign, Award, Building, Share2, Check, AlertCircle } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import { getCompanyColorTheme, getCompanyLogoUrl } from '@/lib/utils/companyBranding';
 
@@ -40,6 +40,36 @@ function getSeniorityBadge(title: string, rawExp?: string | null) {
   return null;
 }
 
+function parseDeadlineInfo(rawDeadline?: string | null): { text: string; isUrgent?: boolean; daysLeft?: number } | null {
+  if (!rawDeadline) return null;
+  const str = String(rawDeadline).trim();
+  if (!str) return null;
+
+  try {
+    const d = new Date(str);
+    if (isNaN(d.getTime())) {
+      return { text: str };
+    }
+    const diffMs = d.getTime() - Date.now();
+    const daysLeft = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+    const formatted = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+
+    if (daysLeft < 0) {
+      return { text: `${formatted} (Expired)`, isUrgent: true, daysLeft: 0 };
+    }
+    if (daysLeft === 0) {
+      return { text: `${formatted} (Today)`, isUrgent: true, daysLeft: 0 };
+    }
+    return {
+      text: `${formatted} (${daysLeft}d left)`,
+      daysLeft,
+      isUrgent: daysLeft <= 7,
+    };
+  } catch {
+    return { text: str };
+  }
+}
+
 export function JobCard({ job }: JobCardProps) {
   const toast = useToast();
   const [copied, setCopied] = useState(false);
@@ -49,11 +79,12 @@ export function JobCard({ job }: JobCardProps) {
   const salary = raw.salary || null;
   const experience = raw.experience || null;
   const workplaceType = raw.workplaceType || null;
-  const deadline = raw.deadline || raw.deadlineDate || null;
+  const rawDeadline = raw.deadline || raw.deadlineDate || raw.closingDate || raw.expiresAt || raw.expiresOn || raw.validThrough || raw.expirationDate || null;
   const postedDate = raw.postedDate || null;
   const description = raw.description || null;
   const jobType = job.jobType || raw.employmentType || 'Full-Time';
 
+  const deadlineInfo = parseDeadlineInfo(rawDeadline);
   const seniority = getSeniorityBadge(job.title, experience);
   const colorTheme = getCompanyColorTheme(company || job.title);
   const logoUrl = getCompanyLogoUrl(job.url);
@@ -101,6 +132,17 @@ export function JobCard({ job }: JobCardProps) {
             {workplaceType && (
               <span className="text-[11px] font-medium text-purple-600 dark:text-purple-400 bg-purple-500/8 border border-purple-500/20 px-2 py-0.5 rounded-md">
                 {workplaceType}
+              </span>
+            )}
+
+            {deadlineInfo && (
+              <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 border ${
+                deadlineInfo.isUrgent
+                  ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'
+                  : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
+              }`}>
+                <Calendar className="w-3 h-3 shrink-0" />
+                Deadline: {deadlineInfo.text}
               </span>
             )}
 
@@ -178,10 +220,19 @@ export function JobCard({ job }: JobCardProps) {
           </div>
         )}
 
-        {deadline && (
-          <div className="flex items-center gap-1 text-rose-600 dark:text-rose-400 font-semibold bg-rose-500/10 px-2 py-0.5 rounded-md">
+        {deadlineInfo ? (
+          <div className={`flex items-center gap-1 font-semibold px-2 py-0.5 rounded-md border ${
+            deadlineInfo.isUrgent
+              ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'
+              : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
+          }`}>
             <Calendar className="w-3.5 h-3.5" />
-            <span>Deadline: {deadline}</span>
+            <span>Deadline: {deadlineInfo.text}</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1 text-slate-500">
+            <Calendar className="w-3.5 h-3.5 text-slate-400" />
+            <span>Deadline: Until Filled</span>
           </div>
         )}
       </div>

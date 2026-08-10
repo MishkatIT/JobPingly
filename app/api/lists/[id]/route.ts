@@ -24,7 +24,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       updatedAt: lists.updatedAt,
       userName: users.name,
       userEmail: users.email,
-      userAvatar: users.avatarUrl,
+      userAvatarUrl: users.avatarUrl,
     })
     .from(lists)
     .leftJoin(users, eq(lists.userId, users.id))
@@ -37,6 +37,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const list = {
     ...listData,
     userName: listData.userName || listData.userEmail?.split('@')[0] || 'Curator',
+    userAvatarUrl: listData.userAvatarUrl || null,
   };
 
   // Check authorization if private (Owner, Admin, or Accepted Collaborators allowed)
