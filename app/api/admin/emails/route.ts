@@ -53,6 +53,17 @@ export async function GET(req: NextRequest) {
   const startIndex = (page - 1) * limit;
   const paginatedResults = results.slice(startIndex, startIndex + limit);
 
+  // Total pending count across all emails regardless of current filter
+  const pendingApprovals = await db.select({
+    id: emailApprovals.id,
+    userVerified: users.emailVerified,
+  })
+  .from(emailApprovals)
+  .leftJoin(users, eq(emailApprovals.email, users.email))
+  .where(eq(emailApprovals.status, 'pending'));
+
+  const pendingCount = pendingApprovals.filter(r => r.userVerified !== false).length;
+
   return NextResponse.json({
     emailApprovals: paginatedResults,
     pagination: {
@@ -62,6 +73,7 @@ export async function GET(req: NextRequest) {
       totalPages,
       hasMore: page < totalPages,
     },
+    pendingCount,
   });
 }
 

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Globe, Search, ShieldAlert, ChevronLeft, ChevronRight, Building, Briefcase, ExternalLink, Users, GitFork, Crown, LayoutGrid, Grid2X2, List, Share2, Check, Sliders, Layers, CheckCircle2 } from 'lucide-react';
+import { Globe, Search, ShieldAlert, ChevronLeft, ChevronRight, Building, Briefcase, ExternalLink, Users, GitFork, Crown, LayoutGrid, Grid2X2, List, Share2, Check, Sliders, Layers, CheckCircle2, PlusCircle, X } from 'lucide-react';
 import { Navbar } from '@/components/Navbar';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { Footer } from '@/components/Footer';
@@ -25,6 +25,41 @@ export default function PublicDiscoverPage() {
   const [errorMsg, setErrorMsg] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'grid' | 'tiles' | 'list'>('grid');
+
+  // Suggestion Modal State
+  const [suggestingList, setSuggestingList] = useState<any>(null);
+  const [suggestUrl, setSuggestUrl] = useState('');
+  const [suggestCompany, setSuggestCompany] = useState('');
+  const [suggestSubmitting, setSuggestSubmitting] = useState(false);
+  const [suggestSuccess, setSuggestSuccess] = useState('');
+
+  const handleSuggestCompany = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!suggestingList) return;
+    setSuggestSubmitting(true);
+    setSuggestSuccess('');
+    try {
+      const res = await fetch(`/api/public/lists/${suggestingList.slug}/suggest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: suggestUrl, companyName: suggestCompany }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to submit suggestion');
+
+      setSuggestSuccess(json.message || 'Suggestion submitted successfully!');
+      setSuggestUrl('');
+      setSuggestCompany('');
+      setTimeout(() => {
+        setSuggestingList(null);
+        setSuggestSuccess('');
+      }, 2000);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to submit suggestion');
+    } finally {
+      setSuggestSubmitting(false);
+    }
+  };
 
   useEffect(() => {
     const saved = localStorage.getItem('jobpingly_discover_view');
@@ -274,9 +309,11 @@ export default function PublicDiscoverPage() {
 
                       {/* Title & Description */}
                       <div>
-                        <h3 className={`font-extrabold text-slate-900 dark:text-white tracking-tight group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors ${viewMode === 'tiles' ? 'text-base leading-snug' : 'text-xl'}`}>
-                          {l.name}
-                        </h3>
+                        <Link href={`/lists/${l.slug}`} className="block group/title hover:underline decoration-blue-500/50">
+                          <h3 className={`font-extrabold text-slate-900 dark:text-white tracking-tight group-hover/title:text-blue-600 dark:group-hover/title:text-blue-400 transition-colors ${viewMode === 'tiles' ? 'text-base leading-snug' : 'text-xl'}`}>
+                            {l.name}
+                          </h3>
+                        </Link>
                         <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2 mt-1 leading-relaxed">
                           {l.description || 'Public watch list of monitored company career pages.'}
                         </p>
@@ -328,6 +365,18 @@ export default function PublicDiscoverPage() {
                           title="Share Watchlist"
                         >
                           <Share2 className="w-3.5 h-3.5" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSuggestingList(l);
+                          }}
+                          className="p-1.5 rounded-lg border border-amber-500/30 text-amber-600 dark:text-amber-400 bg-amber-500/5 hover:bg-amber-500/15 transition-all cursor-pointer"
+                          title="Suggest a company career page for this watchlist"
+                        >
+                          <PlusCircle className="w-3.5 h-3.5" />
                         </button>
 
                         {user && (user.role === 'admin' || user.id === l.userId || user.userId === l.userId) ? (
@@ -438,6 +487,19 @@ export default function PublicDiscoverPage() {
                               >
                                 <Share2 className="w-3.5 h-3.5" />
                               </button>
+
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSuggestingList(l);
+                                }}
+                                className="p-1.5 rounded-lg border border-amber-500/30 text-amber-600 dark:text-amber-400 bg-amber-500/5 hover:bg-amber-500/15 transition-all cursor-pointer"
+                                title="Suggest a company career page for this watchlist"
+                              >
+                                <PlusCircle className="w-3.5 h-3.5" />
+                              </button>
+
                               {user && (user.role === 'admin' || user.id === l.userId || user.userId === l.userId) ? (
                                 <Link
                                   href={`/dashboard/lists/${l.id}`}
@@ -504,6 +566,91 @@ export default function PublicDiscoverPage() {
           </div>
         )}
       </div>
+
+      {/* Suggestion Modal */}
+      {suggestingList && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="glass-panel max-w-md w-full p-6 rounded-3xl border border-slate-200 dark:border-slate-800 space-y-4 bg-white dark:bg-slate-950 shadow-2xl animate-in fade-in zoom-in-95 duration-150 relative">
+            <button
+              onClick={() => {
+                setSuggestingList(null);
+                setSuggestSuccess('');
+              }}
+              type="button"
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h3 className="text-xl font-extrabold text-slate-900 dark:text-white flex items-center gap-2 pr-6">
+              <PlusCircle className="w-5 h-5 text-amber-500" />
+              Suggest a Company
+            </h3>
+
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+              Suggest a company career page for <span className="font-bold text-slate-900 dark:text-white">{suggestingList.name}</span>. The list curator will review your contribution.
+            </p>
+
+            <form onSubmit={handleSuggestCompany} className="space-y-4 pt-2">
+              {suggestSuccess ? (
+                <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-semibold text-center">
+                  {suggestSuccess}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 block">
+                      Career Page URL *
+                    </label>
+                    <input
+                      type="url"
+                      required
+                      value={suggestUrl}
+                      onChange={e => setSuggestUrl(e.target.value)}
+                      placeholder="https://boards.greenhouse.io/company"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs focus:outline-none focus:border-amber-500 text-slate-900 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 block">
+                      Company Name (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={suggestCompany}
+                      onChange={e => setSuggestCompany(e.target.value)}
+                      placeholder="Acme Corp"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs focus:outline-none focus:border-amber-500 text-slate-900 dark:text-white"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end pt-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSuggestingList(null);
+                    setSuggestSuccess('');
+                  }}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+                >
+                  Cancel
+                </button>
+                {!suggestSuccess && (
+                  <button
+                    type="submit"
+                    disabled={suggestSubmitting}
+                    className="px-5 py-2.5 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-md cursor-pointer transition-all disabled:opacity-50"
+                  >
+                    {suggestSubmitting ? 'Submitting...' : 'Submit Suggestion'}
+                  </button>
+                )}
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       <PublicUserProfileModal userId={selectedUserId} onClose={() => setSelectedUserId(null)} />
       <Footer />

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getAuthUser } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
-import { lists, listCareerPages, careerPages, jobs, users } from '@/lib/db/schema';
+import { lists, listCareerPages, careerPages, jobs, users, listCollaborators } from '@/lib/db/schema';
 import { isFeatureEnabled } from '@/lib/flags/check';
 import { eq, and, inArray } from 'drizzle-orm';
 
@@ -11,6 +12,7 @@ export async function GET(req: NextRequest, { params }: { params: { slug: string
   }
 
   const slug = params.slug;
+  const authUser = await getAuthUser(req);
 
   const [list] = await db.select({
     id: lists.id,
@@ -18,6 +20,8 @@ export async function GET(req: NextRequest, { params }: { params: { slug: string
     slug: lists.slug,
     description: lists.description,
     visibility: lists.visibility,
+    isCanonical: lists.isCanonical,
+    followerCount: lists.followerCount,
     createdAt: lists.createdAt,
     updatedAt: lists.updatedAt,
     userId: lists.userId,
@@ -26,10 +30,37 @@ export async function GET(req: NextRequest, { params }: { params: { slug: string
   })
   .from(lists)
   .leftJoin(users, eq(lists.userId, users.id))
-  .where(and(eq(lists.slug, slug), eq(lists.visibility, 'public')));
+  .where(eq(lists.slug, slug));
 
   if (!list) {
-    return NextResponse.json({ error: 'Public list not found.' }, { status: 404 });
+    return NextResponse.json({ error: 'Watch list not found.' }, { status: 404 });
+  }
+
+  // Authorization check for private lists
+  if (list.visibility === 'private') {
+    let isAuthorized = false;
+    if (authUser) {
+      if (authUser.role === 'admin' || authUser.userId === list.userId) {
+        isAuthorized = true;
+      } else {
+        const [collab] = await db
+          .select()
+          .from(listCollaborators)
+          .where(and(
+            eq(listCollaborators.listId, list.id),
+            eq(listCollaborators.userId, authUser.userId),
+            eq(listCollaborators.status, 'accepted')
+          ));
+        if (collab) isAuthorized = true;
+      }
+    }
+
+    if (!isAuthorized) {
+      return NextResponse.json(
+        { error: 'This watch list is private. Only the curator, collaborators, or administrator can view it.' },
+        { status: 403 }
+      );
+    }
   }
 
   const listPages = await db.select().from(listCareerPages).where(eq(listCareerPages.listId, list.id));

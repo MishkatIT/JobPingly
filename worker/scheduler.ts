@@ -1,6 +1,6 @@
 import { db } from '@/lib/db/client';
-import { careerPages, listCareerPages } from '@/lib/db/schema';
-import { lte, eq, and, inArray } from 'drizzle-orm';
+import { careerPages } from '@/lib/db/schema';
+import { lte, ne, and, isNull, or } from 'drizzle-orm';
 import { runScraperPipeline, autoRemoveExpiredJobsFromDb } from '@/packages/scraper/src/pipeline';
 import { isFeatureEnabled } from '@/lib/flags/check';
 
@@ -25,29 +25,22 @@ export async function processDuePages() {
     const nowMs = Date.now();
     if (nowMs - lastDailyCleanupAt > ONE_DAY_MS) {
       console.log('[JobPingly Worker] Running daily automatic cleanup for expired jobs...');
-      await autoRemoveExpiredJobsFromDb();
+      await autoRemoveExpiredJobsFromDb().catch(() => null);
       lastDailyCleanupAt = nowMs;
     }
 
     const now = new Date();
 
-    // 1. Get all careerPageIds that are linked to active watch lists and not paused
-    const activeListPages = await db.selectDistinct({ id: listCareerPages.careerPageId })
-      .from(listCareerPages)
-      .where(eq(listCareerPages.isPaused, false));
-
-    const activePageIds = activeListPages.map(p => p.id);
-    if (activePageIds.length === 0) {
-      return;
-    }
-
-    // 2. Only select due career pages that belong to at least 1 active watch list
+    // Find all career pages due for check (excluding manually paused pages)
     const duePages = await db.select()
       .from(careerPages)
       .where(and(
-        eq(careerPages.status, 'active'),
-        inArray(careerPages.id, activePageIds),
-        lte(careerPages.nextCheckAt, now)
+        ne(careerPages.status, 'paused'),
+        or(
+          isNull(careerPages.nextCheckAt),
+          lte(careerPages.nextCheckAt, now),
+          isNull(careerPages.lastScrapedAt)
+        )
       ))
       .limit(10);
 

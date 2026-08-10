@@ -226,9 +226,15 @@ export function PublicUserProfileModal({ userId, onClose }: PublicUserProfileMod
                       className="glass-card p-4 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center justify-between hover:border-blue-500/40 transition-all group"
                     >
                       <div className="space-y-1 max-w-[75%]">
-                        <h4 className="text-sm font-bold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-                          {l.name}
-                        </h4>
+                        <Link
+                          href={`/lists/${l.slug}`}
+                          onClick={onClose}
+                          className="hover:underline decoration-blue-500/50 block"
+                        >
+                          <h4 className="text-sm font-bold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                            {l.name}
+                          </h4>
+                        </Link>
                         {l.description && l.description.trim() ? (
                           <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1">
                             {l.description.trim()}

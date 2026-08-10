@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
-import { lists, listCareerPages, jobs } from '@/lib/db/schema';
+import { lists, listCareerPages, jobs, listSubscriptions } from '@/lib/db/schema';
 import { isFeatureEnabled } from '@/lib/flags/check';
 import { eq, inArray, and } from 'drizzle-orm';
 
@@ -171,7 +171,15 @@ export async function POST(req: NextRequest) {
     slug: uniqueSlug,
     description: description ? description.trim() : null,
     visibility: visibility === 'public' ? 'public' : 'private',
+    followerCount: 1,
   }).returning();
+
+  // Auto-subscribe list owner for email alerts
+  await db.insert(listSubscriptions).values({
+    userId: user.userId,
+    listId: newList.id,
+    digestFrequency: 'instant',
+  }).catch(() => null);
 
   return NextResponse.json({ list: newList });
 }

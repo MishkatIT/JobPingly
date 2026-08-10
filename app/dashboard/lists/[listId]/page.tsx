@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Globe, Lock, Plus, ExternalLink, RefreshCw, CheckCircle, AlertTriangle, Briefcase, Zap, Trash2, MoreVertical, Edit3, Search, LayoutGrid, Grid2X2, List, PauseCircle, CheckSquare, Square, LogOut, Sliders, PlusCircle, UserPlus, Share2, Check, Crown, Users, XCircle } from 'lucide-react';
+import { ArrowLeft, Globe, Lock, Plus, ExternalLink, RefreshCw, CheckCircle, AlertTriangle, Briefcase, Zap, Trash2, MoreVertical, Edit3, Search, LayoutGrid, Grid2X2, List, PauseCircle, CheckSquare, Square, LogOut, Sliders, PlusCircle, UserPlus, Share2, Check, Crown, Users, XCircle, Bell, Filter, X } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { JobCard } from '@/components/JobCard';
@@ -102,6 +102,61 @@ export default function ListDetailPage() {
     } catch (e) {}
   };
 
+  // Alert & Follow Subscriptions state
+  const [following, setFollowing] = useState(false);
+  const [showFollowModal, setShowFollowModal] = useState(false);
+  const [positiveKeywordsInput, setPositiveKeywordsInput] = useState('');
+  const [negativeKeywordsInput, setNegativeKeywordsInput] = useState('');
+  const [digestFrequency, setDigestFrequency] = useState<'instant' | 'daily' | 'weekly'>('instant');
+  const [followSubmitting, setFollowSubmitting] = useState(false);
+
+  const fetchFollowStatus = async (slug: string) => {
+    try {
+      const res = await fetch(`/api/public/lists/${slug}/follow`);
+      if (res.ok) {
+        const json = await res.json();
+        setFollowing(json.following);
+        if (json.subscription) {
+          setPositiveKeywordsInput((json.subscription.positiveKeywords || []).join(', '));
+          setNegativeKeywordsInput((json.subscription.negativeKeywords || []).join(', '));
+          setDigestFrequency(json.subscription.digestFrequency || 'instant');
+        }
+      }
+    } catch (e) {}
+  };
+
+  const handleFollowSubmit = async (e: React.FormEvent, unfollow = false) => {
+    e.preventDefault();
+    if (!data?.list?.slug) return;
+    setFollowSubmitting(true);
+    try {
+      const posArray = positiveKeywordsInput.split(',').map(s => s.trim()).filter(Boolean);
+      const negArray = negativeKeywordsInput.split(',').map(s => s.trim()).filter(Boolean);
+
+      const res = await fetch(`/api/public/lists/${data.list.slug}/follow`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: unfollow ? 'unfollow' : 'follow',
+          positiveKeywords: posArray,
+          negativeKeywords: negArray,
+          digestFrequency,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to update alert settings');
+
+      setFollowing(json.following);
+      setShowFollowModal(false);
+      toast.success(unfollow ? 'Unsubscribed from email alerts' : 'Email alert preferences saved!');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update alert preferences');
+    } finally {
+      setFollowSubmitting(false);
+    }
+  };
+
   const loadDetail = async () => {
     try {
       const [res, meRes, collabRes, contribRes] = await Promise.all([
@@ -114,6 +169,10 @@ export default function ListDetailPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to load list');
       setData(json);
+
+      if (json.list?.slug) {
+        fetchFollowStatus(json.list.slug);
+      }
 
       if (meRes.ok) {
         const meJson = await meRes.json();
@@ -582,6 +641,18 @@ export default function ListDetailPage() {
 
           {/* Action Controls Toolbar */}
           <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setShowFollowModal(true)}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm ${
+                following
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-500'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+              }`}
+            >
+              <Bell className="w-3.5 h-3.5" />
+              {following ? 'Alerts Active' : 'Follow & Get Email Alerts'}
+            </button>
             <button
               type="button"
               onClick={() => setShowContributionsModal(true)}
@@ -1300,6 +1371,118 @@ export default function ListDetailPage() {
                 Done
               </button>
             </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Follow & Alert Preferences Modal */}
+      {mounted && showFollowModal && data?.list && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-lg w-full p-6 sm:p-8 space-y-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Bell className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                  Email Digest &amp; Alert Settings
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Configure job alert preferences for <strong>{data.list.name}</strong>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowFollowModal(false)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleFollowSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                  Digest Frequency
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['instant', 'daily', 'weekly'] as const).map((freq) => (
+                    <button
+                      key={freq}
+                      type="button"
+                      onClick={() => setDigestFrequency(freq)}
+                      className={`py-2.5 px-3 rounded-xl text-xs font-extrabold capitalize cursor-pointer border transition-all ${
+                        digestFrequency === freq
+                          ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                          : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      {freq}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                  Must-Match Keywords (Optional)
+                </label>
+                <p className="text-[11px] text-slate-500 mb-1.5">Comma separated. Only send alerts if job title contains at least one keyword.</p>
+                <input
+                  type="text"
+                  value={positiveKeywordsInput}
+                  onChange={(e) => setPositiveKeywordsInput(e.target.value)}
+                  placeholder="e.g. Frontend, React, Senior, Remote"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-blue-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                  Exclude Keywords (Optional)
+                </label>
+                <p className="text-[11px] text-slate-500 mb-1.5">Comma separated. Ignore jobs containing any of these keywords.</p>
+                <input
+                  type="text"
+                  value={negativeKeywordsInput}
+                  onChange={(e) => setNegativeKeywordsInput(e.target.value)}
+                  placeholder="e.g. Intern, Junior, Contract"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-blue-600"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+                {following ? (
+                  <button
+                    type="button"
+                    onClick={(e) => handleFollowSubmit(e, true)}
+                    disabled={followSubmitting}
+                    className="px-4 py-2.5 rounded-xl text-xs font-bold bg-rose-500/10 text-rose-600 border border-rose-500/20 hover:bg-rose-500/20 cursor-pointer disabled:opacity-50"
+                  >
+                    Unfollow &amp; Stop Alerts
+                  </button>
+                ) : (
+                  <div />
+                )}
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowFollowModal(false)}
+                    className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={followSubmitting}
+                    className="px-5 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-md cursor-pointer disabled:opacity-50"
+                  >
+                    {followSubmitting ? 'Saving...' : following ? 'Save Alert Settings' : 'Subscribe to Email Alerts'}
+                  </button>
+                </div>
+              </div>
+            </form>
           </div>
         </div>,
         document.body

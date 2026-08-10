@@ -1,8 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
-import { lists, listSubscriptions } from '@/lib/db/schema';
+import { lists, listSubscriptions, listCollaborators } from '@/lib/db/schema';
 import { eq, and, sql } from 'drizzle-orm';
+
+// Helper to check authorization for private lists
+async function getAuthorizedList(slug: string, userId?: string, isAdmin?: boolean) {
+  const [list] = await db.select().from(lists).where(eq(lists.slug, slug));
+  if (!list) return null;
+  if (list.visibility === 'public') return list;
+
+  if (userId) {
+    if (isAdmin || list.userId === userId) return list;
+    const [collab] = await db.select().from(listCollaborators).where(and(
+      eq(listCollaborators.listId, list.id),
+      eq(listCollaborators.userId, userId),
+      eq(listCollaborators.status, 'accepted')
+    ));
+    if (collab) return list;
+  }
+
+  return null;
+}
 
 // GET current user's follow status for a list
 export async function GET(req: NextRequest, { params }: { params: { slug: string } }) {
@@ -11,9 +30,9 @@ export async function GET(req: NextRequest, { params }: { params: { slug: string
     return NextResponse.json({ following: false });
   }
 
-  const [list] = await db.select().from(lists).where(and(eq(lists.slug, params.slug), eq(lists.visibility, 'public')));
+  const list = await getAuthorizedList(params.slug, user.userId, user.role === 'admin');
   if (!list) {
-    return NextResponse.json({ error: 'Public list not found' }, { status: 404 });
+    return NextResponse.json({ error: 'Watch list not found or unauthorized' }, { status: 404 });
   }
 
   const [sub] = await db
@@ -34,9 +53,9 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const [list] = await db.select().from(lists).where(and(eq(lists.slug, params.slug), eq(lists.visibility, 'public')));
+  const list = await getAuthorizedList(params.slug, user.userId, user.role === 'admin');
   if (!list) {
-    return NextResponse.json({ error: 'Public list not found' }, { status: 404 });
+    return NextResponse.json({ error: 'Watch list not found or unauthorized' }, { status: 404 });
   }
 
   const body = await req.json().catch(() => ({}));

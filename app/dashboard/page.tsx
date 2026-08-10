@@ -618,9 +618,14 @@ export default function DashboardOverview() {
                       </div>
 
                       <div>
-                        <h3 className={`font-bold text-slate-900 dark:text-white tracking-tight group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors ${viewMode === 'tiles' ? 'text-base leading-snug' : 'text-xl'}`}>
-                          {l.name}
-                        </h3>
+                        <Link
+                          href={l.visibility === 'public' ? `/lists/${l.slug}` : `/dashboard/lists/${l.id}`}
+                          className="hover:underline decoration-blue-500/50 block"
+                        >
+                          <h3 className={`font-bold text-slate-900 dark:text-white tracking-tight group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors ${viewMode === 'tiles' ? 'text-base leading-snug' : 'text-xl'}`}>
+                            {l.name}
+                          </h3>
+                        </Link>
                         <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2 mt-1 leading-relaxed">
                           {l.description || 'No description provided.'}
                         </p>

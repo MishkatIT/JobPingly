@@ -15,6 +15,7 @@ import { db } from '../../../lib/db/client';
 import { careerPages, jobs, scrapeLogs, subscriptions, notificationQueue } from '../../../lib/db/schema';
 import { eq, and, sql } from 'drizzle-orm';
 import { matchKeywords } from '../../notifications/src/matcher';
+import { isFeatureEnabled } from '../../../lib/flags/check';
 
 const adapters: ATSAdapter[] = [GreenhouseAdapter, LeverAdapter, WorkdayAdapter, ApiDetectorsAdapter, GenericAdapter];
 
@@ -86,6 +87,14 @@ export async function runScraperPipeline(careerPageId: string, options?: { force
     throw new Error(`Career page ${careerPageId} not found`);
   }
 
+  // Determine effective check interval (Global Admin Timer vs Site-Specific Interval)
+  const useGlobalTimer = await isFeatureEnabled('scraper.use_global_timer', true);
+  let effectiveIntervalMinutes = page.checkIntervalMinutes || 180;
+  if (useGlobalTimer) {
+    const globalIntervalFlag = await isFeatureEnabled('scraper.global_check_interval_minutes', 180);
+    effectiveIntervalMinutes = typeof globalIntervalFlag === 'number' ? globalIntervalFlag : Number(globalIntervalFlag) || 180;
+  }
+
   try {
     let extractedJobs: NormalizedJob[] = [];
     let selectedAdapterName = 'generic';
@@ -139,7 +148,7 @@ export async function runScraperPipeline(careerPageId: string, options?: { force
         lastSuccessAt: new Date(),
         consecutiveFailures: 0,
         status: 'active',
-        nextCheckAt: new Date(Date.now() + page.checkIntervalMinutes * 60 * 1000),
+        nextCheckAt: new Date(Date.now() + effectiveIntervalMinutes * 60 * 1000),
       }).where(eq(careerPages.id, careerPageId));
 
       return { success: true, unchanged: true, jobsFound: 0, jobsAdded: 0 };
@@ -251,7 +260,7 @@ export async function runScraperPipeline(careerPageId: string, options?: { force
         lastScrapedAt: new Date(),
         lastSuccessAt: new Date(),
         status: 'degraded',
-        nextCheckAt: new Date(Date.now() + page.checkIntervalMinutes * 60 * 1000),
+        nextCheckAt: new Date(Date.now() + effectiveIntervalMinutes * 60 * 1000),
       }).where(eq(careerPages.id, careerPageId));
 
       return { success: true, suspicious: true, jobsFound: extractedJobs.length };
@@ -366,7 +375,7 @@ export async function runScraperPipeline(careerPageId: string, options?: { force
       lastSuccessAt: new Date(),
       consecutiveFailures: 0,
       status: 'active',
-      nextCheckAt: new Date(Date.now() + page.checkIntervalMinutes * 60 * 1000),
+      nextCheckAt: new Date(Date.now() + effectiveIntervalMinutes * 60 * 1000),
     }).where(eq(careerPages.id, careerPageId));
 
     return { success: true, suspicious: false, jobsFound: extractedJobs.length, jobsAdded, jobsRemoved };
@@ -375,7 +384,7 @@ export async function runScraperPipeline(careerPageId: string, options?: { force
     const failures = page.consecutiveFailures + 1;
     let nextStatus = page.status;
 
-    let backoffMinutes = page.checkIntervalMinutes;
+    let backoffMinutes = effectiveIntervalMinutes;
     if (failures >= 14) {
       nextStatus = 'paused';
       backoffMinutes = 1440; // 24h

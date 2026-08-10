@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
-import { lists, listCareerPages } from '@/lib/db/schema';
+import { lists, listCareerPages, listSubscriptions } from '@/lib/db/schema';
 import { checkListRedundancy } from '@/lib/lists/anti-redundancy';
 import { eq, and } from 'drizzle-orm';
 
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
       visibility: effectiveVisibility,
       parentListId: originalList.id,
       isCanonical,
-      followerCount: 0,
+      followerCount: 1,
       contributionCount: 0,
     })
     .returning();
@@ -74,6 +74,13 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
       }))
     );
   }
+
+  // 6. Auto-subscribe forking user for instant email alerts
+  await db.insert(listSubscriptions).values({
+    userId: user.userId,
+    listId: newList.id,
+    digestFrequency: 'instant',
+  }).catch(() => null);
 
   return NextResponse.json({
     success: true,

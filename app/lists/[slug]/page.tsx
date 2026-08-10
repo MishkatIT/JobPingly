@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Globe, ArrowLeft, ExternalLink, Briefcase, ShieldAlert, Building, Share2, Check, Search, Bell, GitFork, PlusCircle, CheckCircle, XCircle, Users, Crown, Sliders, UserPlus, Trash2, Shield, Ban, LayoutGrid, Grid2X2, List, Plus, PauseCircle, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -19,7 +20,13 @@ export default function PublicListPageView() {
   const router = useRouter();
   const slug = params.slug as string;
 
+  const [mounted, setMounted] = useState(false);
   const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -410,6 +417,20 @@ export default function PublicListPageView() {
                 </div>
               )}
 
+              {/* Follow & Get Email Alerts Button (Available for ALL watch lists including owned lists) */}
+              <button
+                type="button"
+                onClick={() => !user ? setShowAuthRequiredModal(true) : setShowFollowModal(true)}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm ${
+                  following
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-500'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white'
+                }`}
+              >
+                <Bell className="w-3.5 h-3.5" />
+                {following ? 'Alerts Active' : 'Follow & Get Email Alerts'}
+              </button>
+
               {isMaintainer ? (
                 <>
                   <Link
@@ -444,15 +465,12 @@ export default function PublicListPageView() {
                 <>
                   <button
                     type="button"
-                    onClick={() => !user ? setShowAuthRequiredModal(true) : setShowFollowModal(true)}
-                    className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm ${
-                      following
-                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-500'
-                        : 'bg-blue-600 hover:bg-blue-700 text-white'
-                    }`}
+                    onClick={() => setShowSuggestModal(true)}
+                    className="px-3 py-1.5 rounded-xl border border-amber-500/30 text-amber-700 dark:text-amber-300 bg-amber-500/5 hover:bg-amber-500/15 flex items-center gap-1.5 text-xs font-semibold transition-all cursor-pointer"
+                    title="Suggest a company career page for this watchlist"
                   >
-                    <Bell className="w-3.5 h-3.5" />
-                    {following ? 'Alerts Active' : 'Follow & Get Email Alerts'}
+                    <PlusCircle className="w-3.5 h-3.5 text-amber-500" />
+                    Suggest Company
                   </button>
 
                   <button
@@ -742,8 +760,8 @@ export default function PublicListPageView() {
       </div>
 
       {/* Follow / Alert Settings Modal */}
-      {showFollowModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+      {mounted && showFollowModal && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="glass-panel max-w-md w-full p-6 rounded-3xl border border-slate-200 dark:border-slate-800 space-y-4 bg-white dark:bg-slate-950 shadow-2xl">
             <h3 className="text-xl font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
               <Bell className="w-5 h-5 text-blue-500" />
@@ -762,36 +780,36 @@ export default function PublicListPageView() {
                   type="text"
                   value={positiveKeywordsInput}
                   onChange={e => setPositiveKeywordsInput(e.target.value)}
-                  placeholder="e.g. Senior, React, Remote, AI"
+                  placeholder="e.g. Frontend, React, Senior, Remote"
                   className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs focus:outline-none focus:border-blue-500"
                 />
               </div>
 
               <div>
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 block">
-                  Exclude Keywords (comma separated)
+                  Negative Keyword Exclusions (comma separated)
                 </label>
                 <input
                   type="text"
                   value={negativeKeywordsInput}
                   onChange={e => setNegativeKeywordsInput(e.target.value)}
-                  placeholder="e.g. Intern, Contract, Lead"
+                  placeholder="e.g. Intern, Junior, Contract"
                   className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs focus:outline-none focus:border-blue-500"
                 />
               </div>
 
               <div>
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 block">
-                  Digest Frequency
+                  Alert Digest Frequency
                 </label>
                 <select
                   value={digestFrequency}
-                  onChange={e => setDigestFrequency(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs focus:outline-none focus:border-blue-500"
+                  onChange={e => setDigestFrequency(e.target.value as any)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs focus:outline-none focus:border-blue-500 font-bold"
                 >
-                  <option value="instant">Instant Email Alert</option>
-                  <option value="daily">Daily Email Summary</option>
-                  <option value="weekly">Weekly Email Digest</option>
+                  <option value="instant">⚡ Instant Notification</option>
+                  <option value="daily">📅 Daily Digest</option>
+                  <option value="weekly">🗞️ Weekly Summary</option>
                 </select>
               </div>
             </div>
@@ -826,7 +844,8 @@ export default function PublicListPageView() {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Suggest Company Modal */}

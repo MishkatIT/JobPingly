@@ -5,20 +5,82 @@ import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import {
   ShieldAlert, Cpu, Zap, RefreshCw, Flag, Layers, Users, Activity, History, UserCheck,
-  ExternalLink, Play, Search, ArrowLeft, Mail, CheckCircle2, Clock, XCircle, Plus, CheckCheck, CheckSquare, Square, PauseCircle, PlayCircle, Timer, Sliders, ChevronLeft, ChevronRight, Lock, Trash2, Ban, MailCheck, UserX
+  ExternalLink, Play, Search, ArrowLeft, Mail, CheckCircle2, Clock, XCircle, Plus, CheckCheck, CheckSquare, Square, PauseCircle, PlayCircle, Timer, Sliders, ChevronLeft, ChevronRight, Lock, Trash2, Ban, MailCheck, UserX, Edit3, Globe, Eye, X,
+  LayoutGrid, Grid2X2, List, Crown, GitFork
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
+import { PublicUserProfileModal } from '@/components/PublicUserProfileModal';
+import { Badge } from '@/components/Badge';
 
 export default function AdminDashboardPage() {
   const toast = useToast();
   const [mounted, setMounted] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'emails' | 'users' | 'unverified' | 'issues' | 'audit'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'emails' | 'users' | 'watchlists' | 'unverified' | 'issues' | 'audit'>('overview');
   const [data, setData] = useState<any>(null);
   const [flags, setFlags] = useState<any[]>([]);
   const [userList, setUserList] = useState<any[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+
+  // Watch Lists Paginated State (Admin Moderation)
+  const [watchlistList, setWatchlistList] = useState<any[]>([]);
+  const [watchlistPage, setWatchlistPage] = useState(1);
+  const [watchlistLimit, setWatchlistLimit] = useState(10);
+  const [watchlistPagination, setWatchlistPagination] = useState({ total: 0, page: 1, limit: 10, totalPages: 1 });
+  const [watchlistSearch, setWatchlistSearch] = useState('');
+  const [debouncedWatchlistSearch, setDebouncedWatchlistSearch] = useState('');
+  const [watchlistVisibilityFilter, setWatchlistVisibilityFilter] = useState<'all' | 'public' | 'private'>('all');
+  const [watchlistCanonicalFilter, setWatchlistCanonicalFilter] = useState<'all' | 'canonical' | 'non-canonical'>('all');
+  const [watchlistUserIdFilter, setWatchlistUserIdFilter] = useState('');
+  const [loadingWatchlists, setLoadingWatchlists] = useState(false);
+  const [watchlistViewMode, setWatchlistViewMode] = useState<'grid' | 'tiles' | 'table'>('grid');
+
+  // Watch List Edit Modal State
+  const [editingWatchlist, setEditingWatchlist] = useState<any>(null);
+  const [editWatchlistName, setEditWatchlistName] = useState('');
+  const [editWatchlistSlug, setEditWatchlistSlug] = useState('');
+  const [editWatchlistDescription, setEditWatchlistDescription] = useState('');
+  const [editWatchlistVisibility, setEditWatchlistVisibility] = useState<'public' | 'private'>('private');
+  const [editWatchlistIsCanonical, setEditWatchlistIsCanonical] = useState(true);
+  const [savingWatchlist, setSavingWatchlist] = useState(false);
+
+  // Watch Lists Multi-Select State
+  const [selectedWatchlistIds, setSelectedWatchlistIds] = useState<string[]>([]);
+  const [processingWatchlistBatch, setProcessingWatchlistBatch] = useState(false);
+
+  // User Subscriptions & URLs Inspection Modal State
+  const [inspectingEmail, setInspectingEmail] = useState<string | null>(null);
+  const [inspectionData, setInspectionData] = useState<any>(null);
+  const [loadingInspection, setLoadingInspection] = useState(false);
+  const [inspectionActiveTab, setInspectionActiveTab] = useState<'subscribed' | 'owned' | 'urls'>('subscribed');
+
+  const handleInspectSubscriptions = async (email: string) => {
+    if (!email) return;
+    setInspectingEmail(email);
+    setLoadingInspection(true);
+    setInspectionData(null);
+    setInspectionActiveTab('subscribed');
+    try {
+      const res = await fetch(`/api/admin/user-subscriptions?email=${encodeURIComponent(email)}`);
+      if (res.ok) {
+        const json = await res.json();
+        setInspectionData(json);
+        if ((json.subscribedListsCount || 0) === 0 && (json.ownedListsCount || 0) > 0) {
+          setInspectionActiveTab('owned');
+        } else if ((json.totalListsCount || 0) === 0 && (json.totalUniqueUrlsCount || 0) > 0) {
+          setInspectionActiveTab('urls');
+        }
+      } else {
+        toast.error('Failed to load user subscriptions.');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to inspect user subscriptions');
+    } finally {
+      setLoadingInspection(false);
+    }
+  };
 
   useEffect(() => {
     setMounted(true);
@@ -154,6 +216,8 @@ export default function AdminDashboardPage() {
     }
   };
 
+  const [pendingEmailsCountState, setPendingEmailsCountState] = useState<number | null>(null);
+
   const fetchPaginatedEmails = async (p: number, q: string, l: number, status: string) => {
     setLoadingEmails(true);
     try {
@@ -162,6 +226,9 @@ export default function AdminDashboardPage() {
         const json = await res.json();
         setEmailApprovals(json.emailApprovals || []);
         setEmailPagination(json.pagination || { total: 0, page: p, limit: l, totalPages: 1 });
+        if (json.pendingCount !== undefined) {
+          setPendingEmailsCountState(json.pendingCount);
+        }
       }
     } catch (e) {
       console.error(e);
@@ -352,10 +419,185 @@ export default function AdminDashboardPage() {
     }
   };
 
+  // Watchlists search debounce
   useEffect(() => {
+    const timer = setTimeout(() => setDebouncedWatchlistSearch(watchlistSearch), 300);
+    return () => clearTimeout(timer);
+  }, [watchlistSearch]);
+
+  const fetchPaginatedWatchlists = async (
+    p: number,
+    q: string,
+    l: number,
+    vis: string,
+    canon: string,
+    uId: string
+  ) => {
+    setLoadingWatchlists(true);
+    try {
+      const url = `/api/admin/watchlists?page=${p}&limit=${l}&search=${encodeURIComponent(q)}&visibility=${vis}&canonical=${canon}&userId=${encodeURIComponent(uId)}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const json = await res.json();
+        setWatchlistList(json.lists || []);
+        setWatchlistPagination(json.pagination || { total: 0, page: 1, limit: 10, totalPages: 1 });
+      } else {
+        toast.error('Failed to load watchlists.');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Error loading watchlists');
+    } finally {
+      setLoadingWatchlists(false);
+    }
+  };
+
+  const handleOpenEditWatchlist = (wl: any) => {
+    setEditingWatchlist(wl);
+    setEditWatchlistName(wl.name || '');
+    setEditWatchlistSlug(wl.slug || '');
+    setEditWatchlistDescription(wl.description || '');
+    setEditWatchlistVisibility(wl.visibility || 'private');
+    setEditWatchlistIsCanonical(wl.isCanonical !== false);
+  };
+
+  const handleSaveEditWatchlist = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingWatchlist) return;
+    setSavingWatchlist(true);
+    try {
+      const res = await fetch(`/api/admin/watchlists/${editingWatchlist.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editWatchlistName,
+          slug: editWatchlistSlug,
+          description: editWatchlistDescription,
+          visibility: editWatchlistVisibility,
+          isCanonical: editWatchlistIsCanonical,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to update watchlist');
+      toast.success('Watchlist updated successfully!');
+      setEditingWatchlist(null);
+      fetchPaginatedWatchlists(
+        watchlistPage,
+        debouncedWatchlistSearch,
+        watchlistLimit,
+        watchlistVisibilityFilter,
+        watchlistCanonicalFilter,
+        watchlistUserIdFilter
+      );
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update watchlist');
+    } finally {
+      setSavingWatchlist(false);
+    }
+  };
+
+  const handleDeleteWatchlist = async (listId: string, listName: string) => {
+    if (!confirm(`ADMIN ACTION: Are you sure you want to permanently delete the watchlist "${listName}"?`)) return;
+    try {
+      const res = await fetch(`/api/admin/watchlists/${listId}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to delete watchlist');
+      toast.success(json.message || 'Watchlist deleted.');
+      fetchPaginatedWatchlists(
+        watchlistPage,
+        debouncedWatchlistSearch,
+        watchlistLimit,
+        watchlistVisibilityFilter,
+        watchlistCanonicalFilter,
+        watchlistUserIdFilter
+      );
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete watchlist');
+    }
+  };
+
+  const handleToggleWatchlistSelect = (id: string) => {
+    setSelectedWatchlistIds(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const handleToggleSelectAllWatchlists = () => {
+    const currentPageIds = watchlistList.map(l => l.id);
+    const allSelected = currentPageIds.length > 0 && currentPageIds.every(id => selectedWatchlistIds.includes(id));
+    if (allSelected) {
+      setSelectedWatchlistIds(prev => prev.filter(id => !currentPageIds.includes(id)));
+    } else {
+      setSelectedWatchlistIds(prev => Array.from(new Set([...prev, ...currentPageIds])));
+    }
+  };
+
+  const handleBatchWatchlistAction = async (action: 'delete' | 'make_public' | 'make_private' | 'make_canonical') => {
+    if (selectedWatchlistIds.length === 0) return;
+    const actionLabel = action === 'delete' ? 'delete' : action === 'make_public' ? 'make public' : action === 'make_private' ? 'make private' : 'mark as verified canonical';
+    if (!confirm(`ADMIN ACTION: Are you sure you want to ${actionLabel} ${selectedWatchlistIds.length} selected watchlist(s)?`)) return;
+
+    setProcessingWatchlistBatch(true);
+    try {
+      const res = await fetch('/api/admin/watchlists/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, listIds: selectedWatchlistIds }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Batch action failed');
+      toast.success(json.message || 'Batch action completed successfully!');
+      setSelectedWatchlistIds([]);
+      fetchPaginatedWatchlists(
+        watchlistPage,
+        debouncedWatchlistSearch,
+        watchlistLimit,
+        watchlistVisibilityFilter,
+        watchlistCanonicalFilter,
+        watchlistUserIdFilter
+      );
+    } catch (err: any) {
+      toast.error(err.message || 'Batch action failed');
+    } finally {
+      setProcessingWatchlistBatch(false);
+    }
+  };
+
+  const handleTabChange = (tab: 'overview' | 'emails' | 'users' | 'watchlists' | 'unverified' | 'issues' | 'audit') => {
+    setActiveTab(tab);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', tab);
+      window.history.replaceState({}, '', url.toString());
+      try {
+        localStorage.setItem('admin_active_tab', tab);
+      } catch {}
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const urlTab = params.get('tab') as any;
+      const savedTab = localStorage.getItem('admin_active_tab') as any;
+      const validTabs = ['overview', 'emails', 'users', 'watchlists', 'unverified', 'issues', 'audit'];
+      const initialTab = validTabs.includes(urlTab) ? urlTab : validTabs.includes(savedTab) ? savedTab : 'overview';
+      if (initialTab !== activeTab) {
+        setActiveTab(initialTab);
+      }
+    }
     // Initial fetch for badge counts
     fetchUnverifiedUsers(1, '', 10);
     fetchPaginatedIssues(1, '', 10, 'open', 'all');
+
+    // Trigger immediate background sync check for due links
+    fetch('/api/admin/career-pages/cron-check', { method: 'POST' }).catch(() => null);
+
+    // Periodic background auto-sync runner for due links (every 60s)
+    const autoSyncInterval = setInterval(() => {
+      fetch('/api/admin/career-pages/cron-check', { method: 'POST' }).catch(() => null);
+    }, 60000);
+
+    return () => clearInterval(autoSyncInterval);
   }, []);
 
   useEffect(() => {
@@ -365,12 +607,29 @@ export default function AdminDashboardPage() {
       fetchPaginatedEmails(emailPage, debouncedEmailSearch, emailLimit, emailStatusFilter);
     } else if (activeTab === 'users') {
       fetchPaginatedUsers(userPage, debouncedUserSearch, userLimit, userRoleFilter);
+    } else if (activeTab === 'watchlists') {
+      fetchPaginatedWatchlists(
+        watchlistPage,
+        debouncedWatchlistSearch,
+        watchlistLimit,
+        watchlistVisibilityFilter,
+        watchlistCanonicalFilter,
+        watchlistUserIdFilter
+      );
     } else if (activeTab === 'unverified') {
       fetchUnverifiedUsers(unverifiedPage, debouncedUnverifiedSearch, unverifiedLimit);
     } else if (activeTab === 'issues') {
       fetchPaginatedIssues(issuesPage, debouncedIssuesSearch, issuesLimit, issuesStatusFilter, issuesCategoryFilter);
     }
-  }, [companyPage, debouncedCompanySearch, companyLimit, emailPage, debouncedEmailSearch, emailLimit, emailStatusFilter, userPage, debouncedUserSearch, userLimit, userRoleFilter, unverifiedPage, debouncedUnverifiedSearch, unverifiedLimit, issuesPage, debouncedIssuesSearch, issuesLimit, issuesStatusFilter, issuesCategoryFilter, activeTab]);
+  }, [
+    companyPage, debouncedCompanySearch, companyLimit,
+    emailPage, debouncedEmailSearch, emailLimit, emailStatusFilter,
+    userPage, debouncedUserSearch, userLimit, userRoleFilter,
+    watchlistPage, debouncedWatchlistSearch, watchlistLimit, watchlistVisibilityFilter, watchlistCanonicalFilter, watchlistUserIdFilter,
+    unverifiedPage, debouncedUnverifiedSearch, unverifiedLimit,
+    issuesPage, debouncedIssuesSearch, issuesLimit, issuesStatusFilter, issuesCategoryFilter,
+    activeTab
+  ]);
 
   // Audit Logs fetch helper
   const fetchAuditLogsPage = async (pageToFetch: number, append = false) => {
@@ -455,6 +714,9 @@ export default function AdminDashboardPage() {
       if (overviewRes.ok) {
         const json = await overviewRes.json();
         setData(json);
+        if (json.metrics?.pendingEmailsCount !== undefined) {
+          setPendingEmailsCountState(json.metrics.pendingEmailsCount);
+        }
       }
       if (flagsRes.ok) {
         const fJson = await flagsRes.json();
@@ -1055,7 +1317,7 @@ export default function AdminDashboardPage() {
   }
 
   const { metrics } = data;
-  const pendingEmailCount = metrics.pendingEmailsCount || 0;
+  const pendingEmailCount = pendingEmailsCountState ?? metrics?.pendingEmailsCount ?? 0;
 
   const filteredUsers = userList.filter(u =>
     u.name?.toLowerCase().includes(userSearch.toLowerCase()) ||
@@ -1136,7 +1398,7 @@ export default function AdminDashboardPage() {
         {/* Tab Controls Bar */}
         <div className="flex items-center gap-3 border-t border-slate-200 dark:border-slate-800/80 pt-4 flex-wrap">
           <button
-            onClick={() => setActiveTab('overview')}
+            onClick={() => handleTabChange('overview')}
             className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
               activeTab === 'overview'
                 ? 'bg-blue-600 text-white shadow-md'
@@ -1147,7 +1409,7 @@ export default function AdminDashboardPage() {
           </button>
 
           <button
-            onClick={() => setActiveTab('emails')}
+            onClick={() => handleTabChange('emails')}
             className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
               activeTab === 'emails'
                 ? 'bg-blue-600 text-white shadow-md'
@@ -1155,15 +1417,17 @@ export default function AdminDashboardPage() {
             }`}
           >
             <Mail className="w-4 h-4" /> Email Approvals
-            {pendingEmailCount > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-extrabold animate-pulse">
-                {pendingEmailCount}
-              </span>
-            )}
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+              pendingEmailCount > 0
+                ? 'bg-amber-500 text-white animate-pulse'
+                : 'bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-300/60 dark:border-slate-700/60'
+            }`}>
+              {pendingEmailCount}
+            </span>
           </button>
 
           <button
-            onClick={() => setActiveTab('users')}
+            onClick={() => handleTabChange('users')}
             className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
               activeTab === 'users'
                 ? 'bg-blue-600 text-white shadow-md'
@@ -1174,7 +1438,21 @@ export default function AdminDashboardPage() {
           </button>
 
           <button
-            onClick={() => setActiveTab('unverified')}
+            onClick={() => handleTabChange('watchlists')}
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              activeTab === 'watchlists'
+                ? 'bg-blue-600 text-white shadow-md'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
+            }`}
+          >
+            <Layers className="w-4 h-4 text-purple-500 dark:text-purple-400" /> Watch Lists
+            <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-700 dark:text-purple-300 text-[10px] font-extrabold border border-purple-500/30">
+              {watchlistPagination.total}
+            </span>
+          </button>
+
+          <button
+            onClick={() => handleTabChange('unverified')}
             className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
               activeTab === 'unverified'
                 ? 'bg-blue-600 text-white shadow-md'
@@ -1182,15 +1460,13 @@ export default function AdminDashboardPage() {
             }`}
           >
             <Clock className="w-4 h-4 text-amber-500 dark:text-amber-400" /> Unverified Emails
-            {unverifiedPagination.total > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 text-[10px] font-extrabold border border-amber-500/30">
-                {unverifiedPagination.total}
-              </span>
-            )}
+            <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 text-[10px] font-extrabold border border-amber-500/30">
+              {unverifiedPagination.total}
+            </span>
           </button>
 
           <button
-            onClick={() => setActiveTab('issues')}
+            onClick={() => handleTabChange('issues')}
             className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
               activeTab === 'issues'
                 ? 'bg-blue-600 text-white shadow-md'
@@ -1198,15 +1474,17 @@ export default function AdminDashboardPage() {
             }`}
           >
             <ShieldAlert className="w-4 h-4 text-rose-500" /> Reported Issues
-            {openIssuesCount > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-extrabold animate-pulse">
-                {openIssuesCount}
-              </span>
-            )}
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+              openIssuesCount > 0
+                ? 'bg-rose-500 text-white animate-pulse'
+                : 'bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-300/60 dark:border-slate-700/60'
+            }`}>
+              {openIssuesCount}
+            </span>
           </button>
 
           <button
-            onClick={() => setActiveTab('audit')}
+            onClick={() => handleTabChange('audit')}
             className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
               activeTab === 'audit'
                 ? 'bg-blue-600 text-white shadow-md'
@@ -2012,6 +2290,14 @@ export default function AdminDashboardPage() {
                         <span className="text-slate-500 dark:text-slate-400 text-xs mt-0.5 block">
                           {e.userName ? `Account: ${e.userName}` : 'Manual Entry'}
                         </span>
+                        <button
+                          type="button"
+                          onClick={() => handleInspectSubscriptions(e.email)}
+                          className="text-[10px] font-bold text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-1 mt-1 cursor-pointer"
+                          title="Inspect watch lists and URLs sending emails to this address"
+                        >
+                          <Layers className="w-3 h-3" /> Audit Lists &amp; URLs
+                        </button>
                       </td>
 
                       <td className="py-3.5 px-4">
@@ -2204,15 +2490,30 @@ export default function AdminDashboardPage() {
                 ) : userList.map((u: any) => (
                   <tr key={u.id} className="hover:bg-slate-100/60 dark:hover:bg-slate-900/40">
                     <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-slate-900 dark:text-white text-sm block">{u.name || 'User'}</span>
-                        {u.isEnvAdmin && (
-                          <span className="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-[10px] font-extrabold uppercase flex items-center gap-1">
-                            <Lock className="w-3 h-3" /> ENV SUPERADMIN
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-slate-500 dark:text-slate-400 text-xs">{u.email}</span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedUserId(u.id)}
+                        className="text-left group/user cursor-pointer"
+                        title="Click to view User Profile & Published Watchlists"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-900 dark:text-white text-sm block group-hover/user:underline group-hover/user:text-blue-600 dark:group-hover/user:text-blue-400 transition-colors">{u.name || 'User'}</span>
+                          {u.isEnvAdmin && (
+                            <span className="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-[10px] font-extrabold uppercase flex items-center gap-1">
+                              <Lock className="w-3 h-3" /> ENV SUPERADMIN
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-slate-500 dark:text-slate-400 text-xs block group-hover/user:underline">{u.email}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleInspectSubscriptions(u.email)}
+                        className="text-[10px] font-bold text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-1 mt-1 cursor-pointer"
+                        title="Inspect watch lists and URLs sending emails to this user"
+                      >
+                        <Layers className="w-3 h-3" /> Audit Lists &amp; URLs
+                      </button>
                     </td>
 
                     <td className="py-3.5 px-4">
@@ -2311,6 +2612,618 @@ export default function AdminDashboardPage() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ALL WATCH LISTS MODERATION TAB WITH SERVER PAGINATION & SEARCH */}
+      {activeTab === 'watchlists' && (
+        <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                <Layers className="w-4 h-4 text-purple-500" />
+                All Watch Lists Moderation ({watchlistPagination.total})
+              </h2>
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                Browse, search by user or list name, edit details, or delete watch lists created by all users across the platform.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {/* View Mode Switcher */}
+              <div className="flex items-center bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setWatchlistViewMode('grid')}
+                  className={`p-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    watchlistViewMode === 'grid'
+                      ? 'bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="Grid Cards View"
+                >
+                  <LayoutGrid className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWatchlistViewMode('tiles')}
+                  className={`p-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    watchlistViewMode === 'tiles'
+                      ? 'bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="Compact Tiles View"
+                >
+                  <Grid2X2 className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWatchlistViewMode('table')}
+                  className={`p-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    watchlistViewMode === 'table'
+                      ? 'bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="Table List View"
+                >
+                  <List className="w-4 h-4" />
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => fetchPaginatedWatchlists(watchlistPage, debouncedWatchlistSearch, watchlistLimit, watchlistVisibilityFilter, watchlistCanonicalFilter, watchlistUserIdFilter)}
+                className="px-3.5 py-2 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-600 dark:text-purple-400 hover:bg-purple-500/20 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingWatchlists ? 'animate-spin' : ''}`} />
+                Refresh Watch Lists
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+            {/* Filter controls row */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {/* Search Bar */}
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={watchlistSearch}
+                  onChange={e => { setWatchlistSearch(e.target.value); setWatchlistPage(1); }}
+                  placeholder="Search list name, slug, email..."
+                  className="w-full pl-10 pr-4 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-purple-500"
+                />
+              </div>
+
+              {/* Specific User Filter */}
+              <div className="relative">
+                <Users className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={watchlistUserIdFilter}
+                  onChange={e => { setWatchlistUserIdFilter(e.target.value); setWatchlistPage(1); }}
+                  placeholder="Filter by User ID or Email..."
+                  className="w-full pl-10 pr-8 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-purple-500"
+                />
+                {watchlistUserIdFilter && (
+                  <button
+                    onClick={() => { setWatchlistUserIdFilter(''); setWatchlistPage(1); }}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Visibility Filter */}
+              <select
+                value={watchlistVisibilityFilter}
+                onChange={e => { setWatchlistVisibilityFilter(e.target.value as any); setWatchlistPage(1); }}
+                className="px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
+              >
+                <option value="all">All Visibilities</option>
+                <option value="public">Public Only</option>
+                <option value="private">Private Only</option>
+              </select>
+
+              {/* Canonical / Items Per Page */}
+              <div className="flex items-center gap-2">
+                <select
+                  value={watchlistCanonicalFilter}
+                  onChange={e => { setWatchlistCanonicalFilter(e.target.value as any); setWatchlistPage(1); }}
+                  className="w-full px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
+                >
+                  <option value="all">All Lineages</option>
+                  <option value="canonical">Verified Canonical</option>
+                  <option value="non-canonical">Non-Canonical</option>
+                </select>
+
+                <select
+                  value={watchlistLimit}
+                  onChange={e => { setWatchlistLimit(Number(e.target.value)); setWatchlistPage(1); }}
+                  className="px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer shrink-0"
+                >
+                  <option value={10}>10/page</option>
+                  <option value={25}>25/page</option>
+                  <option value={50}>50/page</option>
+                  <option value={100}>100/page</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Batch Actions Toolbar */}
+          {selectedWatchlistIds.length > 0 && (
+            <div className="p-3.5 rounded-2xl bg-purple-500/10 border border-purple-500/30 flex flex-wrap items-center justify-between gap-3 animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-1 rounded-lg bg-purple-600 text-white font-bold text-xs">
+                  {selectedWatchlistIds.length} Selected
+                </span>
+                <span className="text-xs text-purple-700 dark:text-purple-300 font-semibold">
+                  Batch actions for selected watch lists:
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  disabled={processingWatchlistBatch}
+                  onClick={() => handleBatchWatchlistAction('make_public')}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-sm cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                >
+                  <Globe className="w-3.5 h-3.5" /> Make Public
+                </button>
+
+                <button
+                  type="button"
+                  disabled={processingWatchlistBatch}
+                  onClick={() => handleBatchWatchlistAction('make_private')}
+                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold transition-all shadow-sm cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                >
+                  <Lock className="w-3.5 h-3.5" /> Make Private
+                </button>
+
+                <button
+                  type="button"
+                  disabled={processingWatchlistBatch}
+                  onClick={() => handleBatchWatchlistAction('make_canonical')}
+                  className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-sm cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Verify Canonical
+                </button>
+
+                <button
+                  type="button"
+                  disabled={processingWatchlistBatch}
+                  onClick={() => handleBatchWatchlistAction('delete')}
+                  className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-all shadow-sm cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Delete Selected
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedWatchlistIds([])}
+                  className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+                >
+                  Clear Selection
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Watchlists Directory Views (Grid, Tiles, or Table) */}
+          {loadingWatchlists ? (
+            <div className="py-12 text-center">
+              <LoadingSpinner message="Loading watch lists directory..." fullPage={false} />
+            </div>
+          ) : watchlistList.length === 0 ? (
+            <div className="glass-panel p-12 rounded-3xl text-center border-slate-200 dark:border-slate-800">
+              <Globe className="w-12 h-12 text-slate-400 dark:text-slate-600 mx-auto mb-4" />
+              <h3 className="text-base font-bold text-slate-900 dark:text-white mb-1">No Watch Lists Found</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">No watch lists match the specified search or filter criteria.</p>
+            </div>
+          ) : watchlistViewMode !== 'table' ? (
+            /* VIEW 1 & 2: Grid & Compact Tiles View */
+            <div className={watchlistViewMode === 'tiles' ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4' : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'}>
+              {watchlistList.map(wl => (
+                <div key={wl.id} className={`glass-card rounded-2xl border border-slate-200/80 dark:border-slate-800/80 flex flex-col justify-between hover:shadow-xl hover:border-purple-500/30 transition-all duration-300 group relative ${selectedWatchlistIds.includes(wl.id) ? 'bg-purple-500/5 dark:bg-purple-500/10 border-purple-500/40' : ''} ${watchlistViewMode === 'tiles' ? 'p-4 space-y-3' : 'p-6 space-y-4'}`}>
+                  <div className="space-y-3">
+                    {/* Top Header Badge & Multi-select Checkbox */}
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={selectedWatchlistIds.includes(wl.id)}
+                          onChange={() => handleToggleWatchlistSelect(wl.id)}
+                          className={`w-4 h-4 rounded text-purple-600 focus:ring-purple-500 cursor-pointer transition-opacity duration-200 ${
+                            selectedWatchlistIds.length > 0 || selectedWatchlistIds.includes(wl.id)
+                              ? 'opacity-100'
+                              : 'opacity-0 group-hover:opacity-100'
+                          }`}
+                          title="Select for batch action"
+                        />
+                        <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase flex items-center gap-1 ${
+                          wl.visibility === 'public'
+                            ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
+                        }`}>
+                          {wl.visibility === 'public' ? <Globe className="w-3 h-3 text-emerald-500" /> : <Lock className="w-3 h-3 text-slate-400" />}
+                          {wl.visibility}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {wl.isCanonical !== false && <Badge variant="canonical">Verified</Badge>}
+                        {wl.parentListId && <Badge variant="forked" />}
+                      </div>
+                    </div>
+
+                    {/* Title & Description */}
+                    <div>
+                      <Link href={`/lists/${wl.slug}`} target="_blank" className="block group/title hover:underline decoration-purple-500/50">
+                        <h3 className={`font-extrabold text-slate-900 dark:text-white tracking-tight group-hover/title:text-purple-600 dark:group-hover/title:text-purple-400 transition-colors ${watchlistViewMode === 'tiles' ? 'text-base leading-snug' : 'text-xl'}`}>
+                          {wl.name}
+                        </h3>
+                      </Link>
+                      {wl.description && (
+                        <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2 mt-1 leading-relaxed">
+                          {wl.description}
+                        </p>
+                      )}
+                      <span className="inline-block text-[10px] font-mono text-purple-600 dark:text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-md border border-purple-500/20 mt-1.5">
+                        /{wl.slug}
+                      </span>
+                    </div>
+
+                    {/* Stats Badges Bar */}
+                    <div className="flex items-center gap-1.5 pt-0.5 flex-wrap">
+                      <Badge variant="company" count={wl.companyCount || 0} />
+                      <Badge variant="job" count={wl.jobCount || 0} />
+                      {wl.followerCount > 0 && (
+                        <Badge variant="follower" count={wl.followerCount} />
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Card Footer */}
+                  <div className="pt-3 border-t border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between gap-2">
+                    {/* Curator Avatar & Name (Clicking opens Curator Profile Modal!) */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (wl.userId) setSelectedUserId(wl.userId);
+                      }}
+                      className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 group/user transition-colors cursor-pointer text-left truncate"
+                      title="Click to view Curator Profile"
+                    >
+                      {wl.userAvatarUrl ? (
+                        <img src={wl.userAvatarUrl} alt={wl.userName || 'User'} className="w-4 h-4 rounded-full object-cover border border-slate-200 dark:border-slate-700 shrink-0" />
+                      ) : (
+                        <div className="w-4 h-4 rounded-full bg-blue-600 text-white font-bold text-[8px] flex items-center justify-center shrink-0 shadow-sm">
+                          {(wl.userName?.[0] || 'U').toUpperCase()}
+                        </div>
+                      )}
+                      <span className="truncate max-w-[90px] font-semibold text-slate-700 dark:text-slate-300 group-hover/user:underline">
+                        {wl.userName || 'Curator'}
+                      </span>
+                    </button>
+
+                    {/* Action Controls - Visible on Card Hover */}
+                    <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditWatchlist(wl)}
+                        className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-blue-600 dark:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                        title="Edit Watchlist Details"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteWatchlist(wl.id, wl.name)}
+                        className="p-1.5 rounded-lg border border-rose-500/30 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer"
+                        title="Delete Watchlist"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+
+                      <Link
+                        href={`/lists/${wl.slug}`}
+                        target="_blank"
+                        className="text-xs font-semibold text-purple-600 dark:text-purple-400 flex items-center gap-1 pl-1 transition-all"
+                        title="View Public Openings Page"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            /* VIEW 3: Table List View */
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs sm:text-sm text-slate-800 dark:text-slate-200">
+                <thead className="bg-slate-100 dark:bg-slate-900/90 text-slate-600 dark:text-slate-400 uppercase font-semibold border-b border-slate-200 dark:border-slate-800 text-xs">
+                  <tr>
+                    <th className="py-3.5 px-4 w-10">
+                      <input
+                        type="checkbox"
+                        checked={watchlistList.length > 0 && watchlistList.every(l => selectedWatchlistIds.includes(l.id))}
+                        onChange={handleToggleSelectAllWatchlists}
+                        className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
+                        title="Select all watch lists on this page"
+                      />
+                    </th>
+                    <th className="py-3.5 px-4">Watch List &amp; Slug</th>
+                    <th className="py-3.5 px-4">Curator / Owner</th>
+                    <th className="py-3.5 px-4">Visibility &amp; Lineage</th>
+                    <th className="py-3.5 px-4">Monitored Metrics</th>
+                    <th className="py-3.5 px-4">Created Date</th>
+                    <th className="py-3.5 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-800/80">
+                  {watchlistList.map((wl: any) => (
+                    <tr key={wl.id} className={`hover:bg-slate-100/60 dark:hover:bg-slate-900/40 ${selectedWatchlistIds.includes(wl.id) ? 'bg-purple-500/5 dark:bg-purple-500/10' : ''}`}>
+                      <td className="py-3.5 px-4">
+                        <input
+                          type="checkbox"
+                          checked={selectedWatchlistIds.includes(wl.id)}
+                          onChange={() => handleToggleWatchlistSelect(wl.id)}
+                          className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
+                        />
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <div className="space-y-1">
+                          <Link
+                            href={`/lists/${wl.slug}`}
+                            target="_blank"
+                            className="font-bold text-slate-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 text-sm flex items-center gap-1.5 transition-colors"
+                          >
+                            {wl.name}
+                            <ExternalLink className="w-3 h-3 text-slate-400" />
+                          </Link>
+                          {wl.description && (
+                            <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1 max-w-xs">{wl.description}</p>
+                          )}
+                          <span className="inline-block text-[10px] font-mono text-purple-600 dark:text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-md border border-purple-500/20">
+                            /{wl.slug}
+                          </span>
+                        </div>
+                      </td>
+
+                      <td className="py-3.5 px-4">
+                        <div className="space-y-1">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (wl.userId) setSelectedUserId(wl.userId);
+                            }}
+                            className="flex items-center gap-1.5 font-semibold text-slate-800 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer text-left text-xs group/user"
+                            title="Click to view Curator Profile"
+                          >
+                            {wl.userAvatarUrl ? (
+                              <img src={wl.userAvatarUrl} alt={wl.userName || 'User'} className="w-4 h-4 rounded-full object-cover shrink-0" />
+                            ) : (
+                              <div className="w-4 h-4 rounded-full bg-blue-600 text-white font-bold text-[8px] flex items-center justify-center shrink-0">
+                                {(wl.userName?.[0] || 'U').toUpperCase()}
+                              </div>
+                            )}
+                            <span className="underline-offset-2 group-hover/user:underline">{wl.userName || 'User'}</span>
+                          </button>
+                          <span className="text-[11px] text-slate-500 dark:text-slate-400 block truncate max-w-[160px]">{wl.userEmail || wl.userId}</span>
+                          <button
+                            onClick={() => { setWatchlistUserIdFilter(wl.userId); setWatchlistPage(1); }}
+                            className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 hover:underline inline-block"
+                          >
+                            Filter user lists
+                          </button>
+                        </div>
+                      </td>
+
+                      <td className="py-3.5 px-4">
+                        <div className="flex flex-col gap-1 items-start">
+                          <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold uppercase flex items-center gap-1 ${
+                            wl.visibility === 'public'
+                              ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
+                          }`}>
+                            {wl.visibility === 'public' ? <Globe className="w-3 h-3 text-emerald-500" /> : <Lock className="w-3 h-3 text-slate-400" />}
+                            {wl.visibility}
+                          </span>
+
+                          {wl.isCanonical !== false && (
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                              Verified Canonical
+                            </span>
+                          )}
+
+                          {wl.parentListId && (
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
+                              Forked List
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      <td className="py-3.5 px-4">
+                        <div className="space-y-1 text-xs">
+                          <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-medium text-slate-700 dark:text-slate-300 block w-fit">
+                            {wl.companyCount || 0} Pages
+                          </span>
+                          <span className="px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 text-[11px] font-medium block w-fit">
+                            {wl.jobCount || 0} Jobs
+                          </span>
+                        </div>
+                      </td>
+
+                      <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 text-xs">
+                        {new Date(wl.createdAt).toLocaleDateString()}
+                      </td>
+
+                      <td className="py-3.5 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => handleOpenEditWatchlist(wl)}
+                            className="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center gap-1 cursor-pointer"
+                            title="Edit Watchlist Details"
+                          >
+                            <Edit3 className="w-3.5 h-3.5 text-blue-500" /> Edit
+                          </button>
+
+                          <button
+                            onClick={() => handleDeleteWatchlist(wl.id, wl.name)}
+                            className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition-colors flex items-center gap-1 cursor-pointer"
+                            title="Permanently Delete Watchlist"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" /> Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Watchlists Pagination Controls */}
+          {watchlistPagination.totalPages > 1 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-200 dark:border-slate-800/80">
+              <span className="text-xs text-slate-500">
+                Page <span className="font-bold text-slate-900 dark:text-white">{watchlistPagination.page}</span> of <span className="font-bold text-slate-900 dark:text-white">{watchlistPagination.totalPages}</span> ({watchlistPagination.total} total watch lists)
+              </span>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setWatchlistPage(prev => Math.max(1, prev - 1))}
+                  disabled={watchlistPage <= 1}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 flex items-center gap-1 cursor-pointer"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" /> Previous
+                </button>
+
+                <button
+                  onClick={() => setWatchlistPage(prev => Math.min(watchlistPagination.totalPages, prev + 1))}
+                  disabled={watchlistPage >= watchlistPagination.totalPages}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 flex items-center gap-1 cursor-pointer"
+                >
+                  Next <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ADMIN WATCHLIST EDIT MODAL */}
+      {editingWatchlist && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="glass-panel max-w-lg w-full p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 space-y-5 bg-white dark:bg-slate-950 shadow-2xl animate-in fade-in zoom-in-95 duration-150 relative">
+            <button
+              onClick={() => setEditingWatchlist(null)}
+              type="button"
+              className="absolute top-5 right-5 text-slate-400 hover:text-slate-900 dark:hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h3 className="text-xl font-extrabold text-slate-900 dark:text-white flex items-center gap-2 pr-6">
+              <Edit3 className="w-5 h-5 text-blue-500" />
+              Edit Watch List Details
+            </h3>
+
+            <form onSubmit={handleSaveEditWatchlist} className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 block">
+                  Watchlist Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editWatchlistName}
+                  onChange={e => setEditWatchlistName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white font-semibold"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 block">
+                  URL Slug *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editWatchlistSlug}
+                  onChange={e => setEditWatchlistSlug(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 block">
+                  Description
+                </label>
+                <textarea
+                  rows={3}
+                  value={editWatchlistDescription}
+                  onChange={e => setEditWatchlistDescription(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 block">
+                    Visibility Mode
+                  </label>
+                  <select
+                    value={editWatchlistVisibility}
+                    onChange={e => setEditWatchlistVisibility(e.target.value as any)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white font-bold cursor-pointer"
+                  >
+                    <option value="public">Public</option>
+                    <option value="private">Private</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center pt-5">
+                  <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 dark:text-slate-300 select-none">
+                    <input
+                      type="checkbox"
+                      checked={editWatchlistIsCanonical}
+                      onChange={e => setEditWatchlistIsCanonical(e.target.checked)}
+                      className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                    />
+                    Verified Canonical
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end pt-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingWatchlist(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingWatchlist}
+                  className="px-5 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-md cursor-pointer transition-all disabled:opacity-50"
+                >
+                  {savingWatchlist ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
@@ -3077,6 +3990,299 @@ export default function AdminDashboardPage() {
         </div>,
         document.body
       )}
+      {/* User Subscriptions & Monitored URLs Audit Modal */}
+      {inspectingEmail && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-3xl w-full p-6 sm:p-8 space-y-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150 my-8">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                    Email Notifications &amp; Subscription Audit
+                  </h2>
+                  <span className="px-2.5 py-0.5 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 text-xs font-bold border border-purple-500/20">
+                    AUDIT
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Inspecting active watch lists and monitored company URLs generating email alerts for{' '}
+                  <strong className="text-slate-900 dark:text-white font-mono">{inspectingEmail}</strong>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInspectingEmail(null)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {loadingInspection ? (
+              <div className="py-12 text-center">
+                <LoadingSpinner message="Auditing user subscriptions & monitored URLs..." fullPage={false} />
+              </div>
+            ) : inspectionData ? (
+              <div className="space-y-5">
+                {/* Overview Summary Badges */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3.5 rounded-2xl bg-purple-500/10 border border-purple-500/20 text-center">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400 block">
+                      Subscribed Lists
+                    </span>
+                    <span className="text-2xl font-black text-purple-700 dark:text-purple-300">
+                      {inspectionData.subscribedListsCount || 0}
+                    </span>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-center">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 block">
+                      Created Watch Lists
+                    </span>
+                    <span className="text-2xl font-black text-blue-700 dark:text-blue-300">
+                      {inspectionData.ownedListsCount || 0}
+                    </span>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-center col-span-2 sm:col-span-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 block">
+                      Total Monitored Company URLs
+                    </span>
+                    <span className="text-2xl font-black text-emerald-700 dark:text-emerald-300">
+                      {inspectionData.totalUniqueUrlsCount || 0} URLs
+                    </span>
+                  </div>
+                </div>
+
+                {/* Sub-Tabs */}
+                <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
+                  <button
+                    type="button"
+                    onClick={() => setInspectionActiveTab('subscribed')}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      inspectionActiveTab === 'subscribed'
+                        ? 'bg-purple-600 text-white shadow-sm'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    Subscribed Lists ({inspectionData.subscribedListsCount || 0})
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setInspectionActiveTab('owned')}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      inspectionActiveTab === 'owned'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    Created Watch Lists ({inspectionData.ownedListsCount || 0})
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setInspectionActiveTab('urls')}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      inspectionActiveTab === 'urls'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    All Monitored URLs ({inspectionData.totalUniqueUrlsCount || 0})
+                  </button>
+                </div>
+
+                {/* Tab 1: Subscribed Lists */}
+                {inspectionActiveTab === 'subscribed' && (
+                  <div className="space-y-4 max-h-[380px] overflow-y-auto pr-1">
+                    {inspectionData.subscribedLists.length === 0 ? (
+                      <div className="py-8 text-center space-y-1">
+                        <p className="text-xs text-slate-500">
+                          This email address is not currently following any other user's public watch lists.
+                        </p>
+                        <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">
+                          💡 Note: Owned watch lists automatically deliver email alerts to the creator.
+                        </p>
+                      </div>
+                    ) : (
+                      inspectionData.subscribedLists.map((sl: any) => (
+                        <div key={sl.id} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <Link
+                                href={`/lists/${sl.slug}`}
+                                target="_blank"
+                                className="font-extrabold text-slate-900 dark:text-white text-sm hover:text-purple-600 dark:hover:text-purple-400 flex items-center gap-1.5"
+                              >
+                                {sl.name} <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+                              </Link>
+                              {sl.description && (
+                                <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1 mt-0.5">{sl.description}</p>
+                              )}
+                              <span className="text-[10px] font-mono text-purple-600 dark:text-purple-400">/{sl.slug}</span>
+                            </div>
+
+                            <div className="flex flex-col items-end gap-1 shrink-0">
+                              <span className="px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-700 dark:text-purple-300 text-[10px] font-extrabold uppercase border border-purple-500/30">
+                                {sl.digestFrequency || 'instant'} digest
+                              </span>
+                              <span className="text-[10px] text-slate-400">Subscribed {new Date(sl.subscribedAt).toLocaleDateString()}</span>
+                            </div>
+                          </div>
+
+                          {/* Attached URLs */}
+                          <div className="space-y-1.5 pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">
+                              Monitored Links in this list ({sl.careerPages.length}):
+                            </span>
+                            {sl.careerPages.length === 0 ? (
+                              <span className="text-xs text-slate-400 italic">No company URLs attached to this list.</span>
+                            ) : (
+                              <div className="space-y-1">
+                                {sl.careerPages.map((cp: any) => (
+                                  <div key={cp.id} className="flex items-center justify-between text-xs p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                                    <div className="truncate max-w-[420px]">
+                                      <span className="font-semibold text-slate-900 dark:text-white mr-2">{cp.companyName || 'Company'}</span>
+                                      <a href={cp.url} target="_blank" rel="noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline text-[11px] truncate">
+                                        {cp.url}
+                                      </a>
+                                    </div>
+                                    <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                                      {cp.atsType || 'generic'}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+
+                {/* Tab 2: Owned Lists */}
+                {inspectionActiveTab === 'owned' && (
+                  <div className="space-y-4 max-h-[380px] overflow-y-auto pr-1">
+                    {inspectionData.ownedLists.length === 0 ? (
+                      <div className="py-8 text-center text-xs text-slate-500">
+                        This user has not created any watch lists.
+                      </div>
+                    ) : (
+                      inspectionData.ownedLists.map((ol: any) => (
+                        <div key={ol.id} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <Link
+                                href={`/lists/${ol.slug}`}
+                                target="_blank"
+                                className="font-extrabold text-slate-900 dark:text-white text-sm hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-1.5"
+                              >
+                                {ol.name} <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+                              </Link>
+                              {ol.description && (
+                                <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1 mt-0.5">{ol.description}</p>
+                              )}
+                              <span className="text-[10px] font-mono text-blue-600 dark:text-blue-400">/{ol.slug}</span>
+                            </div>
+
+                            <div className="flex flex-col items-end gap-1 shrink-0">
+                              <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 text-[10px] font-extrabold uppercase border border-emerald-500/30">
+                                Auto-Subscribed (Owner)
+                              </span>
+                              <span className="px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-700 dark:text-blue-300 text-[10px] font-extrabold uppercase border border-blue-500/30">
+                                {ol.visibility}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Attached URLs */}
+                          <div className="space-y-1.5 pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">
+                              Monitored Links in this list ({ol.careerPages.length}):
+                            </span>
+                            {ol.careerPages.length === 0 ? (
+                              <span className="text-xs text-slate-400 italic">No company URLs attached to this list.</span>
+                            ) : (
+                              <div className="space-y-1">
+                                {ol.careerPages.map((cp: any) => (
+                                  <div key={cp.id} className="flex items-center justify-between text-xs p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                                    <div className="truncate max-w-[420px]">
+                                      <span className="font-semibold text-slate-900 dark:text-white mr-2">{cp.companyName || 'Company'}</span>
+                                      <a href={cp.url} target="_blank" rel="noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline text-[11px] truncate">
+                                        {cp.url}
+                                      </a>
+                                    </div>
+                                    <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                                      {cp.atsType || 'generic'}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+
+                {/* Tab 3: All Monitored Unique URLs */}
+                {inspectionActiveTab === 'urls' && (
+                  <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1">
+                    {inspectionData.uniqueUrls.length === 0 ? (
+                      <div className="py-8 text-center text-xs text-slate-500">
+                        No company career page URLs are currently sending email alerts to this address.
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-slate-200 dark:divide-slate-800 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                        {inspectionData.uniqueUrls.map((cp: any) => (
+                          <div key={cp.id} className="p-3.5 bg-slate-50/50 dark:bg-slate-900/50 hover:bg-slate-100/60 dark:hover:bg-slate-800/60 flex items-center justify-between gap-3">
+                            <div className="space-y-1 truncate max-w-[500px]">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-slate-900 dark:text-white text-xs">{cp.companyName || 'Company Career Page'}</span>
+                                <span className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[9px] font-extrabold uppercase">
+                                  {cp.atsType || 'generic'}
+                                </span>
+                              </div>
+                              <a href={cp.url} target="_blank" rel="noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline text-xs flex items-center gap-1 truncate">
+                                {cp.url} <ExternalLink className="w-3 h-3 text-slate-400" />
+                              </a>
+                            </div>
+
+                            <div className="flex flex-col items-end gap-1 shrink-0">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase ${
+                                cp.status === 'active' ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-600 border border-amber-500/20'
+                              }`}>
+                                {cp.status || 'active'}
+                              </span>
+                              {cp.lastScrapedAt && (
+                                <span className="text-[9px] text-slate-400">Last scraped {new Date(cp.lastScrapedAt).toLocaleTimeString()}</span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : null}
+
+            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setInspectingEmail(null)}
+                className="px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-slate-800 text-white font-bold text-xs hover:bg-slate-800 dark:hover:bg-slate-700 cursor-pointer"
+              >
+                Close Inspection Audit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <PublicUserProfileModal userId={selectedUserId} onClose={() => setSelectedUserId(null)} />
     </div>
   );
 }
