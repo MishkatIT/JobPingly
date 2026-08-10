@@ -12,8 +12,8 @@ import { cleanCareerPageContent } from './cleaner';
 import { generateContentHash } from './hash';
 import { extractJobsWithAI } from './aiExtractor';
 import { db } from '../../../lib/db/client';
-import { careerPages, jobs, scrapeLogs, subscriptions, notificationQueue } from '../../../lib/db/schema';
-import { eq, and, sql } from 'drizzle-orm';
+import { careerPages, jobs, scrapeLogs, subscriptions, listSubscriptions, listCareerPages, lists, notificationQueue } from '../../../lib/db/schema';
+import { eq, and, inArray, sql } from 'drizzle-orm';
 import { matchKeywords } from '../../notifications/src/matcher';
 import { isFeatureEnabled } from '../../../lib/flags/check';
 
@@ -298,26 +298,52 @@ export async function runScraperPipeline(careerPageId: string, options?: { force
       if (!expired) {
         jobsAdded++;
 
-        // Trigger notification queue creation for subscribers matching positive keywords
-        const subs = await db.select().from(subscriptions)
-          .where(and(eq(subscriptions.careerPageId, careerPageId), eq(subscriptions.isActive, true)));
+        // Trigger notification queue creation for subscribers matching positive and negative keywords on active watch lists
+        const activeListPages = await db.select({
+          listId: listCareerPages.listId,
+        })
+        .from(listCareerPages)
+        .where(and(
+          eq(listCareerPages.careerPageId, careerPageId),
+          eq(listCareerPages.isPaused, false)
+        ));
 
-        for (const sub of subs) {
-          const keywordsList = sub.positiveKeywords || [];
-          const matched = matchKeywords(
-            keywordsList,
-            insertedJob.title,
-            insertedJob.department || '',
-            insertedJob.location || ''
-          );
+        const targetListIds = Array.from(new Set(activeListPages.map(lp => lp.listId)));
 
-          if (matched.isMatch) {
-            await db.insert(notificationQueue).values({
-              userId: sub.userId,
-              jobId: insertedJob.id,
-              eventType: 'new',
-              keywordMatched: matched.matchedKeywords,
-            }).onConflictDoNothing();
+        if (targetListIds.length > 0) {
+          const listSubs = await db.select({
+            userId: listSubscriptions.userId,
+            listId: listSubscriptions.listId,
+            positiveKeywords: listSubscriptions.positiveKeywords,
+            negativeKeywords: listSubscriptions.negativeKeywords,
+            digestFrequency: listSubscriptions.digestFrequency,
+          })
+          .from(listSubscriptions)
+          .where(inArray(listSubscriptions.listId, targetListIds));
+
+          for (const sub of listSubs) {
+            const posKeywords = sub.positiveKeywords || [];
+            const negKeywords = sub.negativeKeywords || [];
+
+            const matched = matchKeywords(
+              posKeywords,
+              insertedJob.title,
+              insertedJob.department || '',
+              insertedJob.location || ''
+            );
+
+            const isExcluded = negKeywords.length > 0 && negKeywords.some((kw: string) =>
+              insertedJob.title.toLowerCase().includes(kw.toLowerCase())
+            );
+
+            if (matched.isMatch && !isExcluded) {
+              await db.insert(notificationQueue).values({
+                userId: sub.userId,
+                jobId: insertedJob.id,
+                eventType: 'new',
+                keywordMatched: matched.matchedKeywords,
+              }).onConflictDoNothing().catch(() => null);
+            }
           }
         }
       }
