@@ -4098,10 +4098,9 @@ export default function AdminDashboardPage() {
                     {inspectionData.subscribedLists.length === 0 ? (
                       <div className="py-8 text-center space-y-1">
                         <p className="text-xs text-slate-500">
-                          This email address is not currently following any other user's public watch lists.
+                          This email address is not currently following any other user&apos;s public watch lists.
                         </p>
                         <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">
-                          💡 Note: Owned watch lists automatically deliver email alerts to the creator.
                         </p>
                       </div>
                     ) : (

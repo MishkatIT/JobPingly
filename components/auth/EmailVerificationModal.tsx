@@ -182,7 +182,7 @@ export function EmailVerificationModal({ email, onSuccess, onCancel }: EmailVeri
           </div>
           <h2 className="text-xl font-bold">Verify your email</h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed">
-            We've sent a 6-digit verification code to:<br />
+            We&apos;ve sent a 6-digit verification code to:<br />
             <span className="font-semibold text-slate-900 dark:text-slate-200">{maskEmail(email)}</span>
           </p>
         </div>
@@ -234,7 +234,7 @@ export function EmailVerificationModal({ email, onSuccess, onCancel }: EmailVeri
 
         {/* Resend Section */}
         <div className="mt-6 text-center text-xs text-slate-500 dark:text-slate-400">
-          <p className="mb-2">Didn't receive the code?</p>
+          <p className="mb-2">Didn&apos;t receive the code?</p>
           {countdown > 0 ? (
             <span className="font-medium text-slate-400 dark:text-slate-500">
               Resend code in <strong className="text-blue-600 dark:text-blue-400">{countdown}s</strong>

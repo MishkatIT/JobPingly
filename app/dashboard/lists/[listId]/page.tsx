@@ -1040,7 +1040,7 @@ export default function ListDetailPage() {
               <Briefcase className="w-10 h-10 text-slate-400 dark:text-slate-600 mx-auto mb-2" />
               {searchQuery ? (
                 <>
-                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">No jobs match "{searchQuery}"</p>
+                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">No jobs match &quot;{searchQuery}&quot;</p>
                   <p className="text-xs text-slate-500 dark:text-slate-400">Try searching for a different title, company, or keyword.</p>
                   <button
                     type="button"

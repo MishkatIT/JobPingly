@@ -24,6 +24,11 @@ import {
   Sparkles,
   RefreshCw,
   Users,
+  Bell,
+  Settings,
+  Sliders,
+  Filter,
+  X,
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import LoadingSpinner from '@/components/LoadingSpinner';
@@ -124,6 +129,89 @@ export default function DashboardOverview() {
       console.error(e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Subscribed / Followed Lists State
+  const [activeDashboardTab, setActiveDashboardTab] = useState<'owned' | 'followed'>('owned');
+  const [followedLists, setFollowedLists] = useState<any[]>([]);
+  const [loadingFollowed, setLoadingFollowed] = useState(false);
+
+  // Alert Settings Modal State for Followed List
+  const [editingSubList, setEditingSubList] = useState<any | null>(null);
+  const [subDigestFreq, setSubDigestFreq] = useState<'instant' | 'daily' | 'weekly'>('instant');
+  const [subPosKeys, setSubPosKeys] = useState('');
+  const [subNegKeys, setSubNegKeys] = useState('');
+  const [submittingSub, setSubmittingSub] = useState(false);
+
+  const fetchFollowedLists = async () => {
+    setLoadingFollowed(true);
+    try {
+      const res = await fetch('/api/me/subscriptions');
+      if (res.ok) {
+        const json = await res.json();
+        setFollowedLists(json.subscriptions || []);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingFollowed(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchFollowedLists();
+  }, []);
+
+  const handleUnfollowSub = async (slug: string, name: string) => {
+    if (!confirm(`Unfollow watch list "${name}" and stop receiving email alerts?`)) return;
+    try {
+      const res = await fetch(`/api/public/lists/${slug}/follow`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'unfollow' }),
+      });
+      if (res.ok) {
+        toast.info(`Unfollowed watch list "${name}"`);
+        fetchFollowedLists();
+      } else {
+        toast.error('Failed to unfollow watch list');
+      }
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  };
+
+  const handleUpdateSubAlerts = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSubList) return;
+    setSubmittingSub(true);
+    try {
+      const posArray = subPosKeys.split(',').map(s => s.trim()).filter(Boolean);
+      const negArray = subNegKeys.split(',').map(s => s.trim()).filter(Boolean);
+
+      const res = await fetch(`/api/public/lists/${editingSubList.slug}/follow`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'follow',
+          positiveKeywords: posArray,
+          negativeKeywords: negArray,
+          digestFrequency: subDigestFreq,
+        }),
+      });
+
+      if (res.ok) {
+        toast.success(`Alert settings saved for "${editingSubList.name}"!`);
+        setEditingSubList(null);
+        fetchFollowedLists();
+      } else {
+        toast.error('Failed to update alert preferences');
+      }
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setSubmittingSub(false);
     }
   };
 
@@ -343,7 +431,7 @@ export default function DashboardOverview() {
                     Collaboration Invitation from <span className="text-blue-600 dark:text-blue-400">{inv.inviterName || inv.inviterEmail || 'A user'}</span>
                   </h4>
                   <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
-                    You were invited as an <span className="font-bold uppercase text-blue-600 dark:text-blue-400">{inv.role}</span> to collaborate on watch list <strong className="text-slate-900 dark:text-white">"{inv.listName}"</strong>.
+                    You were invited as an <span className="font-bold uppercase text-blue-600 dark:text-blue-400">{inv.role}</span> to collaborate on watch list <strong className="text-slate-900 dark:text-white">&quot;{inv.listName}&quot;</strong>.
                   </p>
                 </div>
               </div>
@@ -429,14 +517,166 @@ export default function DashboardOverview() {
         </div>
       </div>
 
-      {/* Watch Lists Section Header & View Switcher Bar */}
-      <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <Layers className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-              Your Watch Lists ({pagination.total})
-            </h2>
+      {/* Sub-Tab Navigation Bar: Created Watch Lists vs Followed Watch Lists */}
+      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
+        <button
+          type="button"
+          onClick={() => setActiveDashboardTab('owned')}
+          className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer ${
+            activeDashboardTab === 'owned'
+              ? 'bg-blue-600 text-white shadow-md'
+              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
+          }`}
+        >
+          <Layers className="w-4 h-4" />
+          <span>My Created Watch Lists ({pagination.total})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveDashboardTab('followed')}
+          className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer ${
+            activeDashboardTab === 'followed'
+              ? 'bg-purple-600 text-white shadow-md'
+              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
+          }`}
+        >
+          <Bell className="w-4 h-4" />
+          <span>Followed Lists &amp; Email Alerts ({followedLists.length})</span>
+        </button>
+      </div>
+
+      {activeDashboardTab === 'followed' ? (
+        /* FOLLOWED WATCH LISTS & EMAIL ALERTS VIEW */
+        <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Bell className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                Followed Watch Lists &amp; Alert Subscriptions ({followedLists.length})
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Quickly manage your followed watch lists, active email digest frequencies, and positive/negative keyword filters.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={fetchFollowedLists}
+              className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white flex items-center gap-1.5 cursor-pointer shrink-0"
+            >
+              <RefreshCw className="w-3.5 h-3.5" /> Refresh Subscriptions
+            </button>
+          </div>
+
+          {loadingFollowed ? (
+            <div className="py-12 text-center">
+              <LoadingSpinner message="Loading followed watch lists..." fullPage={false} />
+            </div>
+          ) : followedLists.length === 0 ? (
+            <div className="p-12 text-center rounded-2xl border border-dashed border-slate-300 dark:border-slate-800 space-y-4">
+              <Bell className="w-12 h-12 text-slate-400 dark:text-slate-600 mx-auto" />
+              <div>
+                <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">No Followed Watch Lists</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  You are not currently following any watch lists. Explore public watch lists in the directory to subscribe to job alerts.
+                </p>
+              </div>
+              <Link
+                href="/discover"
+                className="text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white px-4 py-2.5 rounded-xl cursor-pointer shadow-md inline-flex items-center gap-1.5"
+              >
+                <Globe className="w-3.5 h-3.5" /> Explore Public Directory
+              </Link>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {followedLists.map((fl: any) => (
+                <div
+                  key={fl.subId}
+                  className="glass-card p-6 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 flex flex-col justify-between hover:shadow-xl hover:border-purple-500/30 transition-all space-y-4"
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="px-2.5 py-0.5 rounded-md bg-purple-500/10 text-purple-700 dark:text-purple-300 text-[10px] font-extrabold uppercase border border-purple-500/30">
+                        {fl.digestFrequency || 'instant'} digest
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-mono">/{fl.slug}</span>
+                    </div>
+
+                    <div>
+                      <Link
+                        href={`/lists/${fl.slug}`}
+                        className="font-extrabold text-slate-900 dark:text-white text-base hover:text-purple-600 dark:hover:text-purple-400 transition-colors line-clamp-1 flex items-center gap-1.5"
+                      >
+                        {fl.name} <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+                      </Link>
+                      {fl.description && (
+                        <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 mt-1">{fl.description}</p>
+                      )}
+                    </div>
+
+                    {/* Curator Info & Company Count */}
+                    <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
+                      <span>Curated by: <strong className="text-slate-800 dark:text-slate-200">{fl.curator.name}</strong></span>
+                      <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-bold text-[10px] text-slate-600 dark:text-slate-400">{fl.companyCount} Companies</span>
+                    </div>
+
+                    {/* Keywords Summary */}
+                    {(fl.positiveKeywords.length > 0 || fl.negativeKeywords.length > 0) && (
+                      <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] space-y-1">
+                        {fl.positiveKeywords.length > 0 && (
+                          <div className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                            <span className="font-bold">Match:</span>
+                            <span className="truncate">{fl.positiveKeywords.join(', ')}</span>
+                          </div>
+                        )}
+                        {fl.negativeKeywords.length > 0 && (
+                          <div className="flex items-center gap-1 text-rose-600 dark:text-rose-400">
+                            <span className="font-bold">Exclude:</span>
+                            <span className="truncate">{fl.negativeKeywords.join(', ')}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Actions Bar */}
+                  <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingSubList(fl);
+                        setSubDigestFreq(fl.digestFrequency || 'instant');
+                        setSubPosKeys((fl.positiveKeywords || []).join(', '));
+                        setSubNegKeys((fl.negativeKeywords || []).join(', '));
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 hover:bg-purple-500/20 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Sliders className="w-3.5 h-3.5" /> Alert Settings
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleUnfollowSub(fl.slug, fl.name)}
+                      className="px-3 py-1.5 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500/20 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                    >
+                      Unfollow
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        /* OWNED WATCH LISTS VIEW */
+        <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Layers className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                Your Watch Lists ({pagination.total})
+              </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               Select a view layout below to organize your watch lists.
             </p>
@@ -789,6 +1029,7 @@ export default function DashboardOverview() {
           </div>
         )}
       </div>
+      )}
 
       {/* CREATE / EDIT WATCH LIST MODAL */}
       {(showCreateModal || editingList) && mounted && createPortal(
@@ -984,6 +1225,118 @@ export default function DashboardOverview() {
                 >
                   {submitting ? 'Adding Page...' : 'Add Career Page'}
                 </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* EDIT FOLLOWED LIST ALERT SETTINGS MODAL */}
+      {editingSubList && mounted && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl space-y-6 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Sliders className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                  Alert Preferences &amp; Keywords
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Configure alerts for <strong>{editingSubList.name}</strong>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingSubList(null)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateSubAlerts} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                  Digest Frequency
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['instant', 'daily', 'weekly'] as const).map((freq) => (
+                    <button
+                      key={freq}
+                      type="button"
+                      onClick={() => setSubDigestFreq(freq)}
+                      className={`py-2.5 px-3 rounded-xl text-xs font-extrabold capitalize cursor-pointer border transition-all ${
+                        subDigestFreq === freq
+                          ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
+                          : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      {freq}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                  Must-Match Keywords (Optional)
+                </label>
+                <p className="text-[11px] text-slate-500 mb-1.5">Comma separated. Only send alerts if job title matches at least one keyword.</p>
+                <input
+                  type="text"
+                  value={subPosKeys}
+                  onChange={(e) => setSubPosKeys(e.target.value)}
+                  placeholder="e.g. Frontend, React, Senior, Remote"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-purple-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                  Exclude Keywords (Optional)
+                </label>
+                <p className="text-[11px] text-slate-500 mb-1.5">Comma separated. Ignore jobs containing any of these keywords.</p>
+                <input
+                  type="text"
+                  value={subNegKeys}
+                  onChange={(e) => setSubNegKeys(e.target.value)}
+                  placeholder="e.g. Intern, Junior, Contract"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-purple-600"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const slug = editingSubList.slug;
+                    const name = editingSubList.name;
+                    setEditingSubList(null);
+                    handleUnfollowSub(slug, name);
+                  }}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold bg-rose-500/10 text-rose-600 border border-rose-500/20 hover:bg-rose-500/20 cursor-pointer"
+                >
+                  Unfollow List
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingSubList(null)}
+                    className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={submittingSub}
+                    className="px-5 py-2.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-md cursor-pointer disabled:opacity-50"
+                  >
+                    {submittingSub ? 'Saving...' : 'Save Preferences'}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
