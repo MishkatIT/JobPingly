@@ -13,6 +13,7 @@ import { PublicUserProfileModal } from '@/components/PublicUserProfileModal';
 import { Badge } from '@/components/Badge';
 import { useToast } from '@/components/Toast';
 import { getCompanyColorTheme, getCompanyLogoUrl } from '@/lib/utils/companyBranding';
+import { pluralize } from '@/lib/utils/pluralize';
 
 export default function PublicListPageView() {
   const toast = useToast();
@@ -730,7 +731,7 @@ export default function PublicListPageView() {
                   {totalJobPages > 1 && (
                     <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-200 dark:border-slate-800/80">
                       <span className="text-xs text-slate-500">
-                        Page <span className="font-bold text-slate-900 dark:text-white">{jobPage}</span> of <span className="font-bold text-slate-900 dark:text-white">{totalJobPages}</span> ({filteredJobs.length} open positions)
+                        Page <span className="font-bold text-slate-900 dark:text-white">{jobPage}</span> of <span className="font-bold text-slate-900 dark:text-white">{totalJobPages}</span> ({pluralize(filteredJobs.length, 'open position', 'open positions')})
                       </span>
 
                       <div className="flex items-center gap-2">

@@ -1,6 +1,8 @@
 import React from 'react';
 import { ShieldCheck, GitFork, Globe, Users, Building2, Briefcase, Award, CheckCircle2, Sparkles, ExternalLink } from 'lucide-react';
 
+import { pluralize } from '@/lib/utils/pluralize';
+
 export type BadgeVariant = 'canonical' | 'forked' | 'public' | 'company' | 'job' | 'follower' | 'curator' | 'role' | 'status' | 'outline';
 
 interface BadgeProps {
@@ -57,7 +59,7 @@ export function Badge({ variant, children, parentName, count, className = '' }: 
     return (
       <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-slate-100/80 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/70 text-[11px] font-medium text-slate-600 dark:text-slate-300 ${className}`}>
         <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-        <span>{count !== undefined ? `${count} Companies` : children}</span>
+        <span>{count !== undefined ? pluralize(count, 'Company', 'Companies') : children}</span>
       </span>
     );
   }
@@ -67,7 +69,7 @@ export function Badge({ variant, children, parentName, count, className = '' }: 
     return (
       <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-blue-500/8 text-blue-600 dark:text-blue-400 border border-blue-500/20 text-[11px] font-medium ${className}`}>
         <Briefcase className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-        <span>{count !== undefined ? `${count} Jobs` : children}</span>
+        <span>{count !== undefined ? pluralize(count, 'Job', 'Jobs') : children}</span>
       </span>
     );
   }
@@ -77,7 +79,7 @@ export function Badge({ variant, children, parentName, count, className = '' }: 
     return (
       <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-emerald-500/8 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[11px] font-medium ${className}`}>
         <Users className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-        <span>{count !== undefined ? `${count} Followers` : children}</span>
+        <span>{count !== undefined ? pluralize(count, 'Follower', 'Followers') : children}</span>
       </span>
     );
   }

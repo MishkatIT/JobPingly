@@ -10,6 +10,7 @@ import { PublicUserProfileModal } from '@/components/PublicUserProfileModal';
 import { useToast } from '@/components/Toast';
 
 import { Badge } from '@/components/Badge';
+import { pluralize } from '@/lib/utils/pluralize';
 
 export default function PublicDiscoverPage() {
   const toast = useToast();
@@ -541,7 +542,7 @@ export default function PublicDiscoverPage() {
             {pagination.totalPages > 1 && (
               <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-6 border-t border-slate-200 dark:border-slate-800/80">
                 <span className="text-xs text-slate-500">
-                  Page <span className="font-bold text-slate-900 dark:text-white">{pagination.page}</span> of <span className="font-bold text-slate-900 dark:text-white">{pagination.totalPages}</span> ({pagination.total} total public watch lists)
+                  Page <span className="font-bold text-slate-900 dark:text-white">{pagination.page}</span> of <span className="font-bold text-slate-900 dark:text-white">{pagination.totalPages}</span> ({pluralize(pagination.total, 'total public watch list', 'total public watch lists')})
                 </span>
 
                 <div className="flex items-center gap-2">

@@ -11,6 +11,7 @@ import { JobCard } from '@/components/JobCard';
 import { Badge } from '@/components/Badge';
 import { PublicUserProfileModal } from '@/components/PublicUserProfileModal';
 import { getCompanyColorTheme, getCompanyLogoUrl } from '@/lib/utils/companyBranding';
+import { pluralize } from '@/lib/utils/pluralize';
 
 export default function ListDetailPage() {
   const toast = useToast();
@@ -310,7 +311,7 @@ export default function ListDetailPage() {
   const handleSyncAll = async () => {
     if (!pages || pages.length === 0) return;
     setSyncingAll(true);
-    toast.info(`Syncing all ${pages.length} monitored pages...`);
+    toast.info(`Syncing all ${pluralize(pages.length, 'monitored page')}...`);
 
     let totalFound = 0;
     let totalAdded = 0;
@@ -332,7 +333,7 @@ export default function ListDetailPage() {
         }
       }
 
-      toast.success(`Sync finished! Found ${totalFound} jobs (${totalAdded} new added).`);
+      toast.success(`Sync finished! Found ${pluralize(totalFound, 'job')} (${totalAdded} new added).`);
       loadDetail();
     } catch (e: any) {
       toast.error('Sync process failed: ' + e.message);
@@ -381,7 +382,7 @@ export default function ListDetailPage() {
               const found = syncJson.result?.jobsFound || 0;
               const added = syncJson.result?.jobsAdded || 0;
               if (found > 0) {
-                toast.success(`Sync complete for '${compName}': ${found} jobs found (${added} new)!`);
+                toast.success(`Sync complete for '${compName}': ${pluralize(found, 'job')} found (${added} new)!`);
               } else {
                 toast.info(`Sync complete for '${compName}': No open positions detected.`);
               }
@@ -487,19 +488,19 @@ export default function ListDetailPage() {
       }
     });
 
-    toast.success(`Opening ${openedCount} career page link(s) in new tabs!`);
+    toast.success(`Opening ${pluralize(openedCount, 'career page link')} in new tabs!`);
   };
 
   const handleSyncBatch = async () => {
     if (selectedPageIds.length === 0) return;
     setSyncingBatch(true);
-    toast.info(`Syncing ${selectedPageIds.length} selected company page(s)...`);
+    toast.info(`Syncing ${pluralize(selectedPageIds.length, 'selected company page')}...`);
 
     try {
       await Promise.all(
         selectedPageIds.map(id => fetch(`/api/career-pages/${id}`, { method: 'POST' }).catch(() => null))
       );
-      toast.success(`Batch sync complete for ${selectedPageIds.length} company page(s)!`);
+      toast.success(`Batch sync complete for ${pluralize(selectedPageIds.length, 'company page')}!`);
       loadDetail();
     } catch (e: any) {
       toast.error(e.message || 'Batch sync failed');
@@ -510,7 +511,7 @@ export default function ListDetailPage() {
 
   const handleDeleteBatch = async () => {
     if (selectedPageIds.length === 0) return;
-    if (!confirm(`Remove ${selectedPageIds.length} selected company page(s) from this list?`)) return;
+    if (!confirm(`Remove ${pluralize(selectedPageIds.length, 'selected company page')} from this list?`)) return;
 
     try {
       await Promise.all(
@@ -518,7 +519,7 @@ export default function ListDetailPage() {
           fetch(`/api/lists/${listId}/career-pages?careerPageId=${id}`, { method: 'DELETE' }).catch(() => null)
         )
       );
-      toast.success(`Removed ${selectedPageIds.length} company page(s)!`);
+      toast.success(`Removed ${pluralize(selectedPageIds.length, 'company page')}!`);
       setSelectedPageIds([]);
       loadDetail();
     } catch (e: any) {

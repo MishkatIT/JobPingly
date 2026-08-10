@@ -6,6 +6,7 @@ import { signAccessToken, generateRandomToken, hashToken } from '@/lib/auth/jwt'
 import { isFeatureEnabled } from '@/lib/flags/check';
 import { checkRateLimit, getClientIp } from '@/lib/security/rateLimit';
 import { eq, desc } from 'drizzle-orm';
+import { pluralize } from '@/lib/utils/pluralize';
 
 export async function POST(req: NextRequest) {
   try {
@@ -107,7 +108,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error: remainingAttempts > 0
-            ? `Incorrect verification code. ${remainingAttempts} attempt(s) remaining.`
+            ? `Incorrect verification code. ${pluralize(remainingAttempts, 'attempt')} remaining.`
             : 'Incorrect verification code. Maximum attempts exceeded. Please request a new code.',
         },
         { status: 400 }

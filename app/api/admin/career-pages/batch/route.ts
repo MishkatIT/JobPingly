@@ -3,6 +3,7 @@ import { requireAdmin } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
 import { careerPages, listCareerPages, adminAuditLog } from '@/lib/db/schema';
 import { inArray, notInArray, eq } from 'drizzle-orm';
+import { pluralize } from '@/lib/utils/pluralize';
 
 export async function POST(req: NextRequest) {
   const adminUser = await requireAdmin(req);
@@ -40,7 +41,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         success: true,
         processedCount: orphanedPages.length,
-        message: `Purged ${orphanedPages.length} orphaned career page(s) not attached to any watch list.`,
+        message: `Purged ${pluralize(orphanedPages.length, 'orphaned career page')} not attached to any watch list.`,
       });
     }
 
@@ -67,7 +68,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       processedCount: pageIds.length,
-      message: `Successfully deleted ${pageIds.length} company career page(s).`,
+      message: `Successfully deleted ${pluralize(pageIds.length, 'company career page')}.`,
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Batch delete failed.' }, { status: 500 });

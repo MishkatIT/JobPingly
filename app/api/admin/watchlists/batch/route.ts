@@ -3,6 +3,7 @@ import { requireAdmin } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
 import { lists, adminAuditLog } from '@/lib/db/schema';
 import { inArray } from 'drizzle-orm';
+import { pluralize } from '@/lib/utils/pluralize';
 
 // POST batch actions for watchlists (delete, make_public, make_private, make_canonical)
 export async function POST(req: NextRequest) {
@@ -26,25 +27,25 @@ export async function POST(req: NextRequest) {
 
   if (action === 'delete') {
     await db.delete(lists).where(inArray(lists.id, listIds));
-    message = `Successfully deleted ${listIds.length} watchlist(s).`;
+    message = `Successfully deleted ${pluralize(listIds.length, 'watchlist')}.`;
   } else if (action === 'make_public') {
     await db
       .update(lists)
       .set({ visibility: 'public', updatedAt: new Date() })
       .where(inArray(lists.id, listIds));
-    message = `Successfully changed ${listIds.length} watchlist(s) to public.`;
+    message = `Successfully changed ${pluralize(listIds.length, 'watchlist')} to public.`;
   } else if (action === 'make_private') {
     await db
       .update(lists)
       .set({ visibility: 'private', updatedAt: new Date() })
       .where(inArray(lists.id, listIds));
-    message = `Successfully changed ${listIds.length} watchlist(s) to private.`;
+    message = `Successfully changed ${pluralize(listIds.length, 'watchlist')} to private.`;
   } else if (action === 'make_canonical') {
     await db
       .update(lists)
       .set({ isCanonical: true, updatedAt: new Date() })
       .where(inArray(lists.id, listIds));
-    message = `Successfully set ${listIds.length} watchlist(s) as verified canonical.`;
+    message = `Successfully set ${pluralize(listIds.length, 'watchlist')} as verified canonical.`;
   }
 
   // Audit log

@@ -30,6 +30,7 @@ import {
   Filter,
   X,
 } from 'lucide-react';
+import { pluralize } from '@/lib/utils/pluralize';
 import { useToast } from '@/components/Toast';
 import LoadingSpinner from '@/components/LoadingSpinner';
 
@@ -360,7 +361,7 @@ export default function DashboardOverview() {
               const found = syncJson.result?.jobsFound || 0;
               const added = syncJson.result?.jobsAdded || 0;
               if (found > 0) {
-                toast.success(`Sync complete for '${compName}': ${found} jobs found (${added} new)!`);
+                toast.success(`Sync complete for '${compName}': ${pluralize(found, 'job')} found (${added} new)!`);
               } else {
                 toast.info(`Sync complete for '${compName}': No open positions detected.`);
               }
@@ -618,7 +619,7 @@ export default function DashboardOverview() {
                     {/* Curator Info & Company Count */}
                     <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
                       <span>Curated by: <strong className="text-slate-800 dark:text-slate-200">{fl.curator.name}</strong></span>
-                      <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-bold text-[10px] text-slate-600 dark:text-slate-400">{fl.companyCount} Companies</span>
+                      <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-bold text-[10px] text-slate-600 dark:text-slate-400">{pluralize(fl.companyCount || 0, 'Company', 'Companies')}</span>
                     </div>
 
                     {/* Keywords Summary */}
@@ -875,12 +876,12 @@ export default function DashboardOverview() {
                       <div className="flex items-center gap-1.5 pt-0.5">
                         <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 px-2 py-0.5 rounded-md">
                           <Building className="w-3.5 h-3.5 text-slate-500" />
-                          {l.companyCount || 0} Pages
+                          {pluralize(l.companyCount || 0, 'Page')}
                         </span>
 
                         <span className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-600 dark:text-blue-400 bg-blue-500/8 border border-blue-500/20 px-2 py-0.5 rounded-md">
                           <Briefcase className="w-3.5 h-3.5 text-blue-500" />
-                          {l.jobCount || 0} Jobs
+                          {pluralize(l.jobCount || 0, 'Job')}
                         </span>
                       </div>
                     </div>
@@ -952,10 +953,10 @@ export default function DashboardOverview() {
                           <td className="py-4 px-4">
                             <div className="flex items-center gap-1.5">
                               <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-medium text-slate-700 dark:text-slate-300">
-                                {l.companyCount || 0} Pages
+                                {pluralize(l.companyCount || 0, 'Page')}
                               </span>
                               <span className="px-2 py-0.5 rounded-md bg-blue-500/8 text-blue-600 dark:text-blue-400 border border-blue-500/20 text-[11px] font-medium">
-                                {l.jobCount || 0} Jobs
+                                {pluralize(l.jobCount || 0, 'Job')}
                               </span>
                             </div>
                           </td>
@@ -1006,7 +1007,7 @@ export default function DashboardOverview() {
         {pagination.totalPages > 1 && (
           <div className="flex items-center justify-between pt-4 border-t border-slate-200 dark:border-slate-800">
             <span className="text-xs text-slate-500">
-              Page <span className="font-bold text-slate-900 dark:text-white">{pagination.page}</span> of <span className="font-bold text-slate-900 dark:text-white">{pagination.totalPages}</span> ({pagination.total} total)
+              Page <span className="font-bold text-slate-900 dark:text-white">{pagination.page}</span> of <span className="font-bold text-slate-900 dark:text-white">{pagination.totalPages}</span> ({pluralize(pagination.total, 'watch list', 'watch lists')} total)
             </span>
 
             <div className="flex items-center gap-2">
@@ -1192,7 +1193,7 @@ export default function DashboardOverview() {
                   className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-600 cursor-pointer"
                 >
                   {lists.map(l => (
-                    <option key={l.id} value={l.id}>{l.name} ({l.companyCount || 0} companies)</option>
+                    <option key={l.id} value={l.id}>{l.name} ({pluralize(l.companyCount || 0, 'company', 'companies')})</option>
                   ))}
                 </select>
               </div>

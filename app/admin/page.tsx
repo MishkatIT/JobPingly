@@ -14,6 +14,7 @@ import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { PublicUserProfileModal } from '@/components/PublicUserProfileModal';
 import { Badge } from '@/components/Badge';
+import { pluralize } from '@/lib/utils/pluralize';
 
 export default function AdminDashboardPage() {
   const toast = useToast();
@@ -534,7 +535,7 @@ export default function AdminDashboardPage() {
   const handleBatchWatchlistAction = async (action: 'delete' | 'make_public' | 'make_private' | 'make_canonical') => {
     if (selectedWatchlistIds.length === 0) return;
     const actionLabel = action === 'delete' ? 'delete' : action === 'make_public' ? 'make public' : action === 'make_private' ? 'make private' : 'mark as verified canonical';
-    if (!confirm(`ADMIN ACTION: Are you sure you want to ${actionLabel} ${selectedWatchlistIds.length} selected watchlist(s)?`)) return;
+    if (!confirm(`ADMIN ACTION: Are you sure you want to ${actionLabel} ${pluralize(selectedWatchlistIds.length, 'selected watchlist')}?`)) return;
 
     setProcessingWatchlistBatch(true);
     try {
@@ -890,7 +891,7 @@ export default function AdminDashboardPage() {
   const handleSyncAllPages = async () => {
     if (!careerPagesList || careerPagesList.length === 0) return;
     setSyncingAll(true);
-    toast.info(`Checking updates for all ${careerPagesList.length} monitored company career pages...`);
+    toast.info(`Checking updates for all ${pluralize(careerPagesList.length, 'monitored company career page')}...`);
 
     let totalFound = 0;
     let totalAdded = 0;
@@ -908,7 +909,7 @@ export default function AdminDashboardPage() {
       }
     }
 
-    toast.success(`Check complete! Found ${totalFound} jobs (${totalAdded} new added).`);
+    toast.success(`Check complete! Found ${pluralize(totalFound, 'job')} (${totalAdded} new added).`);
     fetchPaginatedCareerPages(companyPage, debouncedCompanySearch, companyLimit);
     setSyncingAll(false);
   };
@@ -1094,7 +1095,7 @@ export default function AdminDashboardPage() {
   // Batch action with single group API call
   const handleBatchProcess = async (action: 'approve' | 'unapprove') => {
     if (selectedEmailIds.length === 0) return;
-    if (!confirm(`Batch ${action} ${selectedEmailIds.length} selected email(s)?`)) return;
+    if (!confirm(`Batch ${action} ${pluralize(selectedEmailIds.length, 'selected email')}?`)) return;
 
     setProcessingBatch(true);
     try {
@@ -1105,7 +1106,7 @@ export default function AdminDashboardPage() {
       });
       const json = await res.json();
       if (res.ok) {
-        toast.success(`Batch ${action} completed for ${json.processedCount} email(s)!`);
+        toast.success(`Batch ${action} completed for ${pluralize(json.processedCount, 'email')}!`);
         setSelectedEmailIds([]);
         fetchPaginatedEmails(emailPage, debouncedEmailSearch, emailLimit, emailStatusFilter);
       } else {
@@ -1222,7 +1223,7 @@ export default function AdminDashboardPage() {
 
   const handleBatchDeleteCompanies = async () => {
     if (selectedCompanyIds.length === 0) return;
-    if (!confirm(`Are you sure you want to delete ${selectedCompanyIds.length} selected company career page(s)? This action cannot be undone.`)) {
+    if (!confirm(`Are you sure you want to delete ${pluralize(selectedCompanyIds.length, 'selected company career page')}? This action cannot be undone.`)) {
       return;
     }
 
@@ -1235,7 +1236,7 @@ export default function AdminDashboardPage() {
       });
       const json = await res.json();
       if (res.ok) {
-        toast.success(json.message || `Deleted ${json.processedCount} company page(s)!`);
+        toast.success(json.message || `Deleted ${pluralize(json.processedCount, 'company page')}!`);
         setSelectedCompanyIds([]);
         fetchPaginatedCareerPages(companyPage, debouncedCompanySearch, companyLimit);
       } else {
@@ -1854,7 +1855,7 @@ export default function AdminDashboardPage() {
               <div className="flex items-center justify-between gap-4 p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300 animate-in fade-in duration-150">
                 <div className="flex items-center gap-2 font-bold text-xs">
                   <CheckSquare className="w-4 h-4 text-rose-600 dark:text-rose-400" />
-                  <span>{selectedCompanyIds.length} company career page(s) selected</span>
+                  <span>{pluralize(selectedCompanyIds.length, 'company career page')} selected</span>
                 </div>
                 <button
                   onClick={handleBatchDeleteCompanies}
@@ -1925,7 +1926,7 @@ export default function AdminDashboardPage() {
                           </a>
                           {p.watchListCount > 0 ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 text-[10px] font-bold mt-1">
-                              <Layers className="w-3 h-3" /> In {p.watchListCount} Watch List{p.watchListCount > 1 ? 's' : ''}
+                              <Layers className="w-3 h-3" /> In {pluralize(p.watchListCount, 'Watch List')}
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30 text-[10px] font-bold mt-1">
@@ -2041,7 +2042,7 @@ export default function AdminDashboardPage() {
             {companyPagination.totalPages > 1 && (
               <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-200 dark:border-slate-800/80">
                 <span className="text-xs text-slate-500">
-                  Showing Page <span className="font-bold text-slate-900 dark:text-white">{companyPagination.page}</span> of <span className="font-bold text-slate-900 dark:text-white">{companyPagination.totalPages}</span> ({companyPagination.total} total items)
+                  Showing Page <span className="font-bold text-slate-900 dark:text-white">{companyPagination.page}</span> of <span className="font-bold text-slate-900 dark:text-white">{companyPagination.totalPages}</span> ({pluralize(companyPagination.total, 'total item')})
                 </span>
 
                 <div className="flex items-center gap-2">
@@ -2201,7 +2202,7 @@ export default function AdminDashboardPage() {
             <div className="p-4 rounded-2xl bg-blue-600 text-white shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2">
               <div className="flex items-center gap-2 text-xs font-bold">
                 <CheckSquare className="w-4 h-4" />
-                <span>{selectedEmailIds.length} email(s) selected for batch action</span>
+                <span>{pluralize(selectedEmailIds.length, 'email')} selected for batch action</span>
               </div>
 
               <div className="flex items-center gap-2">
@@ -2365,7 +2366,7 @@ export default function AdminDashboardPage() {
           {emailPagination.totalPages > 1 && (
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-200 dark:border-slate-800/80">
               <span className="text-xs text-slate-500">
-                Page <span className="font-bold text-slate-900 dark:text-white">{emailPagination.page}</span> of <span className="font-bold text-slate-900 dark:text-white">{emailPagination.totalPages}</span> ({emailPagination.total} total items)
+                Page <span className="font-bold text-slate-900 dark:text-white">{emailPagination.page}</span> of <span className="font-bold text-slate-900 dark:text-white">{emailPagination.totalPages}</span> ({pluralize(emailPagination.total, 'total item')})
               </span>
 
               <div className="flex items-center gap-2">
@@ -2590,7 +2591,7 @@ export default function AdminDashboardPage() {
           {userPagination.totalPages > 1 && (
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-200 dark:border-slate-800/80">
               <span className="text-xs text-slate-500">
-                Page <span className="font-bold text-slate-900 dark:text-white">{userPagination.page}</span> of <span className="font-bold text-slate-900 dark:text-white">{userPagination.totalPages}</span> ({userPagination.total} total registered users)
+                Page <span className="font-bold text-slate-900 dark:text-white">{userPagination.page}</span> of <span className="font-bold text-slate-900 dark:text-white">{userPagination.totalPages}</span> ({pluralize(userPagination.total, 'total registered user')})
               </span>
 
               <div className="flex items-center gap-2">
@@ -3055,10 +3056,10 @@ export default function AdminDashboardPage() {
                       <td className="py-3.5 px-4">
                         <div className="space-y-1 text-xs">
                           <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-medium text-slate-700 dark:text-slate-300 block w-fit">
-                            {wl.companyCount || 0} Pages
+                            {pluralize(wl.companyCount || 0, 'Page')}
                           </span>
                           <span className="px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 text-[11px] font-medium block w-fit">
-                            {wl.jobCount || 0} Jobs
+                            {pluralize(wl.jobCount || 0, 'Job')}
                           </span>
                         </div>
                       </td>
@@ -3097,7 +3098,7 @@ export default function AdminDashboardPage() {
           {watchlistPagination.totalPages > 1 && (
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-200 dark:border-slate-800/80">
               <span className="text-xs text-slate-500">
-                Page <span className="font-bold text-slate-900 dark:text-white">{watchlistPagination.page}</span> of <span className="font-bold text-slate-900 dark:text-white">{watchlistPagination.totalPages}</span> ({watchlistPagination.total} total watch lists)
+                Page <span className="font-bold text-slate-900 dark:text-white">{watchlistPagination.page}</span> of <span className="font-bold text-slate-900 dark:text-white">{watchlistPagination.totalPages}</span> ({pluralize(watchlistPagination.total, 'total watch list')})
               </span>
 
               <div className="flex items-center gap-2">
@@ -3349,7 +3350,7 @@ export default function AdminDashboardPage() {
           {unverifiedPagination.totalPages > 1 && (
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-200 dark:border-slate-800/80">
               <span className="text-xs text-slate-500">
-                Page <span className="font-bold text-slate-900 dark:text-white">{unverifiedPagination.page}</span> of <span className="font-bold text-slate-900 dark:text-white">{unverifiedPagination.totalPages}</span> ({unverifiedPagination.total} unverified signups)
+                Page <span className="font-bold text-slate-900 dark:text-white">{unverifiedPagination.page}</span> of <span className="font-bold text-slate-900 dark:text-white">{unverifiedPagination.totalPages}</span> ({pluralize(unverifiedPagination.total, 'unverified signup')})
               </span>
 
               <div className="flex items-center gap-2">
@@ -3554,7 +3555,7 @@ export default function AdminDashboardPage() {
           {issuesPagination.totalPages > 1 && (
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-200 dark:border-slate-800/80">
               <span className="text-xs text-slate-500">
-                Page <span className="font-bold text-slate-900 dark:text-white">{issuesPagination.page}</span> of <span className="font-bold text-slate-900 dark:text-white">{issuesPagination.totalPages}</span> ({issuesPagination.total} issues)
+                Page <span className="font-bold text-slate-900 dark:text-white">{issuesPagination.page}</span> of <span className="font-bold text-slate-900 dark:text-white">{issuesPagination.totalPages}</span> ({pluralize(issuesPagination.total, 'issue')})
               </span>
 
               <div className="flex items-center gap-2">

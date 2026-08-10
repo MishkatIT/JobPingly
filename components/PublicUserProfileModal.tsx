@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { User, Layers, Building, Briefcase, ExternalLink, Calendar, X, Globe } from 'lucide-react';
 import LoadingSpinner from '@/components/LoadingSpinner';
+import { pluralize } from '@/lib/utils/pluralize';
 
 interface PublicUserProfileModalProps {
   userId: string | null;
@@ -241,9 +242,9 @@ export function PublicUserProfileModal({ userId, onClose }: PublicUserProfileMod
                           </p>
                         ) : null}
                         <div className="flex items-center gap-3 pt-1 text-[11px] text-slate-500 font-medium">
-                          <span>{l.companyCount || 0} Companies</span>
+                          <span>{pluralize(l.companyCount || 0, 'Company', 'Companies')}</span>
                           <span>&bull;</span>
-                          <span className="text-blue-600 dark:text-blue-400 font-semibold">{l.jobCount || 0} Active Jobs</span>
+                          <span className="text-blue-600 dark:text-blue-400 font-semibold">{l.jobCount || 0} Active {pluralize(l.jobCount || 0, 'Job', 'Jobs').split(' ')[1]}</span>
                         </div>
                       </div>
 
