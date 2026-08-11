@@ -7,7 +7,6 @@ html, body {
   margin: 0;
   padding: 0;
   min-height: 100vh;
-  scrollbar-gutter: stable;
 }
 
 html.light, html.light body {
@@ -82,16 +81,13 @@ html.light .glass-card:hover {
   transform: translateY(-1px);
 }
 
-/* Custom Scrollbars */
+/* Custom Sleek Scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
-html.dark ::-webkit-scrollbar-track {
-  background: #080c14;
-}
-html.light ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 html.dark ::-webkit-scrollbar-thumb {
   background: #334155;
@@ -100,6 +96,42 @@ html.dark ::-webkit-scrollbar-thumb {
 html.light ::-webkit-scrollbar-thumb {
   background: #cbd5e1;
   border-radius: 9999px;
+}
+
+/* Hover-Only Visible Scrollbars (Firefox & Webkit) */
+.hover-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.hover-scrollbar:hover {
+  scrollbar-color: #94a3b8 transparent;
+}
+
+html.dark .hover-scrollbar:hover {
+  scrollbar-color: #475569 transparent;
+}
+
+.hover-scrollbar::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+.hover-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.hover-scrollbar::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 9999px;
+}
+
+.hover-scrollbar:hover::-webkit-scrollbar-thumb {
+  background: #94a3b8 !important;
+}
+
+html.dark .hover-scrollbar:hover::-webkit-scrollbar-thumb {
+  background: #475569 !important;
 }
 
 /* Site-wide Opaque Dropdown Panels (Zero Translucency / Text Bleed-Through) */
