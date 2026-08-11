@@ -38,8 +38,13 @@ export default function PublicListPageView() {
 
   // Job Feed View Mode & Pagination State
   const [jobViewMode, setJobViewMode] = useState<'grid' | 'tiles' | 'table'>('grid');
-  const [jobPage, setJobPage] = useState(1);
-  const [jobLimit, setJobLimit] = useState(10);
+  const [pagesLimit, setPagesLimit] = useState(15);
+  const [jobsLimit, setJobsLimit] = useState(15);
+
+  useEffect(() => {
+    setPagesLimit(15);
+    setJobsLimit(15);
+  }, [searchQuery, data]);
 
   useEffect(() => {
     const saved = localStorage.getItem('jobpingly_job_view');
@@ -372,6 +377,31 @@ export default function PublicListPageView() {
     return title.includes(q) || company.includes(q) || location.includes(q);
   });
 
+
+
+  const handlePagesScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    if (scrollHeight - scrollTop - clientHeight < 150) {
+      setPagesLimit(prev => Math.min(filteredPages.length, prev + 15));
+    }
+  };
+
+  const handleJobsScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    if (scrollHeight - scrollTop - clientHeight < 150) {
+      setJobsLimit(prev => Math.min(filteredJobs.length, prev + 15));
+    }
+  };
+
+  const visiblePagesList = filteredPages.slice(0, pagesLimit);
+  const visibleJobsList = filteredJobs.slice(0, jobsLimit);
+
+  const companyIndexMap = new Map<string, number>();
+  (pages || []).forEach((p: any, idx: number) => {
+    if (p.id) companyIndexMap.set(p.id, idx);
+    if (p.companyName) companyIndexMap.set(p.companyName.toLowerCase().trim(), idx);
+  });
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#080c14] text-slate-900 dark:text-slate-100 flex flex-col justify-between transition-colors">
       <Navbar showBackHome />
@@ -535,91 +565,108 @@ export default function PublicListPageView() {
         </div>
 
         {/* Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Companies List */}
-          <div className="lg:col-span-1 space-y-4">
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center justify-between">
-              <span>Monitored Companies ({filteredPages.length})</span>
-              {isMaintainer && (
-                <Link
-                  href={`/dashboard/lists/${list.id}`}
-                  className="px-2.5 py-1 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] flex items-center gap-1 shadow-sm transition-all"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Add Page
-                </Link>
-              )}
-            </h2>
-            {filteredPages.length === 0 ? (
-              <div className="glass-panel p-6 rounded-2xl text-center border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
-                No monitored companies in this list.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {filteredPages.map((p: any, idx: number) => {
-                  const colorTheme = getCompanyColorTheme(p.companyName || 'Company', idx);
-                  const logoUrl = getCompanyLogoUrl(p.url);
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+          {/* Monitored Pages (Independent Column) */}
+          <div className="lg:col-span-1 flex flex-col min-h-0">
+            {/* Sticky Header Bar (Sticks below sticky Navbar) */}
+            <div className="sticky top-[57px] sm:top-[61px] z-30 bg-[#f1f5f9]/95 dark:bg-[#080c14]/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 mb-3 h-[88px] flex items-center justify-between py-2">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center justify-between w-full">
+                <span>Monitored Pages ({filteredPages.length})</span>
+                {isMaintainer && (
+                  <Link
+                    href={`/dashboard/lists/${list.id}`}
+                    className="px-2.5 py-1 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] flex items-center gap-1 shadow-sm transition-all"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Add Page
+                  </Link>
+                )}
+              </h2>
+            </div>
 
-                  return (
-                    <div
-                      key={p.id}
-                      className={`glass-card p-4 rounded-xl text-xs border border-slate-200/80 dark:border-slate-800/80 border-l-4 ${colorTheme.border}`}
-                      style={{ backgroundColor: colorTheme.bgLight }}
-                    >
-                      <div className="flex items-center justify-between mb-1.5 gap-2">
-                        <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white text-sm truncate">
-                          {logoUrl ? (
-                            <img src={logoUrl} alt={p.companyName || 'Company'} className="w-5 h-5 rounded object-contain bg-white p-0.5 border border-slate-200 dark:border-slate-700 shrink-0" />
-                          ) : (
-                            <div className={`w-5 h-5 rounded flex items-center justify-center font-extrabold text-[10px] ${colorTheme.bg} ${colorTheme.text} shrink-0`}>
-                              {(p.companyName?.[0] || 'C').toUpperCase()}
-                            </div>
-                          )}
-                          <span className="truncate">{p.companyName || 'Company'}</span>
-                          {p.isPaused && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md shrink-0">
-                              <PauseCircle className="w-3 h-3 text-amber-500" /> Paused
-                            </span>
+            {/* Independent Scroll Area for Monitored Pages */}
+            <div
+              onScroll={handlePagesScroll}
+              className="max-h-[calc(100vh-140px)] overflow-y-auto pr-1.5 space-y-3 hover-scrollbar"
+            >
+              {filteredPages.length === 0 ? (
+                <div className="glass-panel p-6 rounded-2xl text-center border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
+                  {searchQuery ? `No companies match "${searchQuery}"` : 'No monitored companies in this list.'}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {visiblePagesList.map((p: any, idx: number) => {
+                    const colorTheme = getCompanyColorTheme(p.companyName || 'Company', idx);
+                    const logoUrl = getCompanyLogoUrl(p.url);
+
+                    return (
+                      <div
+                        key={p.id}
+                        className={`glass-card p-4 rounded-xl text-xs border border-slate-200/80 dark:border-slate-800/80 border-l-4 ${colorTheme.border}`}
+                        style={{ backgroundColor: colorTheme.bgLight }}
+                      >
+                        <div className="flex items-center justify-between mb-1.5 gap-2">
+                          <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white text-sm truncate">
+                            {logoUrl ? (
+                              <img src={logoUrl} alt={p.companyName || 'Company'} className="w-5 h-5 rounded object-contain bg-white p-0.5 border border-slate-200 dark:border-slate-700 shrink-0" />
+                            ) : (
+                              <div className={`w-5 h-5 rounded flex items-center justify-center font-extrabold text-[10px] ${colorTheme.bg} ${colorTheme.text} shrink-0`}>
+                                {(p.companyName?.[0] || 'C').toUpperCase()}
+                              </div>
+                            )}
+                            <span className="truncate">{p.companyName || 'Company'}</span>
+                            {p.isPaused && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md shrink-0">
+                                <PauseCircle className="w-3 h-3 text-amber-500" /> Paused
+                              </span>
+                            )}
+                          </div>
+
+                          {isMaintainer && (
+                            <Link
+                              href={`/dashboard/lists/${list.id}`}
+                              className="text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline shrink-0 bg-blue-500/10 px-2 py-0.5 rounded-md"
+                            >
+                              Manage
+                            </Link>
                           )}
                         </div>
-
-                        {isMaintainer && (
-                          <Link
-                            href={`/dashboard/lists/${list.id}`}
-                            className="text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline shrink-0 bg-blue-500/10 px-2 py-0.5 rounded-md"
-                          >
-                            Manage
-                          </Link>
-                        )}
+                        <a href={p.url} target="_blank" rel="noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline truncate block text-[11px] font-mono">
+                          {p.url}
+                        </a>
                       </div>
-                      <a href={p.url} target="_blank" rel="noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline truncate block text-[11px] font-mono">
-                        {p.url}
-                      </a>
+                    );
+                  })}
+
+                  {pagesLimit < filteredPages.length && (
+                    <div className="text-center py-2 text-[11px] font-semibold text-slate-400 dark:text-slate-500 animate-pulse">
+                      Scroll to load more pages ({visiblePagesList.length} of {filteredPages.length})...
                     </div>
-                  );
-                })}
-              </div>
-            )}
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Jobs Feed */}
-          <div className="lg:col-span-2 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                Currently Open Positions ({filteredJobs.length})
+          {/* Detected Jobs Feed (Independent Column) */}
+          <div className="lg:col-span-2 flex flex-col min-h-0">
+            {/* Sticky Header Bar (Sticks below sticky Navbar) */}
+            <div className="sticky top-[57px] sm:top-[61px] z-30 bg-[#f1f5f9]/95 dark:bg-[#080c14]/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 mb-3 h-[88px] flex items-center justify-between gap-3 py-2">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white shrink-0">
+                Active Open Positions ({filteredJobs.length})
               </h2>
 
-              <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-                {/* Google Drive Style View Switcher */}
-                <div className="flex items-center bg-slate-100 dark:bg-slate-900/80 p-1 rounded-xl border border-slate-200/80 dark:border-slate-800 shrink-0">
+              <div className="flex flex-col items-end justify-center gap-1.5 shrink-0">
+                {/* 3-Type View Switcher (Grid, Tiles, Table List) */}
+                <div className="flex items-center bg-slate-100 dark:bg-slate-900/90 p-1 rounded-xl border border-slate-200 dark:border-slate-800 shrink-0">
                   <button
                     type="button"
                     onClick={() => handleJobViewChange('grid')}
-                    className={`px-2 py-1 rounded-lg text-xs flex items-center gap-1 transition-all cursor-pointer ${
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
                       jobViewMode === 'grid'
-                        ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm font-semibold'
+                        ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm'
                         : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
                     }`}
-                    title="Grid View (Cards)"
+                    title="Grid Card View"
                   >
                     <LayoutGrid className="w-3.5 h-3.5" />
                     <span className="hidden sm:inline">Grid</span>
@@ -627,9 +674,9 @@ export default function PublicListPageView() {
                   <button
                     type="button"
                     onClick={() => handleJobViewChange('tiles')}
-                    className={`px-2 py-1 rounded-lg text-xs flex items-center gap-1 transition-all cursor-pointer ${
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
                       jobViewMode === 'tiles'
-                        ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm font-semibold'
+                        ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm'
                         : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
                     }`}
                     title="Tiles View (2 Columns)"
@@ -640,53 +687,80 @@ export default function PublicListPageView() {
                   <button
                     type="button"
                     onClick={() => handleJobViewChange('table')}
-                    className={`px-2 py-1 rounded-lg text-xs flex items-center gap-1 transition-all cursor-pointer ${
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
                       jobViewMode === 'table'
-                        ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm font-semibold'
+                        ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm'
                         : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
                     }`}
-                    title="Table View"
+                    title="Table List View"
                   >
                     <List className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Table</span>
+                    <span className="hidden sm:inline">Table List</span>
                   </button>
                 </div>
 
+                {/* Instant Search Bar (0 DB/Server Calls) */}
                 <div className="relative w-full sm:w-56">
                   <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
-                    placeholder="Search jobs..."
-                    className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-blue-600 transition-all shadow-sm"
+                    placeholder="Search title, company..."
+                    className="w-full pl-8 pr-7 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-blue-600 transition-all shadow-sm"
                   />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xs font-bold cursor-pointer"
+                    >
+                      &times;
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
 
-            {filteredJobs.length === 0 ? (
-              <div className="glass-panel p-10 rounded-2xl text-center border-slate-200 dark:border-slate-800 space-y-2">
-                <Briefcase className="w-10 h-10 text-slate-400 dark:text-slate-600 mx-auto mb-2" />
-                <p className="text-xs text-slate-500 dark:text-slate-400">No active positions currently reported.</p>
-              </div>
-            ) : (() => {
-              const totalJobPages = Math.ceil(filteredJobs.length / jobLimit) || 1;
-              const paginatedJobs = filteredJobs.slice((jobPage - 1) * jobLimit, jobPage * jobLimit);
-
-              return (
-                <div className="space-y-4">
+            {/* Independent Scroll Area for Jobs Feed */}
+            <div
+              onScroll={handleJobsScroll}
+              className="max-h-[calc(100vh-140px)] overflow-y-auto pr-1.5 space-y-3 hover-scrollbar"
+            >
+              {filteredJobs.length === 0 ? (
+                <div className="glass-panel p-10 rounded-2xl text-center border-slate-200 dark:border-slate-800 space-y-2">
+                  <Briefcase className="w-10 h-10 text-slate-400 dark:text-slate-600 mx-auto mb-2" />
+                  {searchQuery ? (
+                    <>
+                      <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">No jobs match &quot;{searchQuery}&quot;</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Try searching for a different title, company, or keyword.</p>
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery('')}
+                        className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline pt-1 cursor-pointer"
+                      >
+                        Clear Search Filter
+                      </button>
+                    </>
+                  ) : (
+                    <p className="text-xs text-slate-500 dark:text-slate-400">No active positions currently reported.</p>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
                   {jobViewMode === 'grid' ? (
                     <div className="space-y-3">
-                      {paginatedJobs.map((j: any) => (
-                        <JobCard key={j.id} job={j} />
-                      ))}
+                      {visibleJobsList.map((j: any) => {
+                        const compIdx = companyIndexMap.get(j.careerPageId) ?? companyIndexMap.get(((j.companyName || j.rawData?.company || '') as string).toLowerCase().trim());
+                        return <JobCard key={j.id} job={j} companyIndex={compIdx} />;
+                      })}
                     </div>
                   ) : jobViewMode === 'tiles' ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {paginatedJobs.map((j: any) => (
-                        <JobCard key={j.id} job={j} />
-                      ))}
+                      {visibleJobsList.map((j: any) => {
+                        const compIdx = companyIndexMap.get(j.careerPageId) ?? companyIndexMap.get(((j.companyName || j.rawData?.company || '') as string).toLowerCase().trim());
+                        return <JobCard key={j.id} job={j} companyIndex={compIdx} />;
+                      })}
                     </div>
                   ) : (
                     /* Table View for Jobs */
@@ -703,7 +777,7 @@ export default function PublicListPageView() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800/70">
-                            {paginatedJobs.map((j: any) => (
+                            {visibleJobsList.map((j: any) => (
                               <tr key={j.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition-colors">
                                 <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">
                                   {j.title}
@@ -737,35 +811,14 @@ export default function PublicListPageView() {
                     </div>
                   )}
 
-                  {/* Job Feed Pagination Bar */}
-                  {totalJobPages > 1 && (
-                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-200 dark:border-slate-800/80">
-                      <span className="text-xs text-slate-500">
-                        Page <span className="font-bold text-slate-900 dark:text-white">{jobPage}</span> of <span className="font-bold text-slate-900 dark:text-white">{totalJobPages}</span> ({pluralize(filteredJobs.length, 'open position', 'open positions')})
-                      </span>
-
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => setJobPage(prev => Math.max(1, prev - 1))}
-                          disabled={jobPage <= 1}
-                          className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 flex items-center gap-1 cursor-pointer"
-                        >
-                          <ChevronLeft className="w-3.5 h-3.5" /> Previous
-                        </button>
-
-                        <button
-                          onClick={() => setJobPage(prev => Math.min(totalJobPages, prev + 1))}
-                          disabled={jobPage >= totalJobPages}
-                          className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 flex items-center gap-1 cursor-pointer"
-                        >
-                          Next <ChevronRight className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                  {jobsLimit < filteredJobs.length && (
+                    <div className="text-center py-2 text-[11px] font-semibold text-slate-400 dark:text-slate-500 animate-pulse">
+                      Scroll to load more positions ({visibleJobsList.length} of {filteredJobs.length})...
                     </div>
                   )}
                 </div>
-              );
-            })()}
+              )}
+            </div>
           </div>
         </div>
       </div>

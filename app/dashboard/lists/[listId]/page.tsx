@@ -33,6 +33,18 @@ export default function ListDetailPage() {
   // View Mode State (Grid, Tiles, Table)
   const [pageViewMode, setPageViewMode] = useState<'grid' | 'tiles' | 'table'>('grid');
 
+  // Instant Job Search State (0 DB/Server calls)
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Scroll Pagination State for Monitored Pages and Jobs
+  const [pagesLimit, setPagesLimit] = useState(15);
+  const [jobsLimit, setJobsLimit] = useState(15);
+
+  useEffect(() => {
+    setPagesLimit(15);
+    setJobsLimit(15);
+  }, [searchQuery, data]);
+
   useEffect(() => {
     const saved = localStorage.getItem('jobpingly_list_detail_view');
     if (saved === 'grid' || saved === 'tiles' || saved === 'table') {
@@ -49,8 +61,7 @@ export default function ListDetailPage() {
     setMounted(true);
   }, []);
 
-  // Instant Job Search State (0 DB/Server calls)
-  const [searchQuery, setSearchQuery] = useState('');
+
 
   // Dropdown & Modals state
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -611,6 +622,25 @@ export default function ListDetailPage() {
     if (p.companyName) companyIndexMap.set(p.companyName.toLowerCase().trim(), idx);
   });
 
+
+
+  const handlePagesScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    if (scrollHeight - scrollTop - clientHeight < 150) {
+      setPagesLimit(prev => Math.min(filteredPages.length, prev + 15));
+    }
+  };
+
+  const handleJobsScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    if (scrollHeight - scrollTop - clientHeight < 150) {
+      setJobsLimit(prev => Math.min(filteredJobs.length, prev + 15));
+    }
+  };
+
+  const visiblePagesList = filteredPages.slice(0, pagesLimit);
+  const visibleJobsList = filteredJobs.slice(0, jobsLimit);
+
   const handleLeaveWatchList = async () => {
     if (!confirm(`Are you sure you want to leave collaboration on '${list.name}'?`)) return;
     try {
@@ -768,9 +798,11 @@ export default function ListDetailPage() {
         {/* Monitored Pages (Independent Column) */}
         <div className="lg:col-span-1 flex flex-col min-h-0">
           {/* Sticky Header Bar (Sticks at top-0 when scrolled to) */}
-          <div className="sticky top-0 z-30 bg-[#f1f5f9] dark:bg-[#080c14] py-3 border-b border-slate-200 dark:border-slate-800 mb-3 space-y-2">
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center justify-between">
-              <span>Monitored Pages ({filteredPages.length})</span>
+          <div className="sticky top-0 z-30 bg-[#f1f5f9] dark:bg-[#080c14] border-b border-slate-200 dark:border-slate-800 mb-3 h-[88px] flex flex-col justify-center py-2 space-y-1.5">
+            <div className="flex items-center justify-between w-full">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                Monitored Pages ({filteredPages.length})
+              </h2>
               {pages.length > 0 && (
                 <button
                   onClick={handleSyncAll}
@@ -781,7 +813,7 @@ export default function ListDetailPage() {
                   {syncingAll ? 'Syncing All...' : 'Sync All'}
                 </button>
               )}
-            </h2>
+            </div>
 
             {/* Batch Selection Action Bar */}
             {selectedPageIds.length > 0 && (
@@ -841,14 +873,17 @@ export default function ListDetailPage() {
           </div>
 
           {/* Independent Scroll Area for Monitored Pages (Hover Scrollbar) */}
-          <div className="max-h-[calc(100vh-140px)] overflow-y-auto pr-1.5 space-y-3 hover-scrollbar">
+          <div
+            onScroll={handlePagesScroll}
+            className="max-h-[calc(100vh-140px)] overflow-y-auto pr-1.5 space-y-3 hover-scrollbar"
+          >
             {filteredPages.length === 0 ? (
               <div className="glass-panel p-6 rounded-2xl text-center border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
                 {searchQuery ? `No companies match "${searchQuery}"` : 'No career pages added to this list yet. Click "+ Add Company Page".'}
               </div>
             ) : (
               <div className="space-y-3">
-                {filteredPages.map((p: any, idx: number) => {
+                {visiblePagesList.map((p: any, idx: number) => {
                   const colorTheme = getCompanyColorTheme(p.companyName || 'Company', idx);
                   const logoUrl = getCompanyLogoUrl(p.url);
                   const isSelected = selectedPageIds.includes(p.id);
@@ -883,7 +918,6 @@ export default function ListDetailPage() {
                           )}
                         </div>
                         <div className="flex items-center gap-1.5">
-                          {/* Hover/Persistent Selection Checkbox */}
                           <button
                             type="button"
                             onClick={(e) => {
@@ -905,7 +939,6 @@ export default function ListDetailPage() {
                               <Square className="w-4 h-4" />
                             )}
                           </button>
-                        {/* Three Dots Menu */}
                         <div className="relative">
                           <button
                             onClick={() => setOpenMenuId(openMenuId === p.id ? null : p.id)}
@@ -992,6 +1025,12 @@ export default function ListDetailPage() {
                     </div>
                   );
                 })}
+
+                {pagesLimit < filteredPages.length && (
+                  <div className="text-center py-2 text-[11px] font-semibold text-slate-400 dark:text-slate-500 animate-pulse">
+                    Scroll to load more pages ({visiblePagesList.length} of {filteredPages.length})...
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -999,14 +1038,12 @@ export default function ListDetailPage() {
 
         {/* Detected Jobs Feed (Independent Column) */}
         <div className="lg:col-span-2 flex flex-col min-h-0">
-          {/* Sticky Header Bar (Sticks at top-0 when scrolled to) */}
-          <div className="sticky top-0 z-30 bg-[#f1f5f9] dark:bg-[#080c14] py-3 border-b border-slate-200 dark:border-slate-800 mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+          <div className="sticky top-0 z-30 bg-[#f1f5f9] dark:bg-[#080c14] border-b border-slate-200 dark:border-slate-800 mb-3 h-[88px] flex items-center justify-between gap-3 py-2">
+            <h2 className="text-lg font-bold text-slate-900 dark:text-white shrink-0">
               Active Open Positions ({filteredJobs.length})
             </h2>
 
-            <div className="flex items-center gap-3 flex-wrap">
-              {/* 3-Type View Switcher (Grid, Tiles, Table List) */}
+            <div className="flex flex-col items-end justify-center gap-1.5 shrink-0">
               <div className="flex items-center bg-slate-100 dark:bg-slate-900/90 p-1 rounded-xl border border-slate-200 dark:border-slate-800 shrink-0">
                 <button
                   type="button"
@@ -1049,7 +1086,6 @@ export default function ListDetailPage() {
                 </button>
               </div>
 
-              {/* Instant Search Bar (0 DB/Server Calls) */}
               <div className="relative w-full sm:w-56">
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
@@ -1073,8 +1109,10 @@ export default function ListDetailPage() {
           </div>
 
           {/* Independent Scroll Area for Jobs Feed (Hover Scrollbar) */}
-          <div className="max-h-[calc(100vh-140px)] overflow-y-auto pr-1.5 space-y-3 hover-scrollbar">
-
+          <div
+            onScroll={handleJobsScroll}
+            className="max-h-[calc(100vh-140px)] overflow-y-auto pr-1.5 space-y-3 hover-scrollbar"
+          >
           {filteredJobs.length === 0 ? (
             <div className="glass-panel p-10 rounded-2xl text-center border-slate-200 dark:border-slate-800 space-y-2">
               <Briefcase className="w-10 h-10 text-slate-400 dark:text-slate-600 mx-auto mb-2" />
@@ -1094,175 +1132,76 @@ export default function ListDetailPage() {
                 <p className="text-xs text-slate-500 dark:text-slate-400">No active positions currently detected for this list.</p>
               )}
             </div>
-          ) : pageViewMode === 'grid' ? (
-            <div className="space-y-3">
-              {filteredJobs.map((j: any) => {
-                const compIdx = companyIndexMap.get(j.careerPageId) ?? companyIndexMap.get(((j.companyName || j.rawData?.company || '') as string).toLowerCase().trim());
-                return <JobCard key={j.id} job={j} companyIndex={compIdx} />;
-              })}
-            </div>
-          ) : pageViewMode === 'tiles' ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {filteredJobs.map((j: any) => {
-                const compIdx = companyIndexMap.get(j.careerPageId) ?? companyIndexMap.get(((j.companyName || j.rawData?.company || '') as string).toLowerCase().trim());
-                return <JobCard key={j.id} job={j} companyIndex={compIdx} />;
-              })}
-            </div>
           ) : (
-            /* Table List View */
-            <div className="glass-panel rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-100/90 dark:bg-slate-900/90 border-b border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-[11px]">
-                    <tr>
-                      <th className="py-3 px-4">Job Title &amp; Company</th>
-                      <th className="py-3 px-4">Department &amp; Seniority</th>
-                      <th className="py-3 px-4">Location &amp; Type</th>
-                      <th className="py-3 px-4">Deadline &amp; Posted Date</th>
-                      <th className="py-3 px-4 text-right">Apply Link</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800/70">
-                    {filteredJobs.map((j: any) => {
-                      const compName = j.companyName || j.rawData?.company || 'Company';
-                      const compIdx = companyIndexMap.get(j.careerPageId) ?? companyIndexMap.get(compName.toLowerCase().trim());
-                      const colorTheme = getCompanyColorTheme(compName, compIdx);
-                      const logoUrl = getCompanyLogoUrl(j.url);
-
-                      const rawDeadline = j.rawData?.deadline || j.rawData?.deadlineDate || j.rawData?.applyLastDate || j.rawData?.apply_last_date || j.rawData?.lastDateToApply || j.rawData?.closingDate || j.rawData?.expiresAt || j.rawData?.validThrough || null;
-                      const rawPosted = j.rawData?.postedDate || j.rawData?.postedAt || j.rawData?.posted_at || j.rawData?.datePosted || j.rawData?.publishedAt || null;
-
-                      // Seniority
-                      const titleLower = (j.title + ' ' + (j.rawData?.experience || '')).toLowerCase();
-                      let seniorityLabel: string | null = null;
-                      if (/\b(sr|senior|principal|staff|lead)\b/.test(titleLower)) seniorityLabel = 'SENIOR';
-                      else if (/\b(jr|junior|associate)\b/.test(titleLower)) seniorityLabel = 'JUNIOR';
-                      else if (/\b(manager|director|chief|vp)\b/.test(titleLower)) seniorityLabel = 'MANAGEMENT';
-                      else if (/\b(trainee|intern|internship|entry|fresh|graduate)\b/.test(titleLower)) seniorityLabel = 'ENTRY LEVEL';
-                      else if (/\b(mid|intermediate)\b/.test(titleLower)) seniorityLabel = 'MID-LEVEL';
-
-                      // Deadline text
-                      let deadlineText = 'Deadline: Not Specified';
-                      let deadlineClass = 'bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20';
-                      if (rawDeadline && !String(rawDeadline).toLowerCase().includes('not specified') && !/^posted/i.test(String(rawDeadline).trim())) {
-                        const dStr = String(rawDeadline).trim().replace(/^(deadline|closing date|apply by)\s*:?\s*/i, '');
-                        try {
-                          const d = new Date(dStr);
-                          if (!isNaN(d.getTime())) {
-                            const diffDays = Math.ceil((d.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-                            if (diffDays < 0) {
-                              deadlineText = `Closed (${d.toLocaleDateString()})`;
-                              deadlineClass = 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20';
-                            } else if (diffDays <= 3) {
-                              deadlineText = `${diffDays === 0 ? 'Expires today' : `${diffDays} days left`} (${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })})`;
-                              deadlineClass = 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 font-bold animate-pulse';
-                            } else {
-                              deadlineText = `Deadline: ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
-                              deadlineClass = 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20';
-                            }
-                          } else {
-                            deadlineText = `Deadline: ${dStr}`;
-                          }
-                        } catch {
-                          deadlineText = `Deadline: ${dStr}`;
-                        }
-                      }
-
-                      // Posted text
-                      let postedCleanStr: string | null = null;
-                      if (rawPosted && !/^deadline/i.test(String(rawPosted).trim())) {
-                        postedCleanStr = String(rawPosted).trim().replace(/^(posted|date posted|published|posted on)\s*:?\s*/i, '');
-                      }
-
-                      return (
-                        <tr
-                          key={j.id}
-                          className="hover:bg-slate-100/70 dark:hover:bg-slate-900/70 transition-colors border-l-4"
-                          style={{
-                            borderLeftColor: colorTheme.borderHex,
-                            backgroundColor: colorTheme.bgLight,
-                          }}
-                        >
-                          {/* Title & Company */}
-                          <td className="py-3.5 px-4">
-                            <div className="flex items-center gap-2.5">
-                              {logoUrl ? (
-                                <img src={logoUrl} alt={compName} className="w-5 h-5 rounded object-contain bg-white p-0.5 border border-slate-200 dark:border-slate-700 shrink-0 shadow-xs" />
-                              ) : (
-                                <div className={`w-5 h-5 rounded flex items-center justify-center font-extrabold text-[10px] ${colorTheme.bg} ${colorTheme.text} shrink-0 shadow-xs`}>
-                                  {(compName[0] || 'C').toUpperCase()}
-                                </div>
-                              )}
-                              <div>
-                                <span className="font-extrabold text-sm text-slate-900 dark:text-white block leading-tight">{j.title}</span>
-                                <div className="flex items-center gap-1.5 flex-wrap mt-1">
-                                  <span className={`text-[11px] font-bold inline-flex items-center px-2 py-0.5 rounded-md border ${colorTheme.badgeBg} ${colorTheme.text} ${colorTheme.badgeBorder}`}>
-                                    {compName}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          </td>
-
-                          {/* Department & Seniority */}
-                          <td className="py-3.5 px-4">
-                            <span className="text-slate-800 dark:text-slate-200 font-semibold block">{j.department || j.rawData?.department || 'General'}</span>
-                            <div className="flex items-center gap-1 flex-wrap mt-0.5">
-                              {seniorityLabel && (
-                                <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700">
-                                  {seniorityLabel}
-                                </span>
-                              )}
-                              {j.rawData?.salary && (
-                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                                  💵 {j.rawData.salary}
-                                </span>
-                              )}
-                              {j.rawData?.experience && !seniorityLabel && (
-                                <span className="text-[11px] text-slate-500">{j.rawData.experience}</span>
-                              )}
-                            </div>
-                          </td>
-
-                          {/* Location & Job Type */}
-                          <td className="py-3.5 px-4">
-                            <span className="text-slate-800 dark:text-slate-200 font-semibold block">{j.location || 'Remote / Unspecified'}</span>
-                            <span className="text-[11px] text-slate-500 block">{j.jobType || j.rawData?.employmentType || 'Full-time'}</span>
-                          </td>
-
-                          {/* Dates & Deadline */}
-                          <td className="py-3.5 px-4 space-y-1">
-                            <span className={`inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-md border ${deadlineClass}`}>
-                              {deadlineText}
-                            </span>
-                            {postedCleanStr && (
-                              <span className="text-[11px] text-slate-500 dark:text-slate-400 block font-medium">
-                                Posted: {postedCleanStr}
+            <div className="space-y-3">
+              {pageViewMode === 'grid' ? (
+                <div className="space-y-3">
+                  {visibleJobsList.map((j: any) => {
+                    const compIdx = companyIndexMap.get(j.careerPageId) ?? companyIndexMap.get(((j.companyName || j.rawData?.company || '') as string).toLowerCase().trim());
+                    return <JobCard key={j.id} job={j} companyIndex={compIdx} />;
+                  })}
+                </div>
+              ) : pageViewMode === 'tiles' ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {visibleJobsList.map((j: any) => {
+                    const compIdx = companyIndexMap.get(j.careerPageId) ?? companyIndexMap.get(((j.companyName || j.rawData?.company || '') as string).toLowerCase().trim());
+                    return <JobCard key={j.id} job={j} companyIndex={compIdx} />;
+                  })}
+                </div>
+              ) : (
+                /* Table View for Jobs */
+                <div className="glass-panel rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-100/80 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-slate-500 font-semibold">
+                        <tr>
+                          <th className="py-3 px-4">Position Title</th>
+                          <th className="py-3 px-3">Company</th>
+                          <th className="py-3 px-3">Location</th>
+                          <th className="py-3 px-3">Type</th>
+                          <th className="py-3 px-4 text-right">Apply</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800/70">
+                        {visibleJobsList.map((j: any) => (
+                          <tr key={j.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition-colors">
+                            <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">
+                              {j.title}
+                            </td>
+                            <td className="py-3.5 px-3 font-semibold text-blue-600 dark:text-blue-400">
+                              {j.companyName || j.rawData?.company || 'Company'}
+                            </td>
+                            <td className="py-3.5 px-3 text-slate-600 dark:text-slate-400 truncate max-w-[140px]">
+                              {j.location || 'Remote'}
+                            </td>
+                            <td className="py-3.5 px-3">
+                              <span className="px-2 py-0.5 rounded-md bg-blue-500/8 text-blue-600 dark:text-blue-400 border border-blue-500/20 text-[11px] font-medium">
+                                {j.jobType || 'Full-Time'}
                               </span>
-                            )}
-                          </td>
-
-                          {/* Apply Link */}
-                          <td className="py-3.5 px-4 text-right">
-                            {j.url ? (
+                            </td>
+                            <td className="py-3.5 px-4 text-right">
                               <a
                                 href={j.url}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold inline-flex items-center gap-1.5 shadow-sm transition-all text-xs cursor-pointer"
+                                className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold transition-all shadow-sm"
                               >
-                                Apply <ExternalLink className="w-3.5 h-3.5" />
+                                Apply <ExternalLink className="w-3 h-3" />
                               </a>
-                            ) : (
-                              <span className="text-slate-400 text-xs font-semibold">No direct link</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {jobsLimit < filteredJobs.length && (
+                <div className="text-center py-2 text-[11px] font-semibold text-slate-400 dark:text-slate-500 animate-pulse">
+                  Scroll to load more positions ({visibleJobsList.length} of {filteredJobs.length})...
+                </div>
+              )}
             </div>
           )}
           </div>
