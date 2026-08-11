@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -12,6 +12,7 @@ import { Footer } from '@/components/Footer';
 import { PublicUserProfileModal } from '@/components/PublicUserProfileModal';
 import { Badge } from '@/components/Badge';
 import { useToast } from '@/components/Toast';
+import { useAuth } from '@/components/auth/AuthContext';
 import { getCompanyColorTheme, getCompanyLogoUrl } from '@/lib/utils/companyBranding';
 import { pluralize } from '@/lib/utils/pluralize';
 
@@ -22,7 +23,7 @@ export default function PublicListPageView() {
   const slug = params.slug as string;
 
   const [mounted, setMounted] = useState(false);
-  const [user, setUser] = useState<any>(null);
+  const { user } = useAuth();
 
   useEffect(() => {
     setMounted(true);
@@ -62,6 +63,13 @@ export default function PublicListPageView() {
   const [negativeKeywordsInput, setNegativeKeywordsInput] = useState('');
   const [digestFrequency, setDigestFrequency] = useState('instant');
   const [followSubmitting, setFollowSubmitting] = useState(false);
+  const followInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (showFollowModal) {
+      setTimeout(() => followInputRef.current?.focus(), 50);
+    }
+  }, [showFollowModal]);
 
   // Suggest Company Dialog
   const [showSuggestModal, setShowSuggestModal] = useState(false);
@@ -69,6 +77,13 @@ export default function PublicListPageView() {
   const [suggestCompany, setSuggestCompany] = useState('');
   const [suggestSubmitting, setSuggestSubmitting] = useState(false);
   const [suggestSuccess, setSuggestSuccess] = useState('');
+  const suggestInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (showSuggestModal) {
+      setTimeout(() => suggestInputRef.current?.focus(), 50);
+    }
+  }, [showSuggestModal]);
 
   // Fork State
   const [forking, setForking] = useState(false);
@@ -84,11 +99,6 @@ export default function PublicListPageView() {
   const [collabSubmitting, setCollabSubmitting] = useState(false);
 
   useEffect(() => {
-    fetch('/api/me')
-      .then(res => res.ok ? res.json() : null)
-      .then(d => { if (d?.user) setUser(d.user); })
-      .catch(() => setUser(null));
-
     if (!slug) return;
     fetch(`/api/public/lists/${slug}`)
       .then(async res => {
@@ -545,8 +555,8 @@ export default function PublicListPageView() {
               </div>
             ) : (
               <div className="space-y-3">
-                {filteredPages.map((p: any) => {
-                  const colorTheme = getCompanyColorTheme(p.companyName || 'Company');
+                {filteredPages.map((p: any, idx: number) => {
+                  const colorTheme = getCompanyColorTheme(p.companyName || 'Company', idx);
                   const logoUrl = getCompanyLogoUrl(p.url);
 
                   return (
@@ -778,6 +788,8 @@ export default function PublicListPageView() {
                   Positive Keyword Filters (comma separated)
                 </label>
                 <input
+                  ref={followInputRef}
+                  autoFocus
                   type="text"
                   value={positiveKeywordsInput}
                   onChange={e => setPositiveKeywordsInput(e.target.value)}
@@ -872,6 +884,8 @@ export default function PublicListPageView() {
                     Career Page URL *
                   </label>
                   <input
+                    ref={suggestInputRef}
+                    autoFocus
                     type="url"
                     required
                     value={suggestUrl}

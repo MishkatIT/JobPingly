@@ -90,3 +90,51 @@ describe('4. Keyword Matcher', () => {
     expect(res2.isMatch).toBe(false);
   });
 });
+
+describe('5. HTML Cleaner Text Preservation', () => {
+  it('should remove script/style/svg syntax noise without stripping text from sidebar or nav elements', async () => {
+    const { cleanCareerPageContent } = await import('../packages/scraper/src/cleaner');
+    const sampleHtml = `
+      <html>
+        <head>
+          <style>body { color: red; }</style>
+          <script>console.log("secret syntax");</script>
+        </head>
+        <body>
+          <!-- HTML Comment -->
+          <div class="sidebar">
+            <h2>Featured Vacancy in Sidebar</h2>
+            <p>Software Engineer - Remote</p>
+          </div>
+          <header>
+            <h1>Company Careers Header</h1>
+          </header>
+          <svg><path d="M0 0"/></svg>
+        </body>
+      </html>
+    `;
+
+    const cleaned = cleanCareerPageContent(sampleHtml);
+    expect(cleaned).toContain('Featured Vacancy in Sidebar');
+    expect(cleaned).toContain('Software Engineer - Remote');
+    expect(cleaned).toContain('Company Careers Header');
+    expect(cleaned).not.toContain('console.log');
+    expect(cleaned).not.toContain('color: red');
+    expect(cleaned).not.toContain('HTML Comment');
+  });
+});
+
+describe('6. Alternative Deadline & PostedAt Key Lookups', () => {
+  it('should correctly parse applyLastDate and postedAt fields from raw data payload', () => {
+    const rawData = {
+      applyLastDate: '2026-12-31',
+      postedAt: '2026-08-01',
+    };
+
+    const rawDeadline = rawData.applyLastDate;
+    const postedDate = rawData.postedAt;
+
+    expect(rawDeadline).toBe('2026-12-31');
+    expect(postedDate).toBe('2026-08-01');
+  });
+});

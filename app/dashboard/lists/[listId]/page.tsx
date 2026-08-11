@@ -67,6 +67,15 @@ export default function ListDetailPage() {
   const [companyName, setCompanyName] = useState('');
   const [keywords, setKeywords] = useState('');
   const [adding, setAdding] = useState(false);
+  const addUrlInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (showAdd) {
+      setTimeout(() => {
+        addUrlInputRef.current?.focus();
+      }, 50);
+    }
+  }, [showAdd]);
 
   // Share & Modal states
   const [copied, setCopied] = useState(false);
@@ -80,6 +89,20 @@ export default function ListDetailPage() {
   const [showCollaboratorsModal, setShowCollaboratorsModal] = useState(false);
   const [collabEmail, setCollabEmail] = useState('');
   const [collabSubmitting, setCollabSubmitting] = useState(false);
+  const collabEmailInputRef = useRef<HTMLInputElement>(null);
+  const editCompanyInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editingCompany) {
+      setTimeout(() => editCompanyInputRef.current?.focus(), 50);
+    }
+  }, [editingCompany]);
+
+  useEffect(() => {
+    if (showCollaboratorsModal) {
+      setTimeout(() => collabEmailInputRef.current?.focus(), 50);
+    }
+  }, [showCollaboratorsModal]);
 
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -582,6 +605,12 @@ export default function ListDetailPage() {
     );
   });
 
+  const companyIndexMap = new Map<string, number>();
+  (pages || []).forEach((p: any, idx: number) => {
+    if (p.id) companyIndexMap.set(p.id, idx);
+    if (p.companyName) companyIndexMap.set(p.companyName.toLowerCase().trim(), idx);
+  });
+
   const handleLeaveWatchList = async () => {
     if (!confirm(`Are you sure you want to leave collaboration on '${list.name}'?`)) return;
     try {
@@ -814,8 +843,8 @@ export default function ListDetailPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {filteredPages.map((p: any) => {
-                const colorTheme = getCompanyColorTheme(p.companyName || 'Company');
+              {filteredPages.map((p: any, idx: number) => {
+                const colorTheme = getCompanyColorTheme(p.companyName || 'Company', idx);
                 const logoUrl = getCompanyLogoUrl(p.url);
                 const isSelected = selectedPageIds.includes(p.id);
                 const hasAnySelected = selectedPageIds.length > 0;
@@ -1057,62 +1086,170 @@ export default function ListDetailPage() {
             </div>
           ) : pageViewMode === 'grid' ? (
             <div className="space-y-3">
-              {filteredJobs.map((j: any) => (
-                <JobCard key={j.id} job={j} />
-              ))}
+              {filteredJobs.map((j: any) => {
+                const compIdx = companyIndexMap.get(j.careerPageId) ?? companyIndexMap.get(((j.companyName || j.rawData?.company || '') as string).toLowerCase().trim());
+                return <JobCard key={j.id} job={j} companyIndex={compIdx} />;
+              })}
             </div>
           ) : pageViewMode === 'tiles' ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {filteredJobs.map((j: any) => (
-                <JobCard key={j.id} job={j} />
-              ))}
+              {filteredJobs.map((j: any) => {
+                const compIdx = companyIndexMap.get(j.careerPageId) ?? companyIndexMap.get(((j.companyName || j.rawData?.company || '') as string).toLowerCase().trim());
+                return <JobCard key={j.id} job={j} companyIndex={compIdx} />;
+              })}
             </div>
           ) : (
             /* Table List View */
             <div className="glass-panel rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-100/80 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-slate-500 font-semibold">
+                  <thead className="bg-slate-100/90 dark:bg-slate-900/90 border-b border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-[11px]">
                     <tr>
                       <th className="py-3 px-4">Job Title &amp; Company</th>
-                      <th className="py-3 px-4">Department &amp; Level</th>
+                      <th className="py-3 px-4">Department &amp; Seniority</th>
                       <th className="py-3 px-4">Location &amp; Type</th>
+                      <th className="py-3 px-4">Deadline &amp; Posted Date</th>
                       <th className="py-3 px-4 text-right">Apply Link</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800/70">
-                    {filteredJobs.map((j: any) => (
-                      <tr key={j.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition-colors">
-                        <td className="py-3.5 px-4">
-                          <span className="font-extrabold text-sm text-slate-900 dark:text-white block">{j.title}</span>
-                          <span className="text-xs text-blue-600 dark:text-blue-400 font-semibold mt-0.5 block">{j.companyName || j.rawData?.company || 'Company'}</span>
-                        </td>
-                        <td className="py-3.5 px-4">
-                          <span className="text-slate-700 dark:text-slate-300 font-medium block">{j.department || j.rawData?.department || 'General'}</span>
-                          {j.rawData?.experience && (
-                            <span className="text-[11px] text-slate-500 block">{j.rawData.experience}</span>
-                          )}
-                        </td>
-                        <td className="py-3.5 px-4">
-                          <span className="text-slate-700 dark:text-slate-300 font-medium block">{j.location || 'Remote / Unspecified'}</span>
-                          <span className="text-[11px] text-slate-500 block">{j.jobType || j.rawData?.employmentType || 'Full-time'}</span>
-                        </td>
-                        <td className="py-3.5 px-4 text-right">
-                          {j.url ? (
-                            <a
-                              href={j.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold inline-flex items-center gap-1.5 shadow-sm transition-all text-xs"
-                            >
-                              Apply <ExternalLink className="w-3.5 h-3.5" />
-                            </a>
-                          ) : (
-                            <span className="text-slate-400 text-xs font-semibold">No direct link</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredJobs.map((j: any) => {
+                      const compName = j.companyName || j.rawData?.company || 'Company';
+                      const compIdx = companyIndexMap.get(j.careerPageId) ?? companyIndexMap.get(compName.toLowerCase().trim());
+                      const colorTheme = getCompanyColorTheme(compName, compIdx);
+                      const logoUrl = getCompanyLogoUrl(j.url);
+
+                      const rawDeadline = j.rawData?.deadline || j.rawData?.deadlineDate || j.rawData?.applyLastDate || j.rawData?.apply_last_date || j.rawData?.lastDateToApply || j.rawData?.closingDate || j.rawData?.expiresAt || j.rawData?.validThrough || null;
+                      const rawPosted = j.rawData?.postedDate || j.rawData?.postedAt || j.rawData?.posted_at || j.rawData?.datePosted || j.rawData?.publishedAt || null;
+
+                      // Seniority
+                      const titleLower = (j.title + ' ' + (j.rawData?.experience || '')).toLowerCase();
+                      let seniorityLabel: string | null = null;
+                      if (/\b(sr|senior|principal|staff|lead)\b/.test(titleLower)) seniorityLabel = 'SENIOR';
+                      else if (/\b(jr|junior|associate)\b/.test(titleLower)) seniorityLabel = 'JUNIOR';
+                      else if (/\b(manager|director|chief|vp)\b/.test(titleLower)) seniorityLabel = 'MANAGEMENT';
+                      else if (/\b(trainee|intern|internship|entry|fresh|graduate)\b/.test(titleLower)) seniorityLabel = 'ENTRY LEVEL';
+                      else if (/\b(mid|intermediate)\b/.test(titleLower)) seniorityLabel = 'MID-LEVEL';
+
+                      // Deadline text
+                      let deadlineText = 'Deadline: Not Specified';
+                      let deadlineClass = 'bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20';
+                      if (rawDeadline && !String(rawDeadline).toLowerCase().includes('not specified') && !/^posted/i.test(String(rawDeadline).trim())) {
+                        const dStr = String(rawDeadline).trim().replace(/^(deadline|closing date|apply by)\s*:?\s*/i, '');
+                        try {
+                          const d = new Date(dStr);
+                          if (!isNaN(d.getTime())) {
+                            const diffDays = Math.ceil((d.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                            if (diffDays < 0) {
+                              deadlineText = `Closed (${d.toLocaleDateString()})`;
+                              deadlineClass = 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20';
+                            } else if (diffDays <= 3) {
+                              deadlineText = `${diffDays === 0 ? 'Expires today' : `${diffDays} days left`} (${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })})`;
+                              deadlineClass = 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 font-bold animate-pulse';
+                            } else {
+                              deadlineText = `Deadline: ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+                              deadlineClass = 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20';
+                            }
+                          } else {
+                            deadlineText = `Deadline: ${dStr}`;
+                          }
+                        } catch {
+                          deadlineText = `Deadline: ${dStr}`;
+                        }
+                      }
+
+                      // Posted text
+                      let postedCleanStr: string | null = null;
+                      if (rawPosted && !/^deadline/i.test(String(rawPosted).trim())) {
+                        postedCleanStr = String(rawPosted).trim().replace(/^(posted|date posted|published|posted on)\s*:?\s*/i, '');
+                      }
+
+                      return (
+                        <tr
+                          key={j.id}
+                          className="hover:bg-slate-100/70 dark:hover:bg-slate-900/70 transition-colors border-l-4"
+                          style={{
+                            borderLeftColor: colorTheme.borderHex,
+                            backgroundColor: colorTheme.bgLight,
+                          }}
+                        >
+                          {/* Title & Company */}
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center gap-2.5">
+                              {logoUrl ? (
+                                <img src={logoUrl} alt={compName} className="w-5 h-5 rounded object-contain bg-white p-0.5 border border-slate-200 dark:border-slate-700 shrink-0 shadow-xs" />
+                              ) : (
+                                <div className={`w-5 h-5 rounded flex items-center justify-center font-extrabold text-[10px] ${colorTheme.bg} ${colorTheme.text} shrink-0 shadow-xs`}>
+                                  {(compName[0] || 'C').toUpperCase()}
+                                </div>
+                              )}
+                              <div>
+                                <span className="font-extrabold text-sm text-slate-900 dark:text-white block leading-tight">{j.title}</span>
+                                <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                                  <span className={`text-[11px] font-bold inline-flex items-center px-2 py-0.5 rounded-md border ${colorTheme.badgeBg} ${colorTheme.text} ${colorTheme.badgeBorder}`}>
+                                    {compName}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Department & Seniority */}
+                          <td className="py-3.5 px-4">
+                            <span className="text-slate-800 dark:text-slate-200 font-semibold block">{j.department || j.rawData?.department || 'General'}</span>
+                            <div className="flex items-center gap-1 flex-wrap mt-0.5">
+                              {seniorityLabel && (
+                                <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700">
+                                  {seniorityLabel}
+                                </span>
+                              )}
+                              {j.rawData?.salary && (
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                  💵 {j.rawData.salary}
+                                </span>
+                              )}
+                              {j.rawData?.experience && !seniorityLabel && (
+                                <span className="text-[11px] text-slate-500">{j.rawData.experience}</span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Location & Job Type */}
+                          <td className="py-3.5 px-4">
+                            <span className="text-slate-800 dark:text-slate-200 font-semibold block">{j.location || 'Remote / Unspecified'}</span>
+                            <span className="text-[11px] text-slate-500 block">{j.jobType || j.rawData?.employmentType || 'Full-time'}</span>
+                          </td>
+
+                          {/* Dates & Deadline */}
+                          <td className="py-3.5 px-4 space-y-1">
+                            <span className={`inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-md border ${deadlineClass}`}>
+                              {deadlineText}
+                            </span>
+                            {postedCleanStr && (
+                              <span className="text-[11px] text-slate-500 dark:text-slate-400 block font-medium">
+                                Posted: {postedCleanStr}
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Apply Link */}
+                          <td className="py-3.5 px-4 text-right">
+                            {j.url ? (
+                              <a
+                                href={j.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold inline-flex items-center gap-1.5 shadow-sm transition-all text-xs cursor-pointer"
+                              >
+                                Apply <ExternalLink className="w-3.5 h-3.5" />
+                              </a>
+                            ) : (
+                              <span className="text-slate-400 text-xs font-semibold">No direct link</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1134,6 +1271,8 @@ export default function ListDetailPage() {
               <div>
                 <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Career URL *</label>
                 <input
+                  ref={addUrlInputRef}
+                  autoFocus
                   type="url"
                   required
                   value={url}
@@ -1192,6 +1331,8 @@ export default function ListDetailPage() {
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1">Company Name *</label>
                 <input
+                  ref={editCompanyInputRef}
+                  autoFocus
                   type="text"
                   required
                   value={editCompanyNameStr}
@@ -1313,6 +1454,8 @@ export default function ListDetailPage() {
             {isOwner && (
               <form onSubmit={handleAddCollaborator} className="flex gap-2">
                 <input
+                  ref={collabEmailInputRef}
+                  autoFocus
                   type="email"
                   required
                   value={collabEmail}

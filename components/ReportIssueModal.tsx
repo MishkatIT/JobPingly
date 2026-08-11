@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertCircle, Bug, Link2, Sparkles, HelpCircle, Send, Briefcase, UserCheck } from 'lucide-react';
 import { useToast } from '@/components/Toast';
@@ -43,6 +43,14 @@ export function ReportIssueModal({ isOpen, onClose, defaultTargetUrl = '' }: Rep
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
+
+  const subjectInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setTimeout(() => subjectInputRef.current?.focus(), 50);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -167,6 +175,8 @@ export function ReportIssueModal({ isOpen, onClose, defaultTargetUrl = '' }: Rep
               Subject *
             </label>
             <input
+              ref={subjectInputRef}
+              autoFocus
               type="text"
               required
               value={subject}

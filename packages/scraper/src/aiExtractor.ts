@@ -59,7 +59,10 @@ Rules:
 12. Do not return explanations before or after the JSON.
 13. Do not wrap the response in \`\`\`json.
 14. Do not guess dates, salaries, locations, job IDs, or employment types.
-15. jobTitle must be the actual vacancy title, not headings such as "Careers", "Join Us", or "Open Positions".`;
+15. jobTitle must be the actual vacancy title, not headings such as "Careers", "Join Us", or "Open Positions".
+16. "deadline" is strictly the application closing date / last date to apply (e.g. "Apply before 30 July 2026", "Deadline: 31 Dec").
+17. "postedDate" is strictly the publication / creation date (e.g. "Posted on 10 Aug 2026", "Published 2 days ago").
+18. Never put a deadline date into postedDate or vice versa. If only deadline is present, set postedDate to null. If only postedDate is present, set deadline to null.`;
 
 /**
  * Extracts structured job vacancy data from a batch of cleaned career pages using Ollama Cloud (qwen3.5:cloud).

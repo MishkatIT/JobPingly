@@ -11,9 +11,9 @@ declare global {
 
 // Preserve connection instance across Next.js HMR hot-reloads in development
 const client = globalThis._postgresSql || postgres(connectionString, {
-  max: process.env.NODE_ENV === 'production' ? 10 : 3,
-  idle_timeout: 10, // Close idle connections after 10 seconds
-  connect_timeout: 5, // Fast timeout on initial connection
+  max: process.env.DB_POOL_MAX ? parseInt(process.env.DB_POOL_MAX, 10) : (process.env.NODE_ENV === 'production' ? 25 : 15),
+  idle_timeout: 20, // Close idle connections after 20 seconds
+  connect_timeout: 10, // Fast timeout on initial connection
 });
 
 if (process.env.NODE_ENV !== 'production') {

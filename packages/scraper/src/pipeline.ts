@@ -46,7 +46,7 @@ export async function autoRemoveExpiredJobsFromDb() {
 
     for (const j of allJobs) {
       const raw = j.rawData as any;
-      const deadline = raw?.deadline || raw?.deadlineDate;
+      const deadline = raw?.deadline || raw?.deadlineDate || raw?.applyLastDate || raw?.apply_last_date || raw?.closingDate || raw?.closing_date || raw?.expiresAt || raw?.expires_at || raw?.validThrough || raw?.valid_through || raw?.expirationDate;
       const expired = deadline ? isDeadlineExpired(deadline) : false;
 
       if (expired || j.status === 'closed') {
@@ -105,8 +105,11 @@ export async function runScraperPipeline(careerPageId: string, options?: { force
     let html = '';
     let httpSuccess = false;
 
+    // Normalize target URL (strip hash fragment for HTTP fetch)
+    const cleanFetchUrl = page.url.split('#')[0];
+
     try {
-      const res = await fetch(page.url, {
+      const res = await fetch(cleanFetchUrl, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) JobPinglyBot/1.0',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -169,6 +172,13 @@ export async function runScraperPipeline(careerPageId: string, options?: { force
       if (selectedAdapter.name !== 'generic') {
         selectedAdapterName = selectedAdapter.name;
         extractedJobs = await selectedAdapter.extractJobs(page.url, html);
+      } else {
+        // Probe internal API detector as a fallback before sending to AI
+        const apiJobs = await ApiDetectorsAdapter.extractJobs(page.url, html);
+        if (apiJobs.length > 0) {
+          extractedJobs = apiJobs;
+          selectedAdapterName = ApiDetectorsAdapter.name;
+        }
       }
     }
 
@@ -292,6 +302,10 @@ export async function runScraperPipeline(careerPageId: string, options?: { force
           lastSeenAt: new Date(),
           closedAt: expired ? new Date() : null,
           missedScrapes: 0,
+          rawData: job.rawData ? job.rawData : null,
+          location: job.location || null,
+          jobType: job.jobType || null,
+          department: job.department || null,
         },
       }).returning();
 
@@ -349,9 +363,9 @@ export async function runScraperPipeline(careerPageId: string, options?: { force
       }
     }
 
-    // Process UNCHANGED jobs (reset missedScrapes, mark closed if deadline expired)
+    // Process UNCHANGED jobs (reset missedScrapes, mark closed if deadline expired, update rawData)
     for (const un of diff.unchangedJobs) {
-      const rawDeadline = (un.rawData as any)?.deadline || (un.rawData as any)?.deadlineDate;
+      const rawDeadline = (un.rawData as any)?.deadline || (un.rawData as any)?.deadlineDate || (un.rawData as any)?.applyLastDate;
       const expired = isDeadlineExpired(rawDeadline);
 
       await db.update(jobs)
@@ -359,7 +373,8 @@ export async function runScraperPipeline(careerPageId: string, options?: { force
           status: expired ? 'closed' : 'active',
           closedAt: expired ? new Date() : null,
           lastSeenAt: new Date(),
-          missedScrapes: 0
+          missedScrapes: 0,
+          rawData: un.rawData ? un.rawData : null,
         })
         .where(and(eq(jobs.careerPageId, careerPageId), eq(jobs.fingerprint, un.fingerprint)));
     }

@@ -2,6 +2,7 @@ import './globals.css';
 import { Inter } from 'next/font/google';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { ToastProvider } from '@/components/Toast';
+import { AuthProvider } from '@/components/auth/AuthContext';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -46,11 +47,13 @@ export default function RootLayout({
         />
       </head>
       <body className={`${inter.className} min-h-screen transition-colors duration-200 antialiased`}>
-        <ThemeProvider>
-          <ToastProvider>
-            {children}
-          </ToastProvider>
-        </ThemeProvider>
+        <AuthProvider>
+          <ThemeProvider>
+            <ToastProvider>
+              {children}
+            </ToastProvider>
+          </ThemeProvider>
+        </AuthProvider>
       </body>
     </html>
   );

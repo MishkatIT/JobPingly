@@ -14,6 +14,7 @@ interface JobCardProps {
     rawData?: any;
     firstSeenAt?: string | Date;
   };
+  companyIndex?: number;
 }
 
 function getSeniorityBadge(title: string, rawExp?: string | null) {
@@ -70,7 +71,23 @@ function parseDeadlineInfo(rawDeadline?: string | null): { text: string; isUrgen
   }
 }
 
-export function JobCard({ job }: JobCardProps) {
+function cleanDeadlineValue(val?: string | null): string | null {
+  if (!val) return null;
+  let str = String(val).trim();
+  if (!str) return null;
+  if (/^posted/i.test(str) || /\bposted\b/i.test(str)) return null;
+  return str.replace(/^(deadline|closing date|apply by|expires|last date|application deadline)\s*:?\s*/i, '').trim();
+}
+
+function cleanPostedDateValue(val?: string | null): string | null {
+  if (!val) return null;
+  let str = String(val).trim();
+  if (!str) return null;
+  if (/^deadline/i.test(str) || /\bdeadline\b/i.test(str)) return null;
+  return str.replace(/^(posted|date posted|published|posted on)\s*:?\s*/i, '').trim();
+}
+
+export function JobCard({ job, companyIndex }: JobCardProps) {
   const toast = useToast();
   const [copied, setCopied] = useState(false);
   const raw = job.rawData || {};
@@ -79,14 +96,19 @@ export function JobCard({ job }: JobCardProps) {
   const salary = raw.salary || null;
   const experience = raw.experience || null;
   const workplaceType = raw.workplaceType || null;
-  const rawDeadline = raw.deadline || raw.deadlineDate || raw.closingDate || raw.expiresAt || raw.expiresOn || raw.validThrough || raw.expirationDate || null;
-  const postedDate = raw.postedDate || null;
+  
+  const uncleanedDeadline = raw.deadline || raw.deadlineDate || raw.applyLastDate || raw.apply_last_date || raw.lastDateToApply || raw.last_date_to_apply || raw.closingDate || raw.closing_date || raw.expiresAt || raw.expiresOn || raw.validThrough || raw.expirationDate || raw.lastDate || raw.applyBy || raw.valid_through || raw.deadline_date || null;
+  const rawDeadline = cleanDeadlineValue(uncleanedDeadline);
+
+  const rawPostedStr = raw.postedDate || raw.postedAt || raw.posted_at || raw.datePosted || raw.date_posted || raw.publishedAt || raw.published_at || raw.created_at || raw.createdAt || raw.posted || null;
+  const postedDate = cleanPostedDateValue(rawPostedStr);
+
   const description = raw.description || null;
   const jobType = job.jobType || raw.employmentType || 'Full-Time';
 
   const deadlineInfo = parseDeadlineInfo(rawDeadline);
   const seniority = getSeniorityBadge(job.title, experience);
-  const colorTheme = getCompanyColorTheme(company || job.title);
+  const colorTheme = getCompanyColorTheme(company || job.title, companyIndex);
   const logoUrl = getCompanyLogoUrl(job.url);
 
   const handleShareJob = (e: React.MouseEvent) => {
@@ -132,17 +154,6 @@ export function JobCard({ job }: JobCardProps) {
             {workplaceType && (
               <span className="text-[11px] font-medium text-purple-600 dark:text-purple-400 bg-purple-500/8 border border-purple-500/20 px-2 py-0.5 rounded-md">
                 {workplaceType}
-              </span>
-            )}
-
-            {deadlineInfo && (
-              <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 border ${
-                deadlineInfo.isUrgent
-                  ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'
-                  : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
-              }`}>
-                <Calendar className="w-3 h-3 shrink-0" />
-                Deadline: {deadlineInfo.text}
               </span>
             )}
 
@@ -232,7 +243,7 @@ export function JobCard({ job }: JobCardProps) {
         ) : (
           <div className="flex items-center gap-1 text-slate-500">
             <Calendar className="w-3.5 h-3.5 text-slate-400" />
-            <span>Deadline: Until Filled</span>
+            <span>Deadline: Not Specified</span>
           </div>
         )}
       </div>

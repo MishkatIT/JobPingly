@@ -8,9 +8,11 @@ import { Logo } from '@/components/Logo';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton';
 import { EmailVerificationModal } from '@/components/auth/EmailVerificationModal';
+import { useAuth } from '@/components/auth/AuthContext';
 
 export default function LoginPage() {
   const router = useRouter();
+  const { user, refreshUser } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -20,13 +22,10 @@ export default function LoginPage() {
   const [unverifiedEmail, setUnverifiedEmail] = useState('');
 
   useEffect(() => {
-    // If already logged in, redirect straight to dashboard
-    fetch('/api/me')
-      .then(res => {
-        if (res.ok) router.push('/dashboard');
-      })
-      .catch(() => {});
-  }, [router]);
+    if (user) {
+      router.replace('/dashboard');
+    }
+  }, [user, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,7 +51,8 @@ export default function LoginPage() {
         throw new Error(data.error || 'Login failed');
       }
 
-      router.push('/dashboard');
+      await refreshUser();
+      window.location.href = '/dashboard';
     } catch (err: any) {
       setError(err.message);
     } finally {

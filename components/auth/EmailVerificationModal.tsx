@@ -40,9 +40,9 @@ export function EmailVerificationModal({ email, onSuccess, onCancel }: EmailVeri
 
   // Focus first input on mount
   useEffect(() => {
-    if (inputRefs.current[0]) {
+    setTimeout(() => {
       inputRefs.current[0]?.focus();
-    }
+    }, 50);
   }, []);
 
   const handleChange = (index: number, value: string) => {

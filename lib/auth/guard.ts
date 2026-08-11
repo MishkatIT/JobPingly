@@ -62,17 +62,24 @@ export async function getAuthUser(req: NextRequest): Promise<TokenPayload | null
   // Check if user is blocked or role synced in DB
   const [dbUser] = await db.select({
     id: users.id,
+    email: users.email,
+    name: users.name,
+    avatarUrl: users.avatarUrl,
     role: users.role,
     isBlocked: users.isBlocked,
+    emailVerified: users.emailVerified,
+    emailNotificationsEnabled: users.emailNotificationsEnabled,
+    notificationPreference: users.notificationPreference,
+    socials: users.socials,
+    createdAt: users.createdAt,
   }).from(users).where(eq(users.id, tokenPayload.userId));
 
-  if (dbUser?.isBlocked) {
+  if (!dbUser || dbUser.isBlocked) {
     return null; // Blocked users cannot perform actions
   }
 
-  if (dbUser) {
-    tokenPayload.role = dbUser.role; // Always use live DB role
-  }
+  tokenPayload.role = dbUser.role; // Always use live DB role
+  tokenPayload.userRecord = dbUser; // Attach live user record
 
   // Check if email matches ADMIN_BOOTSTRAP_EMAIL
   const bootstrapEmail = process.env.ADMIN_BOOTSTRAP_EMAIL?.toLowerCase().trim();

@@ -8,13 +8,14 @@ import LoadingSpinner from '@/components/LoadingSpinner';
 import { Footer } from '@/components/Footer';
 import { PublicUserProfileModal } from '@/components/PublicUserProfileModal';
 import { useToast } from '@/components/Toast';
+import { useAuth } from '@/components/auth/AuthContext';
 
 import { Badge } from '@/components/Badge';
 import { pluralize } from '@/lib/utils/pluralize';
 
 export default function PublicDiscoverPage() {
   const toast = useToast();
-  const [user, setUser] = useState<any>(null);
+  const { user } = useAuth();
   const [lists, setLists] = useState<any[]>([]);
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -73,13 +74,6 @@ export default function PublicDiscoverPage() {
     setViewMode(mode);
     localStorage.setItem('jobpingly_discover_view', mode);
   };
-
-  useEffect(() => {
-    fetch('/api/me')
-      .then(res => res.ok ? res.json() : null)
-      .then(data => { if (data?.user) setUser(data.user); })
-      .catch(() => setUser(null));
-  }, []);
 
   // Debounce search (300ms)
   useEffect(() => {

@@ -8,31 +8,22 @@ import { Logo } from '@/components/Logo';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { UserProfileDropdown } from '@/components/UserProfileDropdown';
 import LoadingSpinner from '@/components/LoadingSpinner';
+import { useAuth } from '@/components/auth/AuthContext';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const { user, loading, logout: authLogout } = useAuth();
 
   useEffect(() => {
-    fetch('/api/me')
-      .then(res => {
-        if (!res.ok) throw new Error('Unauthenticated');
-        return res.json();
-      })
-      .then(data => {
-        setUser(data.user);
-        setLoading(false);
-      })
-      .catch(() => {
-        router.push('/login');
-      });
-  }, [router]);
+    if (!loading && !user) {
+      router.push('/login');
+    }
+  }, [user, loading, router]);
 
   const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    router.push('/');
+    await authLogout();
+    window.location.href = '/';
   };
 
   if (loading) {
@@ -46,18 +37,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#080c14] text-slate-900 dark:text-slate-100 flex transition-colors">
+    <div className="h-screen overflow-hidden bg-slate-50 dark:bg-[#080c14] text-slate-900 dark:text-slate-100 flex transition-colors">
       {/* Sidebar Navigation */}
-      <aside className="w-64 glass-panel border-r border-slate-200 dark:border-slate-800/80 flex flex-col justify-between p-5 shrink-0 hidden lg:flex">
-        <div>
+      <aside className="w-64 h-full glass-panel border-r border-slate-200 dark:border-slate-800/80 flex flex-col justify-between p-5 shrink-0 hidden lg:flex">
+        <div className="flex flex-col flex-1 overflow-y-auto min-h-0 pr-1">
           {/* Logo & Theme Header */}
-          <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-200 dark:border-slate-800/80">
+          <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-200 dark:border-slate-800/80 shrink-0">
             <Logo />
             <ThemeToggle />
           </div>
 
           {/* Navigation Links */}
-          <div className="space-y-4">
+          <div className="space-y-4 flex-1">
             <div>
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 px-2 block mb-2">
                 Workspace
@@ -108,13 +99,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
 
         {/* User Profile Footer (Opens Upwards) */}
-        <div className="pt-4 border-t border-slate-200 dark:border-slate-800/80 flex items-center justify-between">
-          <UserProfileDropdown user={user} onLogout={handleLogout} direction="up" />
+        <div className="pt-4 border-t border-slate-200 dark:border-slate-800/80 flex items-center justify-between shrink-0 mt-auto">
+          {user && <UserProfileDropdown user={user} onLogout={handleLogout} direction="up" />}
         </div>
       </aside>
 
       {/* Main Workspace Area */}
-      <main className="flex-1 overflow-y-auto px-6 sm:px-10 lg:px-16 py-8 bg-slate-50 dark:bg-[#080c14]">
+      <main className="flex-1 min-w-0 h-full overflow-y-scroll px-6 sm:px-10 lg:px-16 py-8 bg-slate-50 dark:bg-[#080c14]">
         {/* Mobile Header */}
         <div className="lg:hidden glass-panel border-b border-slate-200 dark:border-slate-800 px-5 py-3.5 flex items-center justify-between sticky top-0 z-40 mb-6">
           <Logo />

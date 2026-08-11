@@ -9,6 +9,7 @@ import {
   LayoutGrid, Grid2X2, List, Crown, GitFork
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
+import { useAuth } from '@/components/auth/AuthContext';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
@@ -159,6 +160,23 @@ export default function AdminDashboardPage() {
   const [showAddEmailModal, setShowAddEmailModal] = useState(false);
   const [manualEmail, setManualEmail] = useState('');
   const [addingEmail, setAddingEmail] = useState(false);
+  const addEmailInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (showAddEmailModal) {
+      setTimeout(() => addEmailInputRef.current?.focus(), 50);
+    }
+  }, [showAddEmailModal]);
+
+  // Test Email Modal State
+  const [showTestEmailModal, setShowTestEmailModal] = useState(false);
+  const testEmailInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (showTestEmailModal) {
+      setTimeout(() => testEmailInputRef.current?.focus(), 50);
+    }
+  }, [showTestEmailModal]);
 
   // Manual Add Company Modal State
   const [showAddCompanyModal, setShowAddCompanyModal] = useState(false);
@@ -166,9 +184,23 @@ export default function AdminDashboardPage() {
   const [newCompanyName, setNewCompanyName] = useState('');
   const [newCompanyInterval, setNewCompanyInterval] = useState(180);
   const [addingCompany, setAddingCompany] = useState(false);
+  const addAdminCompanyInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (showAddCompanyModal) {
+      setTimeout(() => addAdminCompanyInputRef.current?.focus(), 50);
+    }
+  }, [showAddCompanyModal]);
 
   // Flexible Custom Time Modal State
   const [showCustomTimerModal, setShowCustomTimerModal] = useState(false);
+  const customTimerInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (showCustomTimerModal) {
+      setTimeout(() => customTimerInputRef.current?.focus(), 50);
+    }
+  }, [showCustomTimerModal]);
   const [customTargetType, setCustomTargetType] = useState<'global' | 'page'>('global');
   const [customPageId, setCustomPageId] = useState<string | null>(null);
   const [customPageStatus, setCustomPageStatus] = useState<string>('active');
@@ -176,7 +208,6 @@ export default function AdminDashboardPage() {
   const [customUnit, setCustomUnit] = useState<number>(60); // 1=mins, 60=hrs, 1440=days, 10080=weeks, 43200=months, 525600=years
 
   // Test Email Dispatcher Modal State
-  const [showTestEmailModal, setShowTestEmailModal] = useState(false);
   const [testRecipientEmail, setTestRecipientEmail] = useState('');
   const [testEmailTemplate, setTestEmailTemplate] = useState<'otp' | 'digest' | 'custom'>('otp');
   const [testCustomSubject, setTestCustomSubject] = useState('');
@@ -572,6 +603,10 @@ export default function AdminDashboardPage() {
       try {
         localStorage.setItem('admin_active_tab', tab);
       } catch {}
+      const mainEl = document.querySelector('main');
+      if (mainEl) {
+        mainEl.scrollTop = 0;
+      }
     }
   };
 
@@ -687,14 +722,7 @@ export default function AdminDashboardPage() {
     setCompanyPage(1);
   };
 
-  const [currentUser, setCurrentUser] = useState<any>(null);
-
-  useEffect(() => {
-    fetch('/api/me')
-      .then(res => res.ok ? res.json() : null)
-      .then(d => { if (d?.user) setCurrentUser(d.user); })
-      .catch(() => setCurrentUser(null));
-  }, []);
+  const { user: currentUser } = useAuth();
 
   const loadAdminData = async (retryCount = 0) => {
     try {
@@ -3651,6 +3679,8 @@ export default function AdminDashboardPage() {
                   Email Address *
                 </label>
                 <input
+                  ref={addEmailInputRef}
+                  autoFocus
                   type="email"
                   required
                   value={manualEmail}
@@ -3706,6 +3736,8 @@ export default function AdminDashboardPage() {
                   Recipient Email Address *
                 </label>
                 <input
+                  ref={testEmailInputRef}
+                  autoFocus
                   type="email"
                   required
                   value={testRecipientEmail}
@@ -3845,6 +3877,8 @@ export default function AdminDashboardPage() {
                   Frequency Value
                 </label>
                 <input
+                  ref={customTimerInputRef}
+                  autoFocus
                   type="number"
                   min="1"
                   max="1000"
@@ -3930,6 +3964,8 @@ export default function AdminDashboardPage() {
                   Career Page URL *
                 </label>
                 <input
+                  ref={addAdminCompanyInputRef}
+                  autoFocus
                   type="text"
                   required
                   value={newCompanyUrl}

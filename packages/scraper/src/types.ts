@@ -5,7 +5,7 @@ export type NormalizedJob = {
   location?: string;
   jobType?: string;
   department?: string;
-  rawData?: unknown;
+  rawData?: any;
 };
 
 export interface ATSAdapter {
@@ -17,6 +17,6 @@ export interface ATSAdapter {
 export type DiffResult = {
   newJobs: NormalizedJob[];
   removedJobs: { fingerprint: string; externalId?: string; title: string }[];
-  unchangedJobs: { fingerprint: string; externalId?: string; title: string; rawData?: unknown }[];
+  unchangedJobs: { fingerprint: string; externalId?: string; title: string; rawData?: any }[];
   isSuspicious: boolean;
 };

@@ -1,42 +1,29 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { ShieldAlert, Zap } from 'lucide-react';
 import LoadingSpinner from '@/components/LoadingSpinner';
+import { useAuth } from '@/components/auth/AuthContext';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const [authorized, setAuthorized] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const { user, loading } = useAuth();
 
   useEffect(() => {
-    fetch('/api/me')
-      .then(res => {
-        if (!res.ok) throw new Error('Unauthenticated');
-        return res.json();
-      })
-      .then(data => {
-        if (data.user && data.user.role === 'admin') {
-          setAuthorized(true);
-        } else {
-          // Non-admin user attempting to access /admin -> Redirect to /dashboard
-          router.replace('/dashboard');
-        }
-      })
-      .catch(() => {
+    if (!loading) {
+      if (!user) {
         router.replace('/login');
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-  }, [router]);
+      } else if (user.role !== 'admin') {
+        router.replace('/dashboard');
+      }
+    }
+  }, [user, loading, router]);
 
   if (loading) {
     return <LoadingSpinner message="Verifying Admin Access..." fullPage />;
   }
 
-  if (!authorized) {
+  if (!user || user.role !== 'admin') {
     return null; // Will redirect via router.replace
   }
 

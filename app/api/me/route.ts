@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const [dbUser] = await db.select().from(users).where(eq(users.id, authUser.userId));
+  const dbUser = authUser.userRecord;
   if (!dbUser) {
     return NextResponse.json({ error: 'User not found' }, { status: 404 });
   }

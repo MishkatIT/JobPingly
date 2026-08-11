@@ -42,7 +42,7 @@ export function UserProfileDropdown({ user, onLogout, onReportIssue, direction =
     if (onLogout) {
       onLogout();
     }
-    router.push('/');
+    window.location.href = '/';
   };
 
   const handleOpenReportIssue = () => {

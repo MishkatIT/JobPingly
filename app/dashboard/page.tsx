@@ -53,6 +53,20 @@ export default function DashboardOverview() {
   const [editingList, setEditingList] = useState<any | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const createListInputRef = useRef<HTMLInputElement>(null);
+  const addPageInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (showCreateModal) {
+      setTimeout(() => createListInputRef.current?.focus(), 50);
+    }
+  }, [showCreateModal]);
+
+  useEffect(() => {
+    if (showAddPageModal) {
+      setTimeout(() => addPageInputRef.current?.focus(), 50);
+    }
+  }, [showAddPageModal]);
 
   // Pagination states
   const [page, setPage] = useState(1);
@@ -1059,6 +1073,8 @@ export default function DashboardOverview() {
                   Watch List Name *
                 </label>
                 <input
+                  ref={createListInputRef}
+                  autoFocus
                   type="text"
                   required
                   value={listName}
@@ -1161,6 +1177,8 @@ export default function DashboardOverview() {
                   Career Page URL *
                 </label>
                 <input
+                  ref={addPageInputRef}
+                  autoFocus
                   type="url"
                   required
                   value={pageUrl}

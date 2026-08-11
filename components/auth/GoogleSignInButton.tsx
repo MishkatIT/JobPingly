@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
+import { useAuth } from '@/components/auth/AuthContext';
 
 interface GoogleSignInButtonProps {
   onSuccess?: () => void;
@@ -18,6 +19,7 @@ declare global {
 
 export function GoogleSignInButton({ onSuccess, onError, text = 'Continue with Google' }: GoogleSignInButtonProps) {
   const router = useRouter();
+  const { refreshUser } = useAuth();
   const [loading, setLoading] = useState(false);
   const [sdkReady, setSdkReady] = useState(false);
   const googleContainerRef = useRef<HTMLDivElement>(null);
@@ -43,17 +45,19 @@ export function GoogleSignInButton({ onSuccess, onError, text = 'Continue with G
         throw new Error(data.error || 'Google authentication failed');
       }
 
+      await refreshUser();
+
       if (onSuccess) {
         onSuccess();
       } else {
-        router.push('/dashboard');
+        window.location.href = '/dashboard';
       }
     } catch (err: any) {
       if (onError) onError(err.message || 'Google authentication failed');
     } finally {
       setLoading(false);
     }
-  }, [onError, onSuccess, router]);
+  }, [onError, onSuccess, refreshUser]);
 
   useEffect(() => {
     if (!clientId) return;
