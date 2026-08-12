@@ -29,6 +29,9 @@ import {
   Sliders,
   Filter,
   X,
+  Bot,
+  Cpu,
+  Zap,
 } from 'lucide-react';
 import { pluralize } from '@/lib/utils/pluralize';
 import { useToast } from '@/components/Toast';
@@ -50,6 +53,7 @@ export default function DashboardOverview() {
   // Modals & Menu State
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showAddPageModal, setShowAddPageModal] = useState(false);
+  const [showHowItWorks, setShowHowItWorks] = useState(true);
   const [editingList, setEditingList] = useState<any | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -91,7 +95,19 @@ export default function DashboardOverview() {
     if (savedView === 'grid' || savedView === 'tiles' || savedView === 'list') {
       setViewMode(savedView);
     }
+    const savedGuide = localStorage.getItem('jobpingly_show_how_it_works');
+    if (savedGuide !== null) {
+      setShowHowItWorks(savedGuide === 'true');
+    }
   }, []);
+
+  const handleToggleHowItWorks = () => {
+    setShowHowItWorks(prev => {
+      const next = !prev;
+      localStorage.setItem('jobpingly_show_how_it_works', String(next));
+      return next;
+    });
+  };
 
   const handleViewChange = (mode: 'grid' | 'tiles' | 'list') => {
     setViewMode(mode);
@@ -115,9 +131,8 @@ export default function DashboardOverview() {
 
   const fetchDashboardData = async (p = page, l = limit) => {
     try {
-      const [listsRes, meRes, invRes] = await Promise.all([
+      const [listsRes, invRes] = await Promise.all([
         fetch(`/api/lists?page=${p}&limit=${l}`),
-        fetch('/api/me'),
         fetch('/api/me/invitations'),
       ]);
 
@@ -129,11 +144,6 @@ export default function DashboardOverview() {
         if (data.lists?.length > 0 && !selectedListId) {
           setSelectedListId(data.lists[0].id);
         }
-      }
-
-      if (meRes.ok) {
-        const meData = await meRes.json();
-        setUser(meData.user);
       }
 
       if (invRes.ok) {
@@ -474,7 +484,7 @@ export default function DashboardOverview() {
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center gap-3">
-            Dashboard &amp; Watch Lists
+            Private Watch Lists
           </h1>
           <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
             Manage your watched company lists, track career pages, and view automated ATS job alerts.
@@ -503,6 +513,93 @@ export default function DashboardOverview() {
             Add Career Page
           </button>
         </div>
+      </div>
+
+      {/* Step-by-Step "How It Works" Guide */}
+      <div className="glass-panel p-6 sm:p-7 rounded-3xl border border-blue-500/20 bg-gradient-to-r from-blue-500/5 via-purple-500/5 to-transparent space-y-4 relative overflow-hidden">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-blue-600 text-white shrink-0 shadow-sm">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                How JobPingly Works — Step-by-Step Guide
+              </h2>
+              <p className="text-xs text-slate-600 dark:text-slate-400">
+                Follow these 4 simple steps to start tracking career pages and getting automated job alerts.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleToggleHowItWorks}
+            className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
+          >
+            {showHowItWorks ? 'Hide Steps ▲' : 'Show Steps ▼'}
+          </button>
+        </div>
+
+        {showHowItWorks && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
+            {/* Step 1 */}
+            <div className="p-4 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 space-y-2 relative group hover:border-blue-500/40 transition-all">
+              <div className="flex items-center justify-between">
+                <span className="w-7 h-7 rounded-xl bg-blue-600 text-white font-extrabold text-xs flex items-center justify-center shadow-xs">
+                  1
+                </span>
+                <Layers className="w-4 h-4 text-blue-500" />
+              </div>
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Create a Watch List</h3>
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                Click <strong>&quot;Create Watch List&quot;</strong> to group company career pages by target industry or role type.
+              </p>
+            </div>
+
+            {/* Step 2 */}
+            <div className="p-4 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 space-y-2 relative group hover:border-purple-500/40 transition-all">
+              <div className="flex items-center justify-between">
+                <span className="w-7 h-7 rounded-xl bg-purple-600 text-white font-extrabold text-xs flex items-center justify-center shadow-xs">
+                  2
+                </span>
+                <Briefcase className="w-4 h-4 text-purple-500" />
+              </div>
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Add Career Page URLs</h3>
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                Click <strong>&quot;Add Career Page&quot;</strong> and paste target company career links (Greenhouse, Lever, Workday, etc.).
+              </p>
+            </div>
+
+            {/* Step 3 */}
+            <div className="p-4 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 space-y-2 relative group hover:border-emerald-500/40 transition-all">
+              <div className="flex items-center justify-between">
+                <span className="w-7 h-7 rounded-xl bg-emerald-600 text-white font-extrabold text-xs flex items-center justify-center shadow-xs">
+                  3
+                </span>
+                <Bell className="w-4 h-4 text-emerald-500" />
+              </div>
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Automated Job Alerts</h3>
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                JobPingly checks career pages continuously and sends instant or daily email digests matching your keywords.
+              </p>
+            </div>
+
+            {/* Step 4 */}
+            <div className="p-4 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 space-y-2 relative group hover:border-amber-500/40 transition-all">
+              <div className="flex items-center justify-between">
+                <span className="w-7 h-7 rounded-xl bg-amber-600 text-white font-extrabold text-xs flex items-center justify-center shadow-xs">
+                  4
+                </span>
+                <Globe className="w-4 h-4 text-amber-500" />
+              </div>
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Follow Public Lists</h3>
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                Browse <strong>Public Watch Lists</strong> and click <strong>&quot;Follow &amp; Get Alerts&quot;</strong> on any list to receive email job notifications.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Metrics Row */}

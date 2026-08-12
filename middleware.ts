@@ -80,17 +80,17 @@ export function middleware(req: NextRequest) {
   const clientIp = getClientIp(req);
 
   // Set rate limits based on endpoint sensitivity
-  let limit = 60; // 60 requests per minute default for general API
+  let limit = 120; // 120 requests per minute default for general API
   let windowMs = 60 * 1000;
 
   if (pathname.startsWith('/api/auth/')) {
-    limit = 15; // 15 requests per minute for auth endpoints
+    limit = 20; // 20 requests per minute for auth endpoints
     windowMs = 60 * 1000;
   } else if (pathname.startsWith('/api/admin/emails/test')) {
-    limit = 5; // 5 test emails per minute limit
+    limit = 10; // 10 test emails per minute limit
     windowMs = 60 * 1000;
   } else if (pathname.startsWith('/api/admin/')) {
-    limit = 30; // 30 requests per minute for admin actions
+    limit = 300; // 300 requests per minute for admin actions & dashboard management
     windowMs = 60 * 1000;
   }
 

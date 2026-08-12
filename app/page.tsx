@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Bell, Briefcase, Eye, ShieldCheck, Zap, Globe, ArrowRight, Layers, Cpu, LayoutDashboard, ShieldAlert, PlusCircle, RefreshCw, Sliders, Mail, ChevronRight } from 'lucide-react';
+import { Bell, Briefcase, Eye, ShieldCheck, Zap, Globe, ArrowRight, Layers, Cpu, LayoutDashboard, ShieldAlert, PlusCircle, RefreshCw, Sliders, Mail, ChevronRight, Sparkles, Bot } from 'lucide-react';
 import { Logo } from '@/components/Logo';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { UserProfileDropdown } from '@/components/UserProfileDropdown';
@@ -85,9 +85,9 @@ export default function HomePage() {
 
       {/* Hero Section */}
       <section className="pt-16 pb-16 px-6 max-w-7xl mx-auto text-center relative">
-        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-card border-blue-200 dark:border-blue-800/40 text-xs font-semibold text-blue-700 dark:text-blue-300 mb-8">
-          <Cpu className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-          Powered by Cheerio, Greenhouse &amp; Lever ATS Engine
+        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-card border-purple-500/30 bg-purple-500/10 text-xs font-bold text-purple-700 dark:text-purple-300 mb-8 shadow-xs">
+          <Sparkles className="w-4 h-4 text-purple-500 animate-pulse" />
+          <span>Powered by Autonomous AI Agents &amp; Intelligent ATS Detection Engine</span>
         </div>
 
         <h1 className="text-4xl sm:text-5xl md:text-7xl font-extrabold tracking-tight text-slate-900 dark:text-white max-w-4xl mx-auto leading-tight mb-8">
@@ -98,7 +98,7 @@ export default function HomePage() {
         </h1>
 
         <p className="text-lg md:text-xl text-slate-600 dark:text-slate-400 max-w-2xl mx-auto mb-10 leading-relaxed">
-          Create custom watch lists of target tech companies. JobPingly’s background workers automatically detect newly posted &amp; removed jobs, apply your keyword filters, and send daily digests.
+          Create custom watch lists of target tech companies. JobPingly’s autonomous AI background workers automatically detect newly posted &amp; removed jobs, apply semantic keyword filters, and send instant digests.
         </p>
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
@@ -136,7 +136,7 @@ export default function HomePage() {
             </div>
             <h3 className="font-semibold text-lg text-slate-900 dark:text-white mb-2">ATS Auto-Detection</h3>
             <p className="text-sm text-slate-600 dark:text-slate-400">
-              Native adapters for Greenhouse, Lever, plus Cheerio HTML fallback &amp; JSON-LD structured data parsing.
+              Native adapters for Greenhouse, Lever, Ashby, Workday, plus Cheerio HTML fallback &amp; JSON-LD structured data parsing.
             </p>
           </div>
 
@@ -148,6 +148,63 @@ export default function HomePage() {
             <p className="text-sm text-slate-600 dark:text-slate-400">
               Deterministic keyword matching (e.g. Node.js, Frontend, Remote) sends only matching job alerts to your inbox.
             </p>
+          </div>
+        </div>
+
+        {/* AI Intelligence Showcase Section */}
+        <div className="mt-12 glass-panel p-8 sm:p-10 rounded-3xl border border-purple-500/20 bg-gradient-to-br from-purple-900/10 via-blue-900/10 to-transparent max-w-5xl mx-auto text-left relative overflow-hidden space-y-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="space-y-2">
+              <span className="px-3 py-1 rounded-full bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/30 text-xs font-extrabold uppercase tracking-wider">
+                AI Tech Stack &amp; Background Intelligence
+              </span>
+              <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                Autonomous AI Agents Crawling 24/7
+              </h2>
+              <p className="text-sm text-slate-600 dark:text-slate-400 max-w-2xl leading-relaxed">
+                Engineered for tech professionals, recruiters, and engineering leaders. JobPingly pairs background AI workers with specialized ATS adapters (Workday, Greenhouse, Lever, Ashby) to extract newly opened roles with zero noise.
+              </p>
+            </div>
+            <div className="p-4 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 shrink-0 space-y-2">
+              <div className="flex items-center gap-2 text-xs font-bold text-slate-900 dark:text-white">
+                <Bot className="w-4 h-4 text-purple-500" />
+                AI ATS Engine Status
+              </div>
+              <div className="flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-400 font-mono">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                Background Workers Active
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+            <div className="p-4 rounded-2xl bg-white/60 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800/60 space-y-1.5">
+              <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Cpu className="w-4 h-4 text-purple-500" />
+                Semantic Role Parsing
+              </h4>
+              <p className="text-xs text-slate-600 dark:text-slate-400">
+                AI extraction filters non-technical roles, spam postings, and duplicate ATS listings automatically.
+              </p>
+            </div>
+            <div className="p-4 rounded-2xl bg-white/60 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800/60 space-y-1.5">
+              <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Zap className="w-4 h-4 text-blue-500" />
+                Dynamic DOM Fallback
+              </h4>
+              <p className="text-xs text-slate-600 dark:text-slate-400">
+                Parses custom career portals, client-side SPA rendering, and legacy career pages without manual setup.
+              </p>
+            </div>
+            <div className="p-4 rounded-2xl bg-white/60 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800/60 space-y-1.5">
+              <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Mail className="w-4 h-4 text-emerald-500" />
+                Smart Keyword Digests
+              </h4>
+              <p className="text-xs text-slate-600 dark:text-slate-400">
+                Delivers targeted email job notifications matching your precise tech stack, seniority, or remote preferences.
+              </p>
+            </div>
           </div>
         </div>
       </section>

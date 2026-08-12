@@ -603,10 +603,6 @@ export default function AdminDashboardPage() {
       try {
         localStorage.setItem('admin_active_tab', tab);
       } catch {}
-      const mainEl = document.querySelector('main');
-      if (mainEl) {
-        mainEl.scrollTop = 0;
-      }
     }
   };
 
@@ -624,9 +620,6 @@ export default function AdminDashboardPage() {
     // Initial fetch for badge counts
     fetchUnverifiedUsers(1, '', 10);
     fetchPaginatedIssues(1, '', 10, 'open', 'all');
-
-    // Trigger immediate background sync check for due links
-    fetch('/api/admin/career-pages/cron-check', { method: 'POST' }).catch(() => null);
 
     // Periodic background auto-sync runner for due links (every 60s)
     const autoSyncInterval = setInterval(() => {
@@ -726,10 +719,9 @@ export default function AdminDashboardPage() {
 
   const loadAdminData = async (retryCount = 0) => {
     try {
-      const [overviewRes, flagsRes, usersRes] = await Promise.all([
+      const [overviewRes, flagsRes] = await Promise.all([
         fetch('/api/admin/overview'),
         fetch('/api/admin/flags'),
-        fetch('/api/admin/users'),
       ]);
 
       if (overviewRes.status === 401 && retryCount < 1) {
@@ -750,10 +742,6 @@ export default function AdminDashboardPage() {
       if (flagsRes.ok) {
         const fJson = await flagsRes.json();
         setFlags(fJson.flags || []);
-      }
-      if (usersRes.ok) {
-        const uJson = await usersRes.json();
-        setUserList(uJson.users || []);
       }
     } catch (e) {
       console.error(e);
@@ -1302,6 +1290,7 @@ export default function AdminDashboardPage() {
   }
 
   if (!data) {
+    const isUserAdminRole = currentUser?.role === 'admin';
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-[#080c14] text-slate-900 dark:text-slate-100 flex flex-col justify-between">
         <Navbar showBackHome />
@@ -1310,7 +1299,9 @@ export default function AdminDashboardPage() {
             <div className="w-16 h-16 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-500 flex items-center justify-center mx-auto">
               <ShieldAlert className="w-8 h-8" />
             </div>
-            <h2 className="text-2xl font-extrabold text-slate-900 dark:text-white">Admin Access Required</h2>
+            <h2 className="text-2xl font-extrabold text-slate-900 dark:text-white">
+              {isUserAdminRole ? 'Unable to Load Admin Data' : 'Admin Access Required'}
+            </h2>
             {currentUser ? (
               <div className="bg-rose-500/10 border border-rose-500/20 p-3 rounded-2xl text-xs text-rose-700 dark:text-rose-400 space-y-1">
                 <div>Logged in as: <strong>{currentUser.email}</strong></div>
@@ -1318,19 +1309,35 @@ export default function AdminDashboardPage() {
               </div>
             ) : null}
             <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-              {currentUser ? (
+              {isUserAdminRole ? (
+                <>Your admin session is active, but the overview metrics could not be retrieved. Click <strong>Retry Loading</strong> below or refresh the page.</>
+              ) : currentUser ? (
                 <>Your account (<strong>{currentUser.email}</strong>) has the <strong>{currentUser.role || 'user'}</strong> role. You must be an <strong>admin</strong> to access this page.</>
               ) : (
                 <>You must be logged in with an authorized Administrator account to view and manage the JobPingly Admin Suite.</>
               )}
             </p>
             <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
-              <Link
-                href="/login"
-                className="w-full sm:w-auto px-6 py-3 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-md transition-all text-center cursor-pointer"
-              >
-                Sign In as Admin
-              </Link>
+              {isUserAdminRole ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoading(true);
+                    loadAdminData();
+                  }}
+                  className="w-full sm:w-auto px-6 py-3 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-md transition-all text-center cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Retry Loading
+                </button>
+              ) : (
+                <Link
+                  href="/login"
+                  className="w-full sm:w-auto px-6 py-3 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-md transition-all text-center cursor-pointer"
+                >
+                  Sign In as Admin
+                </Link>
+              )}
               <Link
                 href="/"
                 className="w-full sm:w-auto px-6 py-3 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition-all text-center cursor-pointer"
@@ -1383,7 +1390,7 @@ export default function AdminDashboardPage() {
   const isCustomKw = !kwPresets.includes(maxKeywordsPerSub);
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto space-y-6">
       {/* Return to Dashboard */}
       <div>
         <Link
@@ -1525,8 +1532,10 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
-      {/* OVERVIEW TAB */}
-      {activeTab === 'overview' && (
+      {/* ACTIVE TAB CONTENT AREA WITH FIXED MIN-HEIGHT TO PREVENT STRUCTURE MOVEMENT */}
+      <div className="min-h-[600px] transition-all duration-150">
+        {/* OVERVIEW TAB */}
+        {activeTab === 'overview' && (
         <div className="space-y-6">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-5">
             <div className="glass-card p-5 rounded-2xl border-slate-200 dark:border-slate-800 flex items-center justify-between">
@@ -1665,12 +1674,12 @@ export default function AdminDashboardPage() {
                 const isEnabled = !isUnlimited && (f.value === true || f.value === 'true' || Number(f.value) > 0);
 
                 return (
-                  <div key={f.key} className="glass-card p-4 rounded-2xl border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                    <div className="space-y-1">
-                      <span className="font-mono text-xs font-bold text-blue-600 dark:text-blue-400 block">
+                  <div key={f.key} className="glass-card p-4 rounded-2xl border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 min-w-0 overflow-hidden">
+                    <div className="space-y-1 min-w-0 flex-1">
+                      <span className="font-mono text-xs font-bold text-blue-600 dark:text-blue-400 block break-all">
                         {f.key}
                       </span>
-                      <span className="text-xs text-slate-600 dark:text-slate-400 block truncate max-w-[170px]">
+                      <span className="text-xs text-slate-600 dark:text-slate-400 block truncate">
                         {f.description || (isLimitFlag ? 'Enforced system quota limit' : 'System feature flag')}
                       </span>
 
@@ -1700,7 +1709,7 @@ export default function AdminDashboardPage() {
                       onClick={() => handleToggleFlag(f.key, isEnabled)}
                       type="button"
                       title={isLimitFlag ? (isEnabled ? 'Click to set Unlimited (OFF)' : 'Click to Enable Limit (ON)') : 'Toggle Flag'}
-                      className={`w-11 h-6 rounded-full transition-colors p-0.5 relative flex items-center cursor-pointer shrink-0 ml-3 ${
+                      className={`w-11 h-6 rounded-full transition-colors p-0.5 relative flex items-center cursor-pointer shrink-0 ml-1 ${
                         isEnabled ? 'bg-emerald-600' : 'bg-slate-300 dark:bg-slate-700'
                       }`}
                     >
@@ -3663,6 +3672,7 @@ export default function AdminDashboardPage() {
           </div>
         </div>
       )}
+      </div>
 
       {/* Manual Add Email Modal */}
       {showAddEmailModal && mounted && createPortal(

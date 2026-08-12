@@ -14,25 +14,30 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const router = useRouter();
   const { user, loading, logout: authLogout } = useAuth();
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    if (!loading && !user) {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (mounted && !loading && !user) {
       router.push('/login');
     }
-  }, [user, loading, router]);
+  }, [user, loading, mounted, router]);
 
   const handleLogout = async () => {
     await authLogout();
     window.location.href = '/';
   };
 
-  if (loading) {
+  if (!mounted || loading) {
     return <LoadingSpinner message="Loading Workspace..." fullPage />;
   }
 
   const mainNav = [
-    { label: 'Dashboard & Watch Lists', href: '/dashboard', icon: Layers },
-    { label: 'Public Directory', href: '/discover', icon: Globe },
+    { label: 'Private Watch Lists', href: '/dashboard', icon: Layers },
+    { label: 'Public Watch Lists', href: '/discover', icon: Globe },
     { label: 'Account Settings', href: '/dashboard/settings', icon: Settings },
   ];
 

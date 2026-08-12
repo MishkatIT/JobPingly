@@ -11,7 +11,8 @@
     "db:push": "drizzle-kit push",
     "worker": "tsx worker/scheduler.ts",
     "jobs:check": "tsx --env-file=.env scripts/jobs-check.ts",
-    "jobs:test": "tsx --env-file=.env scripts/jobs-test.ts"
+    "jobs:test": "tsx --env-file=.env scripts/jobs-test.ts",
+    "test": "tsx scripts/run-tests.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

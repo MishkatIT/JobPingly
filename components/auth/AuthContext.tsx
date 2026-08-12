@@ -45,6 +45,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const data = await res.json();
         const u = data.user ? { ...data.user, userId: data.user.id } : null;
         setUser(u);
+        if (typeof window !== 'undefined' && u) {
+          sessionStorage.setItem('jobpingly_user_session', JSON.stringify(u));
+        }
         setError(null);
         return u;
       } else if (res.status === 401 && retryWithRefresh) {
@@ -55,6 +58,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
       setUser(null);
+      if (typeof window !== 'undefined') sessionStorage.removeItem('jobpingly_user_session');
       return null;
     } catch (err: any) {
       setUser(null);
@@ -66,6 +70,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = sessionStorage.getItem('jobpingly_user_session');
+        if (cached) {
+          setUser(JSON.parse(cached));
+          setLoading(false);
+        }
+      } catch {}
+    }
     fetchUser();
   }, [fetchUser]);
 
@@ -74,6 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await fetch('/api/auth/logout', { method: 'POST' });
     } catch {}
     setUser(null);
+    if (typeof window !== 'undefined') sessionStorage.removeItem('jobpingly_user_session');
   }, []);
 
   return (
