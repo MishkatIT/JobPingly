@@ -101,6 +101,24 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   });
 }
 
+async function canModifyList(userId: string, userRole: string, listId: string) {
+  if (userRole === 'admin') return true;
+  const [list] = await db.select().from(lists).where(eq(lists.id, listId));
+  if (!list) return false;
+  if (list.userId === userId) return true;
+
+  const [collab] = await db
+    .select()
+    .from(listCollaborators)
+    .where(and(
+      eq(listCollaborators.listId, listId),
+      eq(listCollaborators.userId, userId),
+      eq(listCollaborators.status, 'accepted')
+    ));
+
+  return !!collab;
+}
+
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await getAuthUser(req);
   if (!user) {
@@ -108,21 +126,26 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   }
 
   const listId = params.id;
+  const allowed = await canModifyList(user.userId, user.role, listId);
+  if (!allowed) {
+    return NextResponse.json({ error: 'Watch list not found or unauthorized' }, { status: 404 });
+  }
+
   const body = await req.json();
   const { name, description, visibility } = body;
 
-  const isAdmin = user.role === 'admin';
-  const condition = isAdmin ? eq(lists.id, listId) : and(eq(lists.id, listId), eq(lists.userId, user.userId));
-
-  const [updated] = await db.update(lists).set({
-    name,
-    description,
-    visibility,
+  const updateData: any = {
     updatedAt: new Date(),
-  }).where(condition).returning();
+  };
+
+  if (name !== undefined) updateData.name = name;
+  if (description !== undefined) updateData.description = description;
+  if (visibility !== undefined) updateData.visibility = visibility;
+
+  const [updated] = await db.update(lists).set(updateData).where(eq(lists.id, listId)).returning();
 
   if (!updated) {
-    return NextResponse.json({ error: 'List not found or unauthorized' }, { status: 404 });
+    return NextResponse.json({ error: 'List not found' }, { status: 404 });
   }
 
   return NextResponse.json({ list: updated });
