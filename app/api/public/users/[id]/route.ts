@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/client';
 import { lists, listCareerPages, users, jobs } from '@/lib/db/schema';
 import { isFeatureEnabled } from '@/lib/flags/check';
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and, inArray, count } from 'drizzle-orm';
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const publicEnabled = await isFeatureEnabled('public_lists.enabled', true);
@@ -37,40 +37,60 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   .from(lists)
   .where(and(eq(lists.userId, userId), eq(lists.visibility, 'public')));
 
-  let totalCompanies = 0;
+  const userListIds = userLists.map(l => l.id);
+
+  // Bulk query all list career page links across user's public lists (No N+1)
+  const allPages = userListIds.length > 0
+    ? await db.select({ listId: listCareerPages.listId, careerPageId: listCareerPages.careerPageId })
+        .from(listCareerPages)
+        .where(inArray(listCareerPages.listId, userListIds))
+    : [];
+
+  const pagesByListId = new Map<string, string[]>();
+  allPages.forEach(p => {
+    const arr = pagesByListId.get(p.listId) || [];
+    arr.push(p.careerPageId);
+    pagesByListId.set(p.listId, arr);
+  });
+
+  const uniqueCareerPageIds = Array.from(new Set(allPages.map(p => p.careerPageId)));
+  const jobCountByCareerPageId = new Map<string, number>();
+
+  // Bulk aggregate active job counts grouped by career page ID in SQL
+  if (uniqueCareerPageIds.length > 0) {
+    const groupedJobs = await db
+      .select({
+        careerPageId: jobs.careerPageId,
+        jobCount: count(),
+      })
+      .from(jobs)
+      .where(and(inArray(jobs.careerPageId, uniqueCareerPageIds), eq(jobs.status, 'active')))
+      .groupBy(jobs.careerPageId);
+
+    groupedJobs.forEach(g => {
+      jobCountByCareerPageId.set(g.careerPageId, Number(g.jobCount));
+    });
+  }
+
   let totalActiveJobs = 0;
-
-  const enrichedLists = await Promise.all(userLists.map(async (l) => {
-    const pages = await db.select().from(listCareerPages).where(eq(listCareerPages.listId, l.id));
-    let jobCount = 0;
-
-    if (pages.length > 0) {
-      const careerPageIds = pages.map(p => p.careerPageId);
-      const activeJobs = await db.select()
-        .from(jobs)
-        .where(and(
-          inArray(jobs.careerPageId, careerPageIds),
-          eq(jobs.status, 'active')
-        ));
-      jobCount = activeJobs.length;
-    }
-
-    totalCompanies += pages.length;
-    totalActiveJobs += jobCount;
+  const enrichedLists = userLists.map(l => {
+    const cPageIds = pagesByListId.get(l.id) || [];
+    const listJobCount = cPageIds.reduce((sum, cpId) => sum + (jobCountByCareerPageId.get(cpId) || 0), 0);
+    totalActiveJobs += listJobCount;
 
     return {
       ...l,
-      companyCount: pages.length,
-      jobCount,
+      companyCount: cPageIds.length,
+      jobCount: listJobCount,
     };
-  }));
+  });
 
   return NextResponse.json({
     user: foundUser,
     publicLists: enrichedLists,
     stats: {
       totalLists: enrichedLists.length,
-      totalCompanies,
+      totalCompanies: uniqueCareerPageIds.length,
       totalActiveJobs,
     },
   });

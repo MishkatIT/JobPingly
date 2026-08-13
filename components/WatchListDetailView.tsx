@@ -205,6 +205,24 @@ export default function WatchListDetailView({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowAuthRequiredModal(false);
+        setShowFollowModal(false);
+        setShowSuggestModal(false);
+        setShowContributionsModal(false);
+        setShowCollaboratorsModal(false);
+        setShowEditListModal(false);
+        setShowAdd(false);
+        setEditingCompany(null);
+        setSelectedUserId(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   // Main Load Data Function
   const loadDetail = async () => {
     try {

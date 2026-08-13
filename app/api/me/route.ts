@@ -5,7 +5,12 @@ import { users, emailApprovals } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 
 export async function GET(req: NextRequest) {
+  const tTotalStart = performance.now();
+
+  const tAuthStart = performance.now();
   const authUser = await getAuthUser(req);
+  const tAuthEnd = performance.now();
+
   if (!authUser) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -16,8 +21,13 @@ export async function GET(req: NextRequest) {
   }
 
   // Check email approval status
+  const tApprovalStart = performance.now();
   const [approvalRecord] = await db.select().from(emailApprovals).where(eq(emailApprovals.email, dbUser.email.toLowerCase().trim()));
   const emailApprovalStatus = approvalRecord ? approvalRecord.status : 'pending';
+  const tApprovalEnd = performance.now();
+
+  const tTotalEnd = performance.now();
+  console.log(`[PERF /api/me] Total: ${(tTotalEnd - tTotalStart).toFixed(2)}ms | Auth: ${(tAuthEnd - tAuthStart).toFixed(2)}ms | EmailApprovalQuery: ${(tApprovalEnd - tApprovalStart).toFixed(2)}ms`);
 
   return NextResponse.json({
     user: {

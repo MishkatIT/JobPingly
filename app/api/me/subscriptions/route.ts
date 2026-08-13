@@ -5,12 +5,18 @@ import { lists, listSubscriptions, listCareerPages, careerPages, users } from '@
 import { eq, inArray } from 'drizzle-orm';
 
 export async function GET(req: NextRequest) {
+  const tTotalStart = performance.now();
+
+  const tAuthStart = performance.now();
   const user = await getAuthUser(req);
+  const tAuthEnd = performance.now();
+
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   // 1. Fetch user's subscriptions
+  const tSubsStart = performance.now();
   const subs = await db
     .select({
       subId: listSubscriptions.id,
@@ -32,33 +38,36 @@ export async function GET(req: NextRequest) {
     .innerJoin(lists, eq(listSubscriptions.listId, lists.id))
     .leftJoin(users, eq(lists.userId, users.id))
     .where(eq(listSubscriptions.userId, user.userId));
+  const tSubsEnd = performance.now();
 
   if (subs.length === 0) {
+    const tTotalEnd = performance.now();
+    console.log(`[PERF /api/me/subscriptions] Total: ${(tTotalEnd - tTotalStart).toFixed(2)}ms | Auth: ${(tAuthEnd - tAuthStart).toFixed(2)}ms | Subs: ${(tSubsEnd - tSubsStart).toFixed(2)}ms`);
     return NextResponse.json({ subscriptions: [] });
   }
 
-  // 2. Fetch company links for each subscribed list
+  // 2. Fetch company links for each subscribed list (Single innerJoin query)
+  const tPagesStart = performance.now();
   const listIds = subs.map((s) => s.listId);
-  const listPages = await db.select().from(listCareerPages).where(inArray(listCareerPages.listId, listIds));
-  const careerPageIds = Array.from(new Set(listPages.map((lp) => lp.careerPageId)));
-
-  let careerPagesMap = new Map<string, any>();
-  if (careerPageIds.length > 0) {
-    const pageRecords = await db.select().from(careerPages).where(inArray(careerPages.id, careerPageIds));
-    for (const cp of pageRecords) {
-      careerPagesMap.set(cp.id, cp);
-    }
-  }
+  const pageRecords = listIds.length > 0
+    ? await db
+        .select({
+          listId: listCareerPages.listId,
+          isPaused: listCareerPages.isPaused,
+          careerPage: careerPages,
+        })
+        .from(listCareerPages)
+        .innerJoin(careerPages, eq(listCareerPages.careerPageId, careerPages.id))
+        .where(inArray(listCareerPages.listId, listIds))
+    : [];
+  const tPagesEnd = performance.now();
 
   const listPagesGroup = new Map<string, any[]>();
-  for (const lp of listPages) {
-    if (!listPagesGroup.has(lp.listId)) {
-      listPagesGroup.set(lp.listId, []);
+  for (const pr of pageRecords) {
+    if (!listPagesGroup.has(pr.listId)) {
+      listPagesGroup.set(pr.listId, []);
     }
-    const cp = careerPagesMap.get(lp.careerPageId);
-    if (cp) {
-      listPagesGroup.get(lp.listId)!.push({ ...cp, isPausedInList: lp.isPaused });
-    }
+    listPagesGroup.get(pr.listId)!.push({ ...pr.careerPage, isPausedInList: pr.isPaused });
   }
 
   const formatted = subs.map((s) => {
@@ -85,6 +94,9 @@ export async function GET(req: NextRequest) {
       careerPages: attachedPages,
     };
   });
+
+  const tTotalEnd = performance.now();
+  console.log(`[PERF /api/me/subscriptions] Total: ${(tTotalEnd - tTotalStart).toFixed(2)}ms | Auth: ${(tAuthEnd - tAuthStart).toFixed(2)}ms | Subs: ${(tSubsEnd - tSubsStart).toFixed(2)}ms | Pages: ${(tPagesEnd - tPagesStart).toFixed(2)}ms`);
 
   return NextResponse.json({ subscriptions: formatted });
 }

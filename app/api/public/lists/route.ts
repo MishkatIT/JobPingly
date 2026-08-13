@@ -3,7 +3,7 @@ import { db } from '@/lib/db/client';
 import { lists, listCareerPages, users, jobs } from '@/lib/db/schema';
 import { isFeatureEnabled } from '@/lib/flags/check';
 import { computeListQualityScore } from '@/lib/lists/anti-redundancy';
-import { eq, inArray, and } from 'drizzle-orm';
+import { eq, inArray, and, count, countDistinct } from 'drizzle-orm';
 
 export async function GET(req: NextRequest) {
   const publicEnabled = await isFeatureEnabled('public_lists.enabled', true);
@@ -87,14 +87,22 @@ export async function GET(req: NextRequest) {
   });
 
   const uniquePaginatedCareerPageIds = Array.from(new Set(allPaginatedPages.map(p => p.careerPageId)));
-  const activePaginatedJobs = uniquePaginatedCareerPageIds.length > 0
-    ? await db.select({ careerPageId: jobs.careerPageId }).from(jobs).where(and(inArray(jobs.careerPageId, uniquePaginatedCareerPageIds), eq(jobs.status, 'active')))
-    : [];
-
   const jobCountByCareerPageId = new Map<string, number>();
-  activePaginatedJobs.forEach(j => {
-    jobCountByCareerPageId.set(j.careerPageId, (jobCountByCareerPageId.get(j.careerPageId) || 0) + 1);
-  });
+
+  if (uniquePaginatedCareerPageIds.length > 0) {
+    const groupedJobs = await db
+      .select({
+        careerPageId: jobs.careerPageId,
+        jobCount: count(),
+      })
+      .from(jobs)
+      .where(and(inArray(jobs.careerPageId, uniquePaginatedCareerPageIds), eq(jobs.status, 'active')))
+      .groupBy(jobs.careerPageId);
+
+    groupedJobs.forEach(g => {
+      jobCountByCareerPageId.set(g.careerPageId, Number(g.jobCount));
+    });
+  }
 
   const enriched = paginated.map(l => {
     const cPageIds = pagesByListId.get(l.id) || [];
@@ -110,26 +118,35 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  // Summary Stats for Public Directory
+  // Summary Stats for Public Directory (SQL Aggregates)
   const allPublicListIds = rawPublicLists.map(l => l.id);
   let totalUniqueCompanies = 0;
   let totalActiveJobs = 0;
 
   if (allPublicListIds.length > 0) {
-    const publicListPages = await db
-      .select({ careerPageId: listCareerPages.careerPageId })
+    const [compRes] = await db
+      .select({ uniqueCompanies: countDistinct(listCareerPages.careerPageId) })
       .from(listCareerPages)
       .where(inArray(listCareerPages.listId, allPublicListIds));
 
-    const uniquePageIds = Array.from(new Set(publicListPages.map(p => p.careerPageId)));
-    totalUniqueCompanies = uniquePageIds.length;
+    totalUniqueCompanies = Number(compRes?.uniqueCompanies || 0);
 
-    if (uniquePageIds.length > 0) {
-      const activePublicJobs = await db
-        .select({ id: jobs.id })
-        .from(jobs)
-        .where(and(inArray(jobs.careerPageId, uniquePageIds), eq(jobs.status, 'active')));
-      totalActiveJobs = activePublicJobs.length;
+    if (totalUniqueCompanies > 0) {
+      const publicListPages = await db
+        .select({ careerPageId: listCareerPages.careerPageId })
+        .from(listCareerPages)
+        .where(inArray(listCareerPages.listId, allPublicListIds));
+
+      const uniquePageIds = Array.from(new Set(publicListPages.map(p => p.careerPageId)));
+
+      if (uniquePageIds.length > 0) {
+        const [jobsRes] = await db
+          .select({ totalJobs: count() })
+          .from(jobs)
+          .where(and(inArray(jobs.careerPageId, uniquePageIds), eq(jobs.status, 'active')));
+        
+        totalActiveJobs = Number(jobsRes?.totalJobs || 0);
+      }
     }
   }
 

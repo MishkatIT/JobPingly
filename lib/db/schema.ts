@@ -166,6 +166,7 @@ export const listCollaborators = pgTable('list_collaborators', {
   collabListIdx: index('idx_list_collab_list').on(table.listId),
   collabUserIdx: index('idx_list_collab_user').on(table.userId),
   collabStatusIdx: index('idx_list_collab_status').on(table.status),
+  collabUserStatusIdx: index('idx_list_collab_user_status').on(table.userId, table.status),
   collabTokenIdx: index('idx_list_collab_token').on(table.inviteToken),
 }));
 

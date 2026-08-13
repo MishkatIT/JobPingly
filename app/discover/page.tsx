@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Globe, Search, ShieldAlert, ChevronLeft, ChevronRight, Building, Briefcase, ExternalLink, Users, GitFork, Crown, LayoutGrid, Grid2X2, List, Share2, Check, Sliders, Layers, CheckCircle2, PlusCircle, X, Sparkles, Bell, Bot, Cpu, Zap } from 'lucide-react';
 import { Navbar } from '@/components/Navbar';
 import LoadingSpinner from '@/components/LoadingSpinner';
+import { ListSkeletonGrid, ListSkeletonTiles, ListSkeletonTable, ListSkeletonPagination } from '@/components/Skeleton';
 import { Footer } from '@/components/Footer';
 import { PublicUserProfileModal } from '@/components/PublicUserProfileModal';
 import { useToast } from '@/components/Toast';
@@ -160,9 +161,22 @@ export default function PublicDiscoverPage() {
     fetchPublicLists(page, debouncedSearch, limit);
   }, [page, debouncedSearch, limit]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (suggestingList) {
+          setSuggestingList(null);
+          setSuggestSuccess('');
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [suggestingList]);
+
   const discoverBodyContent = (
     <>
-      {/* Title & Search Bar */}
+      {/* Top Page Header */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
         <div>
           <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center gap-3">
@@ -173,78 +187,6 @@ export default function PublicDiscoverPage() {
             Browse &amp; follow curated company watch lists with automated job alert emails
           </p>
         </div>
-
-        {!errorMsg && (
-          <div className="flex items-center justify-start lg:justify-end gap-3 flex-wrap lg:ml-auto">
-            <div className="relative w-full sm:w-64">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-                placeholder="Search watch lists..."
-                className="w-full pl-10 pr-4 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 text-xs focus:outline-none focus:border-blue-600"
-              />
-            </div>
-
-            {/* Google Drive Style View Switcher */}
-            <div className="flex items-center bg-slate-100 dark:bg-slate-900/80 p-1 rounded-xl border border-slate-200/80 dark:border-slate-800 shrink-0">
-              <button
-                type="button"
-                onClick={() => handleViewChange('grid')}
-                className={`px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-1 transition-all cursor-pointer ${
-                  viewMode === 'grid'
-                    ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm font-semibold'
-                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                }`}
-                title="Grid View"
-              >
-                <LayoutGrid className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Grid</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleViewChange('tiles')}
-                className={`px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-1 transition-all cursor-pointer ${
-                  viewMode === 'tiles'
-                    ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm font-semibold'
-                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                }`}
-                title="Compact Tiles View"
-              >
-                <Grid2X2 className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Tiles</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleViewChange('list')}
-                className={`px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-1 transition-all cursor-pointer ${
-                  viewMode === 'list'
-                    ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm font-semibold'
-                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                }`}
-                title="List Table View"
-              >
-                <List className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">List</span>
-              </button>
-            </div>
-
-            <select
-              value={limit}
-              onChange={e => {
-                setLimit(Number(e.target.value));
-                setPage(1);
-              }}
-              className="px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
-            >
-              <option value={6}>6 per page</option>
-              <option value={9}>9 per page</option>
-              <option value={15}>15 per page</option>
-              <option value={30}>30 per page</option>
-            </select>
-          </div>
-        )}
       </div>
 
       {/* Step-by-Step Public Guide Banner */}
@@ -349,313 +291,413 @@ export default function PublicDiscoverPage() {
         </div>
       )}
 
-      {/* Directory Content */}
-      {loading ? (
-        <LoadingSpinner message="Loading public discovery directory..." fullPage={false} />
-      ) : errorMsg ? (
-        <div className="glass-panel p-8 sm:p-12 rounded-3xl border-slate-200 dark:border-slate-800 text-center max-w-xl mx-auto space-y-4">
-          <ShieldAlert className="w-14 h-14 text-rose-500 mx-auto" />
-          <h3 className="text-2xl font-bold text-slate-900 dark:text-white">Access Disabled</h3>
-          <p className="text-sm text-slate-600 dark:text-slate-400">{errorMsg}</p>
-          <div className="pt-2">
-            <Link href="/" className="inline-block text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl shadow-md">
-              Return to Homepage
-            </Link>
+      {/* Public Watch Lists Directory Section Container */}
+      <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <Globe className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+              Public Watch Lists ({pagination.total})
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Select a view layout below to organize public watch lists.
+            </p>
           </div>
+
+          {!errorMsg && (
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* 3-TYPE VIEW SWITCHER: Grid, Tiles, Table List */}
+              <div className="flex items-center bg-slate-100 dark:bg-slate-900/90 p-1 rounded-xl border border-slate-200 dark:border-slate-800 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleViewChange('grid')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                    viewMode === 'grid'
+                      ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="Grid View (Rich Cards)"
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span>Grid</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleViewChange('tiles')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                    viewMode === 'tiles'
+                      ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="Tiles View (Compact Cards)"
+                >
+                  <Grid2X2 className="w-3.5 h-3.5" />
+                  <span>Tiles</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleViewChange('list')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                    viewMode === 'list'
+                      ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="List View (Data Table)"
+                >
+                  <List className="w-3.5 h-3.5" />
+                  <span>Table List</span>
+                </button>
+              </div>
+
+              {/* Search Input */}
+              <div className="relative w-full sm:w-56">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                  placeholder="Search watch lists..."
+                  className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:border-blue-600"
+                />
+              </div>
+
+              {/* Items Per Page */}
+              <select
+                value={limit}
+                onChange={e => {
+                  setLimit(Number(e.target.value));
+                  setPage(1);
+                }}
+                className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
+              >
+                <option value={6}>6 per page</option>
+                <option value={9}>9 per page</option>
+                <option value={15}>15 per page</option>
+                <option value={30}>30 per page</option>
+              </select>
+            </div>
+          )}
         </div>
-      ) : lists.length === 0 ? (
-        <div className="glass-panel p-12 rounded-3xl text-center border-slate-200 dark:border-slate-800">
-          <Globe className="w-12 h-12 text-slate-400 dark:text-slate-600 mx-auto mb-4" />
-          <h3 className="text-base font-bold text-slate-900 dark:text-white mb-1">No Public Lists Found</h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400">Be the first to publish a public watch list for the community!</p>
-        </div>
-      ) : (
-        <div className="space-y-8">
-          {/* VIEW 1 & 2: Grid & Compact Tiles */}
-          {viewMode !== 'list' ? (
-            <div className={viewMode === 'tiles' ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4' : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'}>
-              {lists.map(l => (
-                <div key={l.id} className={`glass-card rounded-2xl border border-slate-200/80 dark:border-slate-800/80 flex flex-col justify-between hover:shadow-xl hover:border-blue-500/30 transition-all duration-300 group ${viewMode === 'tiles' ? 'p-4 space-y-3' : 'p-6 space-y-4'}`}>
-                  <div className="space-y-3">
-                    {/* Top Header Badge */}
-                    <div className="flex items-center justify-between gap-2 flex-wrap">
-                      <div className="flex items-center gap-1 flex-wrap">
-                        <Badge variant="canonical">Verified List</Badge>
-                        {user && (user.id === l.userId || user.userId === l.userId) && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/8 text-amber-700 dark:text-amber-300 border border-amber-500/20 text-[10px] font-medium">
-                            <Crown className="w-3 h-3 text-amber-500" /> Owner
-                          </span>
+
+        {/* Directory Content Area */}
+        {loading ? (
+          <div className="space-y-6">
+            {viewMode === 'tiles' ? (
+              <ListSkeletonTiles count={limit} />
+            ) : viewMode === 'list' ? (
+              <ListSkeletonTable rows={limit} />
+            ) : (
+              <ListSkeletonGrid count={limit} />
+            )}
+            <ListSkeletonPagination />
+          </div>
+        ) : errorMsg ? (
+          <div className="glass-panel p-8 sm:p-12 rounded-3xl border-slate-200 dark:border-slate-800 text-center max-w-xl mx-auto space-y-4">
+            <ShieldAlert className="w-14 h-14 text-rose-500 mx-auto" />
+            <h3 className="text-2xl font-bold text-slate-900 dark:text-white">Access Disabled</h3>
+            <p className="text-sm text-slate-600 dark:text-slate-400">{errorMsg}</p>
+            <div className="pt-2">
+              <Link href="/" className="inline-block text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl shadow-md">
+                Return to Homepage
+              </Link>
+            </div>
+          </div>
+        ) : lists.length === 0 ? (
+          <div className="p-12 text-center rounded-2xl border border-dashed border-slate-300 dark:border-slate-800">
+            <Globe className="w-12 h-12 text-slate-400 dark:text-slate-600 mx-auto mb-4" />
+            <h3 className="text-base font-bold text-slate-900 dark:text-white mb-1">No Public Lists Found</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Be the first to publish a public watch list for the community!</p>
+          </div>
+        ) : (
+          <div className="space-y-8">
+            {/* VIEW 1 & 2: Grid & Compact Tiles */}
+            {viewMode !== 'list' ? (
+              <div className={viewMode === 'tiles' ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4' : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'}>
+                {lists.map(l => (
+                  <div key={l.id} className={`glass-card rounded-2xl border border-slate-200/80 dark:border-slate-800/80 flex flex-col justify-between hover:shadow-xl hover:border-blue-500/30 transition-all duration-300 group ${viewMode === 'tiles' ? 'p-4 space-y-3' : 'p-6 space-y-4'}`}>
+                    <div className="space-y-3">
+                      {/* Top Header Badge */}
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <Badge variant="canonical">Verified List</Badge>
+                          {user && (user.id === l.userId || user.userId === l.userId) && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/8 text-amber-700 dark:text-amber-300 border border-amber-500/20 text-[10px] font-medium">
+                              <Crown className="w-3 h-3 text-amber-500" /> Owner
+                            </span>
+                          )}
+                        </div>
+
+                        {l.parentListName && (
+                          <Badge variant="forked" parentName={l.parentListName} />
                         )}
                       </div>
 
-                      {l.parentListName && (
-                        <Badge variant="forked" parentName={l.parentListName} />
-                      )}
-                    </div>
-
-                    {/* Title & Description */}
-                    <div>
-                      <Link href={`/lists/${l.slug}`} className="block group/title hover:underline decoration-blue-500/50">
-                        <h3 className={`font-extrabold text-slate-900 dark:text-white tracking-tight group-hover/title:text-blue-600 dark:group-hover/title:text-blue-400 transition-colors ${viewMode === 'tiles' ? 'text-base leading-snug' : 'text-xl'}`}>
-                          {l.name}
-                        </h3>
-                      </Link>
-                      <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2 mt-1 leading-relaxed">
-                        {l.description || 'Public watch list of monitored company career pages.'}
-                      </p>
-                    </div>
-
-                    {/* Stats Badges Bar */}
-                    <div className="flex items-center gap-1.5 pt-0.5 flex-wrap">
-                      <Badge variant="company" count={l.companyCount || 0} />
-                      <Badge variant="job" count={l.jobCount || 0} />
-                      {l.followerCount > 0 && (
-                        <Badge variant="follower" count={l.followerCount} />
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Card Footer */}
-                  <div className="pt-3 border-t border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (l.userId) setSelectedUserId(l.userId);
-                      }}
-                      className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 group/user transition-colors cursor-pointer text-left truncate"
-                    >
-                      {l.userAvatarUrl ? (
-                        <img src={l.userAvatarUrl} alt={l.userName || 'User'} className="w-4 h-4 rounded-full object-cover border border-slate-200 dark:border-slate-700 shrink-0" />
-                      ) : (
-                        <div className="w-4 h-4 rounded-full bg-blue-600 text-white font-bold text-[8px] flex items-center justify-center shrink-0 shadow-sm">
-                          {(l.userName?.[0] || 'U').toUpperCase()}
-                        </div>
-                      )}
-                      <span className="truncate max-w-[100px] font-medium text-slate-700 dark:text-slate-300">
-                        {l.userName || 'Curator'}
-                      </span>
-                    </button>
-
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (typeof window !== 'undefined') {
-                            navigator.clipboard.writeText(`${window.location.origin}/lists/${l.slug}`);
-                            toast.success('Public watchlist link copied to clipboard!');
-                          }
-                        }}
-                        className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
-                        title="Share Watchlist"
-                      >
-                        <Share2 className="w-3.5 h-3.5" />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSuggestingList(l);
-                        }}
-                        className="p-1.5 rounded-lg border border-amber-500/30 text-amber-600 dark:text-amber-400 bg-amber-500/5 hover:bg-amber-500/15 transition-all cursor-pointer"
-                        title="Suggest a company career page for this watchlist"
-                      >
-                        <PlusCircle className="w-3.5 h-3.5" />
-                      </button>
-
-                      {user && (user.role === 'admin' || user.id === l.userId || user.userId === l.userId) ? (
-                        <Link
-                          href={`/dashboard/lists/${l.id}`}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-all shadow-sm"
-                        >
-                          <Sliders className="w-3.5 h-3.5" /> Manage
+                      {/* Title & Description */}
+                      <div>
+                        <Link href={`/lists/${l.slug}`} className="block group/title hover:underline decoration-blue-500/50">
+                          <h3 className={`font-extrabold text-slate-900 dark:text-white tracking-tight group-hover/title:text-blue-600 dark:group-hover/title:text-blue-400 transition-colors ${viewMode === 'tiles' ? 'text-base leading-snug' : 'text-xl'}`}>
+                            {l.name}
+                          </h3>
                         </Link>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            onClick={(e) => handleForkList(e, l.slug, l.name)}
-                            className="px-2.5 py-1.5 rounded-xl border border-purple-500/30 text-purple-600 dark:text-purple-400 bg-purple-500/5 hover:bg-purple-500/15 text-xs font-semibold flex items-center gap-1 cursor-pointer transition-all shrink-0"
-                            title="Fork watch list into your dashboard"
-                          >
-                            <GitFork className="w-3.5 h-3.5 text-purple-500" />
-                            Fork
-                          </button>
+                        <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2 mt-1 leading-relaxed">
+                          {l.description || 'Public watch list of monitored company career pages.'}
+                        </p>
+                      </div>
 
+                      {/* Stats Badges Bar */}
+                      <div className="flex items-center gap-1.5 pt-0.5 flex-wrap">
+                        <Badge variant="company" count={l.companyCount || 0} />
+                        <Badge variant="job" count={l.jobCount || 0} />
+                        {l.followerCount > 0 && (
+                          <Badge variant="follower" count={l.followerCount} />
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Card Footer */}
+                    <div className="pt-3 border-t border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (l.userId) setSelectedUserId(l.userId);
+                        }}
+                        className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 group/user transition-colors cursor-pointer text-left truncate"
+                      >
+                        {l.userAvatarUrl ? (
+                          <img src={l.userAvatarUrl} alt={l.userName || 'User'} className="w-4 h-4 rounded-full object-cover border border-slate-200 dark:border-slate-700 shrink-0" />
+                        ) : (
+                          <div className="w-4 h-4 rounded-full bg-blue-600 text-white font-bold text-[8px] flex items-center justify-center shrink-0 shadow-sm">
+                            {(l.userName?.[0] || 'U').toUpperCase()}
+                          </div>
+                        )}
+                        <span className="truncate max-w-[100px] font-medium text-slate-700 dark:text-slate-300">
+                          {l.userName || 'Curator'}
+                        </span>
+                      </button>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (typeof window !== 'undefined') {
+                              navigator.clipboard.writeText(`${window.location.origin}/lists/${l.slug}`);
+                              toast.success('Public watchlist link copied to clipboard!');
+                            }
+                          }}
+                          className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                          title="Share Watchlist"
+                        >
+                          <Share2 className="w-3.5 h-3.5" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSuggestingList(l);
+                          }}
+                          className="p-1.5 rounded-lg border border-amber-500/30 text-amber-600 dark:text-amber-400 bg-amber-500/5 hover:bg-amber-500/15 transition-all cursor-pointer"
+                          title="Suggest a company career page for this watchlist"
+                        >
+                          <PlusCircle className="w-3.5 h-3.5" />
+                        </button>
+
+                        {user && (user.role === 'admin' || user.id === l.userId || user.userId === l.userId) ? (
                           <Link
-                            href={`/lists/${l.slug}`}
-                            className="text-xs font-semibold text-blue-600 dark:text-blue-400 group-hover:translate-x-0.5 flex items-center gap-1 transition-all"
+                            href={`/dashboard/lists/${l.id}`}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-all shadow-sm"
                           >
-                            Openings <ExternalLink className="w-3 h-3" />
+                            <Sliders className="w-3.5 h-3.5" /> Manage
                           </Link>
-                        </>
-                      )}
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={(e) => handleForkList(e, l.slug, l.name)}
+                              className="px-2.5 py-1.5 rounded-xl border border-purple-500/30 text-purple-600 dark:text-purple-400 bg-purple-500/5 hover:bg-purple-500/15 text-xs font-semibold flex items-center gap-1 cursor-pointer transition-all shrink-0"
+                              title="Fork watch list into your dashboard"
+                            >
+                              <GitFork className="w-3.5 h-3.5 text-purple-500" />
+                              Fork
+                            </button>
+
+                            <Link
+                              href={`/lists/${l.slug}`}
+                              className="text-xs font-semibold text-blue-600 dark:text-blue-400 group-hover:translate-x-0.5 flex items-center gap-1 transition-all"
+                            >
+                              Openings <ExternalLink className="w-3 h-3" />
+                            </Link>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            /* VIEW 3: List Table View */
-            <div className="glass-panel rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-100/80 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-slate-500 font-semibold">
-                    <tr>
-                      <th className="py-3.5 px-5">Watchlist Name</th>
-                      <th className="py-3.5 px-4">Curator</th>
-                      <th className="py-3.5 px-4">Monitored Metrics</th>
-                      <th className="py-3.5 px-4">Status & Lineage</th>
-                      <th className="py-3.5 px-5 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800/70">
-                    {lists.map(l => (
-                      <tr key={l.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition-colors group">
-                        <td className="py-4 px-5">
-                          <div className="space-y-0.5">
-                            <Link href={`/lists/${l.slug}`} className="font-extrabold text-sm text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-                              {l.name}
-                            </Link>
-                            {l.description && (
-                              <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1 max-w-md">{l.description}</p>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-4 px-4">
-                          <button
-                            type="button"
-                            onClick={() => l.userId && setSelectedUserId(l.userId)}
-                            className="flex items-center gap-2 font-medium text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer"
-                          >
-                            {l.userAvatarUrl ? (
-                              <img src={l.userAvatarUrl} alt={l.userName || 'User'} className="w-5 h-5 rounded-full object-cover border border-slate-200 dark:border-slate-700" />
-                            ) : (
-                              <div className="w-5 h-5 rounded-full bg-blue-600 text-white font-bold text-[9px] flex items-center justify-center">
-                                {(l.userName?.[0] || 'U').toUpperCase()}
-                              </div>
-                            )}
-                            <span>{l.userName || 'Community Curator'}</span>
-                          </button>
-                        </td>
-                        <td className="py-4 px-4">
-                          <div className="flex items-center gap-1.5">
-                            <Badge variant="company" count={l.companyCount || 0} />
-                            <Badge variant="job" count={l.jobCount || 0} />
-                          </div>
-                        </td>
-                        <td className="py-4 px-4">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <Badge variant="canonical">Verified</Badge>
-                            {user && (user.id === l.userId || user.userId === l.userId) && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/8 text-amber-700 dark:text-amber-300 border border-amber-500/20 text-[10px] font-medium">
-                                <Crown className="w-3 h-3 text-amber-500" /> Owner
-                              </span>
-                            )}
-                            {l.parentListName && <Badge variant="forked" parentName={l.parentListName} />}
-                          </div>
-                        </td>
-                        <td className="py-4 px-5 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (typeof window !== 'undefined') {
-                                  navigator.clipboard.writeText(`${window.location.origin}/lists/${l.slug}`);
-                                  toast.success('Public watchlist link copied to clipboard!');
-                                }
-                              }}
-                              className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
-                              title="Share Watchlist"
-                            >
-                              <Share2 className="w-3.5 h-3.5" />
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSuggestingList(l);
-                              }}
-                              className="p-1.5 rounded-lg border border-amber-500/30 text-amber-600 dark:text-amber-400 bg-amber-500/5 hover:bg-amber-500/15 transition-all cursor-pointer"
-                              title="Suggest a company career page for this watchlist"
-                            >
-                              <PlusCircle className="w-3.5 h-3.5" />
-                            </button>
-
-                            {user && (user.role === 'admin' || user.id === l.userId || user.userId === l.userId) ? (
-                              <Link
-                                href={`/dashboard/lists/${l.id}`}
-                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-all shadow-sm"
-                              >
-                                <Sliders className="w-3.5 h-3.5" /> Manage
+                ))}
+              </div>
+            ) : (
+              /* VIEW 3: List Table View */
+              <div className="glass-panel rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-100/80 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-slate-500 font-semibold">
+                      <tr>
+                        <th className="py-3.5 px-5">Watchlist Name</th>
+                        <th className="py-3.5 px-4">Curator</th>
+                        <th className="py-3.5 px-4">Monitored Metrics</th>
+                        <th className="py-3.5 px-4">Status & Lineage</th>
+                        <th className="py-3.5 px-5 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800/70">
+                      {lists.map(l => (
+                        <tr key={l.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition-colors group">
+                          <td className="py-4 px-5">
+                            <div className="space-y-0.5">
+                              <Link href={`/lists/${l.slug}`} className="font-extrabold text-sm text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                                {l.name}
                               </Link>
-                            ) : (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={(e) => handleForkList(e, l.slug, l.name)}
-                                  className="px-2.5 py-1.5 rounded-lg border border-purple-500/30 text-purple-600 dark:text-purple-400 bg-purple-500/5 hover:bg-purple-500/15 text-xs font-semibold flex items-center gap-1 cursor-pointer transition-all shrink-0"
-                                  title="Fork watch list into your dashboard"
-                                >
-                                  <GitFork className="w-3.5 h-3.5 text-purple-500" />
-                                  Fork
-                                </button>
+                              {l.description && (
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1 max-w-md">{l.description}</p>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-4 px-4">
+                            <button
+                              type="button"
+                              onClick={() => l.userId && setSelectedUserId(l.userId)}
+                              className="flex items-center gap-2 font-medium text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer"
+                            >
+                              {l.userAvatarUrl ? (
+                                <img src={l.userAvatarUrl} alt={l.userName || 'User'} className="w-5 h-5 rounded-full object-cover border border-slate-200 dark:border-slate-700" />
+                              ) : (
+                                <div className="w-5 h-5 rounded-full bg-blue-600 text-white font-bold text-[9px] flex items-center justify-center">
+                                  {(l.userName?.[0] || 'U').toUpperCase()}
+                                </div>
+                              )}
+                              <span>{l.userName || 'Community Curator'}</span>
+                            </button>
+                          </td>
+                          <td className="py-4 px-4">
+                            <div className="flex items-center gap-1.5">
+                              <Badge variant="company" count={l.companyCount || 0} />
+                              <Badge variant="job" count={l.jobCount || 0} />
+                            </div>
+                          </td>
+                          <td className="py-4 px-4">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <Badge variant="canonical">Verified</Badge>
+                              {user && (user.id === l.userId || user.userId === l.userId) && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/8 text-amber-700 dark:text-amber-300 border border-amber-500/20 text-[10px] font-medium">
+                                  <Crown className="w-3 h-3 text-amber-500" /> Owner
+                                </span>
+                              )}
+                              {l.parentListName && <Badge variant="forked" parentName={l.parentListName} />}
+                            </div>
+                          </td>
+                          <td className="py-4 px-5 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (typeof window !== 'undefined') {
+                                    navigator.clipboard.writeText(`${window.location.origin}/lists/${l.slug}`);
+                                    toast.success('Public watchlist link copied to clipboard!');
+                                  }
+                                }}
+                                className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                                title="Share Watchlist"
+                              >
+                                <Share2 className="w-3.5 h-3.5" />
+                              </button>
 
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSuggestingList(l);
+                                }}
+                                className="p-1.5 rounded-lg border border-amber-500/30 text-amber-600 dark:text-amber-400 bg-amber-500/5 hover:bg-amber-500/15 transition-all cursor-pointer"
+                                title="Suggest a company career page for this watchlist"
+                              >
+                                <PlusCircle className="w-3.5 h-3.5" />
+                              </button>
+
+                              {user && (user.role === 'admin' || user.id === l.userId || user.userId === l.userId) ? (
                                 <Link
-                                  href={`/lists/${l.slug}`}
+                                  href={`/dashboard/lists/${l.id}`}
                                   className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-all shadow-sm"
                                 >
-                                  View Openings <ExternalLink className="w-3 h-3" />
+                                  <Sliders className="w-3.5 h-3.5" /> Manage
                                 </Link>
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleForkList(e, l.slug, l.name)}
+                                    className="px-2.5 py-1.5 rounded-lg border border-purple-500/30 text-purple-600 dark:text-purple-400 bg-purple-500/5 hover:bg-purple-500/15 text-xs font-semibold flex items-center gap-1 cursor-pointer transition-all shrink-0"
+                                    title="Fork watch list into your dashboard"
+                                  >
+                                    <GitFork className="w-3.5 h-3.5 text-purple-500" />
+                                    Fork
+                                  </button>
+
+                                  <Link
+                                    href={`/lists/${l.slug}`}
+                                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-all shadow-sm"
+                                  >
+                                    View Openings <ExternalLink className="w-3 h-3" />
+                                  </Link>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Pagination */}
-          {pagination.totalPages > 1 && (
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-6 border-t border-slate-200 dark:border-slate-800/80">
-              <span className="text-xs text-slate-500">
-                Page <span className="font-bold text-slate-900 dark:text-white">{pagination.page}</span> of <span className="font-bold text-slate-900 dark:text-white">{pagination.totalPages}</span> ({pluralize(pagination.total, 'total public watch list', 'total public watch lists')})
-              </span>
+            {/* Pagination */}
+            {pagination.totalPages > 1 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-6 border-t border-slate-200 dark:border-slate-800/80">
+                <span className="text-xs text-slate-500">
+                  Page <span className="font-bold text-slate-900 dark:text-white">{pagination.page}</span> of <span className="font-bold text-slate-900 dark:text-white">{pagination.totalPages}</span> ({pluralize(pagination.total, 'total public watch list', 'total public watch lists')})
+                </span>
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setPage(prev => Math.max(1, prev - 1))}
-                  disabled={page <= 1}
-                  className="px-4 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 flex items-center gap-1 cursor-pointer"
-                >
-                  <ChevronLeft className="w-4 h-4" /> Previous
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setPage(prev => Math.max(1, prev - 1))}
+                    disabled={page <= 1}
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 flex items-center gap-1 cursor-pointer"
+                  >
+                    <ChevronLeft className="w-4 h-4" /> Previous
+                  </button>
 
-                <button
-                  onClick={() => setPage(prev => Math.min(pagination.totalPages, prev + 1))}
-                  disabled={page >= pagination.totalPages}
-                  className="px-4 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 flex items-center gap-1 cursor-pointer"
-                >
-                  Next <ChevronRight className="w-4 h-4" />
-                </button>
+                  <button
+                    onClick={() => setPage(prev => Math.min(pagination.totalPages, prev + 1))}
+                    disabled={page >= pagination.totalPages}
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 flex items-center gap-1 cursor-pointer"
+                  >
+                    Next <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        )}
+      </div>
     </>
   );
 
   const suggestionModal = suggestingList && (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="glass-panel max-w-md w-full p-6 rounded-3xl border border-slate-200 dark:border-slate-800 space-y-4 bg-white dark:bg-slate-950 shadow-2xl animate-in fade-in zoom-in-95 duration-150 relative">
         <button
           onClick={() => {

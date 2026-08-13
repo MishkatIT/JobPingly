@@ -36,6 +36,7 @@ import {
 import { pluralize } from '@/lib/utils/pluralize';
 import { useToast } from '@/components/Toast';
 import LoadingSpinner from '@/components/LoadingSpinner';
+import { ListSkeletonGrid, ListSkeletonTiles, ListSkeletonTable, ListSkeletonPagination } from '@/components/Skeleton';
 
 export default function DashboardOverview() {
   const toast = useToast();
@@ -131,9 +132,10 @@ export default function DashboardOverview() {
 
   const fetchDashboardData = async (p = page, l = limit) => {
     try {
-      const [listsRes, invRes] = await Promise.all([
+      const [listsRes, invRes, subRes] = await Promise.all([
         fetch(`/api/lists?page=${p}&limit=${l}`),
         fetch('/api/me/invitations'),
+        fetch('/api/me/subscriptions'),
       ]);
 
       if (listsRes.ok) {
@@ -150,10 +152,16 @@ export default function DashboardOverview() {
         const invData = await invRes.json();
         setInvitations(invData.invitations || []);
       }
+
+      if (subRes.ok) {
+        const subData = await subRes.json();
+        setFollowedLists(subData.subscriptions || []);
+      }
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
+      setLoadingFollowed(false);
     }
   };
 
@@ -183,10 +191,6 @@ export default function DashboardOverview() {
       setLoadingFollowed(false);
     }
   };
-
-  useEffect(() => {
-    fetchFollowedLists();
-  }, []);
 
   const handleUnfollowSub = async (slug: string, name: string) => {
     if (!confirm(`Unfollow watch list "${name}" and stop receiving email alerts?`)) return;
@@ -428,9 +432,19 @@ export default function DashboardOverview() {
     }
   };
 
-  if (loading) {
-    return <LoadingSpinner message="Loading Dashboard & Watch Lists..." fullPage />;
-  }
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowCreateModal(false);
+        setShowAddPageModal(false);
+        setEditingList(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+
 
   const filteredLists = lists.filter(l =>
     l.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -681,9 +695,7 @@ export default function DashboardOverview() {
           </div>
 
           {loadingFollowed ? (
-            <div className="py-12 text-center">
-              <LoadingSpinner message="Loading followed watch lists..." fullPage={false} />
-            </div>
+            <ListSkeletonGrid count={3} />
           ) : followedLists.length === 0 ? (
             <div className="p-12 text-center rounded-2xl border border-dashed border-slate-300 dark:border-slate-800 space-y-4">
               <Bell className="w-12 h-12 text-slate-400 dark:text-slate-600 mx-auto" />
@@ -870,8 +882,19 @@ export default function DashboardOverview() {
           </div>
         </div>
 
-        {/* Empty State */}
-        {filteredLists.length === 0 ? (
+        {/* List Content Area with Skeleton Loader */}
+        {loading ? (
+          <div className="space-y-6">
+            {viewMode === 'tiles' ? (
+              <ListSkeletonTiles count={limit} />
+            ) : viewMode === 'list' ? (
+              <ListSkeletonTable rows={limit} />
+            ) : (
+              <ListSkeletonGrid count={limit} />
+            )}
+            <ListSkeletonPagination />
+          </div>
+        ) : filteredLists.length === 0 ? (
           <div className="p-12 text-center rounded-2xl border border-dashed border-slate-300 dark:border-slate-800 space-y-4">
             <Briefcase className="w-12 h-12 text-slate-400 dark:text-slate-600 mx-auto" />
             <div>

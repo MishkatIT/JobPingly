@@ -6,13 +6,19 @@ import { eq, and } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 
 export async function GET(req: NextRequest) {
+  const tTotalStart = performance.now();
+
+  const tAuthStart = performance.now();
   const user = await getAuthUser(req);
+  const tAuthEnd = performance.now();
+
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const inviterUser = alias(users, 'inviter_user');
 
+  const tQueryStart = performance.now();
   const pendingInvitations = await db
     .select({
       id: listCollaborators.id,
@@ -30,6 +36,10 @@ export async function GET(req: NextRequest) {
     .innerJoin(lists, eq(listCollaborators.listId, lists.id))
     .leftJoin(inviterUser, eq(listCollaborators.invitedBy, inviterUser.id))
     .where(and(eq(listCollaborators.userId, user.userId), eq(listCollaborators.status, 'pending')));
+  const tQueryEnd = performance.now();
+
+  const tTotalEnd = performance.now();
+  console.log(`[PERF /api/me/invitations] Total: ${(tTotalEnd - tTotalStart).toFixed(2)}ms | Auth: ${(tAuthEnd - tAuthStart).toFixed(2)}ms | Query: ${(tQueryEnd - tQueryStart).toFixed(2)}ms`);
 
   return NextResponse.json({ invitations: pendingInvitations });
 }

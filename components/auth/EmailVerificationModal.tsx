@@ -168,7 +168,7 @@ export function EmailVerificationModal({ email, onSuccess, onCancel }: EmailVeri
   return createPortal(
     <div
       onClick={() => onCancel && onCancel()}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn cursor-pointer"
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn cursor-pointer"
     >
       <div
         onClick={(e) => e.stopPropagation()}

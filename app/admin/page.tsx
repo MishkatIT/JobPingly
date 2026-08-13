@@ -278,6 +278,18 @@ export default function AdminDashboardPage() {
     return () => clearTimeout(handler);
   }, [userSearch]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setEditingWatchlist(null);
+        setInspectingEmail(null);
+        setSelectedUserId(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const fetchPaginatedUsers = async (p: number, q: string, l: number, r: string) => {
     setLoadingUsers(true);
     try {
@@ -618,6 +630,7 @@ export default function AdminDashboardPage() {
       }
     }
     // Initial fetch for badge counts
+    fetchPaginatedUsers(1, '', 10, 'all');
     fetchUnverifiedUsers(1, '', 10);
     fetchPaginatedIssues(1, '', 10, 'open', 'all');
 
@@ -1470,7 +1483,7 @@ export default function AdminDashboardPage() {
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
             }`}
           >
-            <Users className="w-4 h-4" /> Users ({userList.length})
+            <Users className="w-4 h-4" /> Users ({userPagination.total || metrics?.totalUsers || userList.length})
           </button>
 
           <button
@@ -3162,7 +3175,7 @@ export default function AdminDashboardPage() {
 
       {/* ADMIN WATCHLIST EDIT MODAL */}
       {editingWatchlist && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="glass-panel max-w-lg w-full p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 space-y-5 bg-white dark:bg-slate-950 shadow-2xl animate-in fade-in zoom-in-95 duration-150 relative">
             <button
               onClick={() => setEditingWatchlist(null)}
@@ -4039,7 +4052,7 @@ export default function AdminDashboardPage() {
       )}
       {/* User Subscriptions & Monitored URLs Audit Modal */}
       {inspectingEmail && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-3xl w-full p-6 sm:p-8 space-y-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150 my-8">
             {/* Modal Header */}
             <div className="flex items-start justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">

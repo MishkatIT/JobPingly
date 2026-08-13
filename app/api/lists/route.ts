@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
-import { lists, listCareerPages, jobs, listSubscriptions } from '@/lib/db/schema';
+import { lists, listCareerPages, jobs, listSubscriptions, listCollaborators } from '@/lib/db/schema';
 import { isFeatureEnabled } from '@/lib/flags/check';
-import { eq, inArray, and } from 'drizzle-orm';
-
-import { listCollaborators } from '@/lib/db/schema';
+import { eq, inArray, and, count, countDistinct } from 'drizzle-orm';
 
 // GET user lists with backend pagination + search
 export async function GET(req: NextRequest) {
+  const tTotalStart = performance.now();
+
+  const tAuthStart = performance.now();
   const user = await getAuthUser(req);
+  const tAuthEnd = performance.now();
+
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -20,6 +23,7 @@ export async function GET(req: NextRequest) {
   const search = searchParams.get('search') || '';
 
   // Fetch owned lists & accepted collaborator invitations in parallel
+  const tListsCollabStart = performance.now();
   const [rawUserLists, collabRecords] = await Promise.all([
     db.select().from(lists).where(eq(lists.userId, user.userId)),
     db
@@ -30,14 +34,17 @@ export async function GET(req: NextRequest) {
       .from(listCollaborators)
       .where(and(eq(listCollaborators.userId, user.userId), eq(listCollaborators.status, 'accepted'))),
   ]);
+  const tListsCollabEnd = performance.now();
 
   const collabListIds = collabRecords.map(c => c.listId);
   const collabListMap = new Map(collabRecords.map(c => [c.listId, c.role]));
 
+  const tCollabFetchStart = performance.now();
   let collabLists: any[] = [];
   if (collabListIds.length > 0) {
     collabLists = await db.select().from(lists).where(inArray(lists.id, collabListIds));
   }
+  const tCollabFetchEnd = performance.now();
 
   const userListsEnriched = rawUserLists.map(l => ({ ...l, isOwner: true, isCollaborator: false }));
   const collabListsEnriched = collabLists.map(l => ({ ...l, isOwner: false, isCollaborator: true, collabRole: collabListMap.get(l.id) }));
@@ -61,9 +68,11 @@ export async function GET(req: NextRequest) {
 
   // Batch enrichment: Fetch all career pages & active jobs in 2 constant bulk queries
   const paginatedListIds = paginated.map(l => l.id);
+  const tPaginatedPagesStart = performance.now();
   const allPaginatedPages = paginatedListIds.length > 0
-    ? await db.select().from(listCareerPages).where(inArray(listCareerPages.listId, paginatedListIds))
+    ? await db.select({ listId: listCareerPages.listId, careerPageId: listCareerPages.careerPageId }).from(listCareerPages).where(inArray(listCareerPages.listId, paginatedListIds))
     : [];
+  const tPaginatedPagesEnd = performance.now();
 
   const pagesByListId = new Map<string, string[]>();
   allPaginatedPages.forEach(p => {
@@ -73,14 +82,25 @@ export async function GET(req: NextRequest) {
   });
 
   const uniquePaginatedCareerPageIds = Array.from(new Set(allPaginatedPages.map(p => p.careerPageId)));
-  const activePaginatedJobs = uniquePaginatedCareerPageIds.length > 0
-    ? await db.select({ careerPageId: jobs.careerPageId }).from(jobs).where(and(inArray(jobs.careerPageId, uniquePaginatedCareerPageIds), eq(jobs.status, 'active')))
-    : [];
-
+  const tPaginatedJobsStart = performance.now();
+  
+  // OPTIMIZED: Use SQL GROUP BY + COUNT aggregate instead of downloading all job records
   const jobCountByCareerPageId = new Map<string, number>();
-  activePaginatedJobs.forEach(j => {
-    jobCountByCareerPageId.set(j.careerPageId, (jobCountByCareerPageId.get(j.careerPageId) || 0) + 1);
-  });
+  if (uniquePaginatedCareerPageIds.length > 0) {
+    const groupedJobs = await db
+      .select({
+        careerPageId: jobs.careerPageId,
+        jobCount: count(),
+      })
+      .from(jobs)
+      .where(and(inArray(jobs.careerPageId, uniquePaginatedCareerPageIds), eq(jobs.status, 'active')))
+      .groupBy(jobs.careerPageId);
+
+    groupedJobs.forEach(g => {
+      jobCountByCareerPageId.set(g.careerPageId, Number(g.jobCount));
+    });
+  }
+  const tPaginatedJobsEnd = performance.now();
 
   const enriched = paginated.map(l => {
     const cPageIds = pagesByListId.get(l.id) || [];
@@ -92,28 +112,43 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  // Calculate unique stats across all user lists
+  // OPTIMIZED: Calculate unique stats using SQL COUNT DISTINCT and COUNT aggregates
+  const tStatsStart = performance.now();
   const allUserListIds = combinedLists.map(l => l.id);
   let totalUniqueCompanies = 0;
   let totalActiveJobs = 0;
 
   if (allUserListIds.length > 0) {
-    const allUserListPages = await db
-      .select({ careerPageId: listCareerPages.careerPageId })
+    const [compRes] = await db
+      .select({ uniqueCompanies: countDistinct(listCareerPages.careerPageId) })
       .from(listCareerPages)
       .where(inArray(listCareerPages.listId, allUserListIds));
 
-    const uniquePageIds = Array.from(new Set(allUserListPages.map(p => p.careerPageId)));
-    totalUniqueCompanies = uniquePageIds.length;
+    totalUniqueCompanies = Number(compRes?.uniqueCompanies || 0);
 
-    if (uniquePageIds.length > 0) {
-      const activeUserJobs = await db
-        .select({ id: jobs.id })
-        .from(jobs)
-        .where(and(inArray(jobs.careerPageId, uniquePageIds), eq(jobs.status, 'active')));
-      totalActiveJobs = activeUserJobs.length;
+    if (totalUniqueCompanies > 0) {
+      const userListPages = await db
+        .select({ careerPageId: listCareerPages.careerPageId })
+        .from(listCareerPages)
+        .where(inArray(listCareerPages.listId, allUserListIds));
+
+      const uniquePageIds = Array.from(new Set(userListPages.map(p => p.careerPageId)));
+
+      if (uniquePageIds.length > 0) {
+        const [jobsRes] = await db
+          .select({ totalJobs: count() })
+          .from(jobs)
+          .where(and(inArray(jobs.careerPageId, uniquePageIds), eq(jobs.status, 'active')));
+        
+        totalActiveJobs = Number(jobsRes?.totalJobs || 0);
+      }
     }
   }
+  const tStatsEnd = performance.now();
+
+  const tTotalEnd = performance.now();
+
+  console.log(`[PERF /api/lists] Total: ${(tTotalEnd - tTotalStart).toFixed(2)}ms | Auth: ${(tAuthEnd - tAuthStart).toFixed(2)}ms | Lists+Collabs: ${(tListsCollabEnd - tListsCollabStart).toFixed(2)}ms | CollabFetch: ${(tCollabFetchEnd - tCollabFetchStart).toFixed(2)}ms | PaginatedPages: ${(tPaginatedPagesEnd - tPaginatedPagesStart).toFixed(2)}ms | PaginatedJobs(Grouped): ${(tPaginatedJobsEnd - tPaginatedJobsStart).toFixed(2)}ms | Stats(Aggregate): ${(tStatsEnd - tStatsStart).toFixed(2)}ms`);
 
   return NextResponse.json({
     lists: enriched,
