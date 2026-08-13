@@ -3,7 +3,7 @@ import { getAuthUser } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
 import { lists, listCareerPages, listSubscriptions } from '@/lib/db/schema';
 import { checkListRedundancy } from '@/lib/lists/anti-redundancy';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 
 export async function POST(req: NextRequest, { params }: { params: { slug: string } }) {
   const user = await getAuthUser(req);
@@ -15,7 +15,7 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
   const [originalList] = await db
     .select()
     .from(lists)
-    .where(and(eq(lists.slug, params.slug), eq(lists.visibility, 'public')));
+    .where(and(eq(lists.slug, params.slug), eq(lists.visibility, 'public'), isNull(lists.deletedAt)));
 
   if (!originalList) {
     return NextResponse.json({ error: 'Original public list not found' }, { status: 404 });

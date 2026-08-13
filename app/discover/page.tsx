@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Globe, Search, ShieldAlert, ChevronLeft, ChevronRight, Building, Briefcase, ExternalLink, Users, GitFork, Crown, LayoutGrid, Grid2X2, List, Share2, Check, Sliders, Layers, CheckCircle2, PlusCircle, X, Sparkles, Bell, Bot, Cpu, Zap } from 'lucide-react';
+import { Globe, Search, ShieldAlert, ChevronLeft, ChevronRight, Building, Briefcase, ExternalLink, Users, GitFork, Crown, LayoutGrid, Grid2X2, List, Share2, Check, Sliders, Layers, CheckCircle2, PlusCircle, X, Sparkles, Bell, Bot, Cpu, Zap, ArrowUpDown } from 'lucide-react';
 import { Navbar } from '@/components/Navbar';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { ListSkeletonGrid, ListSkeletonTiles, ListSkeletonTable, ListSkeletonPagination } from '@/components/Skeleton';
@@ -23,6 +23,7 @@ export default function PublicDiscoverPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [sortBy, setSortBy] = useState<'followers' | 'companies' | 'jobs' | 'newest' | 'oldest' | 'name_asc'>('followers');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(9);
   const [pagination, setPagination] = useState({ total: 0, page: 1, limit: 9, totalPages: 1 });
@@ -106,10 +107,10 @@ export default function PublicDiscoverPage() {
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  const fetchPublicLists = async (p: number, q: string, l: number) => {
+  const fetchPublicLists = async (p: number, q: string, l: number, sort: string = 'followers') => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/public/lists?page=${p}&limit=${l}&search=${encodeURIComponent(q)}`);
+      const res = await fetch(`/api/public/lists?page=${p}&limit=${l}&search=${encodeURIComponent(q)}&sort=${sort}`);
       const text = await res.text();
       let json: any = {};
       try {
@@ -270,7 +271,11 @@ export default function PublicDiscoverPage() {
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Public Watch Lists</span>
               <Layers className="w-5 h-5 text-blue-600 dark:text-blue-400" />
             </div>
-            <p className="text-3xl font-extrabold text-slate-900 dark:text-white">{stats?.totalLists ?? pagination.total ?? lists.length}</p>
+            {loading ? (
+              <div className="h-9 w-16 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse my-0.5" />
+            ) : (
+              <p className="text-3xl font-extrabold text-slate-900 dark:text-white">{stats?.totalLists ?? pagination.total ?? lists.length}</p>
+            )}
           </div>
 
           <div className="glass-card p-6 rounded-2xl border-slate-200 dark:border-slate-800">
@@ -278,7 +283,11 @@ export default function PublicDiscoverPage() {
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Unique Monitored Companies</span>
               <Briefcase className="w-5 h-5 text-purple-600 dark:text-purple-400" />
             </div>
-            <p className="text-3xl font-extrabold text-slate-900 dark:text-white">{stats?.totalUniqueCompanies ?? 0}</p>
+            {loading ? (
+              <div className="h-9 w-16 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse my-0.5" />
+            ) : (
+              <p className="text-3xl font-extrabold text-slate-900 dark:text-white">{stats?.totalUniqueCompanies ?? 0}</p>
+            )}
           </div>
 
           <div className="glass-card p-6 rounded-2xl border-slate-200 dark:border-slate-800">
@@ -286,7 +295,11 @@ export default function PublicDiscoverPage() {
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Active Job Postings</span>
               <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
             </div>
-            <p className="text-3xl font-extrabold text-slate-900 dark:text-white">{stats?.totalActiveJobs ?? 0}</p>
+            {loading ? (
+              <div className="h-9 w-16 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse my-0.5" />
+            ) : (
+              <p className="text-3xl font-extrabold text-slate-900 dark:text-white">{stats?.totalActiveJobs ?? 0}</p>
+            )}
           </div>
         </div>
       )}
@@ -349,6 +362,27 @@ export default function PublicDiscoverPage() {
                   <List className="w-3.5 h-3.5" />
                   <span>Table List</span>
                 </button>
+              </div>
+
+              {/* SORT FILTER DROPDOWN */}
+              <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-900/90 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 shrink-0">
+                <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
+                <span className="text-xs font-semibold text-slate-500 hidden sm:inline">Sort:</span>
+                <select
+                  value={sortBy}
+                  onChange={e => {
+                    setSortBy(e.target.value as any);
+                    setPage(1);
+                  }}
+                  className="bg-transparent text-xs font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
+                >
+                  <option value="followers">Most Followed (Default)</option>
+                  <option value="companies">Most Companies</option>
+                  <option value="jobs">Most Open Jobs</option>
+                  <option value="newest">Newest Lists</option>
+                  <option value="oldest">Oldest Lists</option>
+                  <option value="name_asc">Name (A-Z)</option>
+                </select>
               </div>
 
               {/* Search Input */}

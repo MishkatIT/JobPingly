@@ -35,6 +35,7 @@ export default function AdminDashboardPage() {
   const [debouncedWatchlistSearch, setDebouncedWatchlistSearch] = useState('');
   const [watchlistVisibilityFilter, setWatchlistVisibilityFilter] = useState<'all' | 'public' | 'private'>('all');
   const [watchlistCanonicalFilter, setWatchlistCanonicalFilter] = useState<'all' | 'canonical' | 'non-canonical'>('all');
+  const [watchlistStatusFilter, setWatchlistStatusFilter] = useState<'active' | 'deleted'>('active');
   const [watchlistUserIdFilter, setWatchlistUserIdFilter] = useState('');
   const [loadingWatchlists, setLoadingWatchlists] = useState(false);
   const [watchlistViewMode, setWatchlistViewMode] = useState<'grid' | 'tiles' | 'table'>('grid');
@@ -475,11 +476,12 @@ export default function AdminDashboardPage() {
     l: number,
     vis: string,
     canon: string,
-    uId: string
+    uId: string,
+    status: string = 'active'
   ) => {
     setLoadingWatchlists(true);
     try {
-      const url = `/api/admin/watchlists?page=${p}&limit=${l}&search=${encodeURIComponent(q)}&visibility=${vis}&canonical=${canon}&userId=${encodeURIComponent(uId)}`;
+      const url = `/api/admin/watchlists?page=${p}&limit=${l}&search=${encodeURIComponent(q)}&visibility=${vis}&canonical=${canon}&userId=${encodeURIComponent(uId)}&status=${status}`;
       const res = await fetch(url);
       if (res.ok) {
         const json = await res.json();
@@ -530,7 +532,8 @@ export default function AdminDashboardPage() {
         watchlistLimit,
         watchlistVisibilityFilter,
         watchlistCanonicalFilter,
-        watchlistUserIdFilter
+        watchlistUserIdFilter,
+        watchlistStatusFilter
       );
     } catch (err: any) {
       toast.error(err.message || 'Failed to update watchlist');
@@ -539,20 +542,63 @@ export default function AdminDashboardPage() {
     }
   };
 
-  const handleDeleteWatchlist = async (listId: string, listName: string) => {
-    if (!confirm(`ADMIN ACTION: Are you sure you want to permanently delete the watchlist "${listName}"?`)) return;
+  const handleSoftDeleteWatchlist = async (listId: string, listName: string) => {
+    if (!confirm(`ADMIN ACTION: Are you sure you want to move watchlist "${listName}" to trash?`)) return;
     try {
       const res = await fetch(`/api/admin/watchlists/${listId}`, { method: 'DELETE' });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to delete watchlist');
-      toast.success(json.message || 'Watchlist deleted.');
+      if (!res.ok) throw new Error(json.error || 'Failed to move watchlist to trash');
+      toast.success(json.message || 'Watchlist moved to trash.');
       fetchPaginatedWatchlists(
         watchlistPage,
         debouncedWatchlistSearch,
         watchlistLimit,
         watchlistVisibilityFilter,
         watchlistCanonicalFilter,
-        watchlistUserIdFilter
+        watchlistUserIdFilter,
+        watchlistStatusFilter
+      );
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete watchlist');
+    }
+  };
+
+  const handleRestoreWatchlist = async (listId: string, listName: string) => {
+    if (!confirm(`ADMIN ACTION: Are you sure you want to restore watchlist "${listName}" from trash?`)) return;
+    try {
+      const res = await fetch(`/api/admin/watchlists/${listId}/restore`, { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to restore watchlist');
+      toast.success(json.message || 'Watchlist restored successfully!');
+      fetchPaginatedWatchlists(
+        watchlistPage,
+        debouncedWatchlistSearch,
+        watchlistLimit,
+        watchlistVisibilityFilter,
+        watchlistCanonicalFilter,
+        watchlistUserIdFilter,
+        watchlistStatusFilter
+      );
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to restore watchlist');
+    }
+  };
+
+  const handlePermanentDeleteWatchlist = async (listId: string, listName: string) => {
+    if (!confirm(`ADMIN ACTION: PERMANENTLY delete watchlist "${listName}"? This action CANNOT be undone!`)) return;
+    try {
+      const res = await fetch(`/api/admin/watchlists/${listId}?permanent=true`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to permanently delete watchlist');
+      toast.success(json.message || 'Watchlist permanently deleted.');
+      fetchPaginatedWatchlists(
+        watchlistPage,
+        debouncedWatchlistSearch,
+        watchlistLimit,
+        watchlistVisibilityFilter,
+        watchlistCanonicalFilter,
+        watchlistUserIdFilter,
+        watchlistStatusFilter
       );
     } catch (err: any) {
       toast.error(err.message || 'Failed to delete watchlist');
@@ -575,9 +621,20 @@ export default function AdminDashboardPage() {
     }
   };
 
-  const handleBatchWatchlistAction = async (action: 'delete' | 'make_public' | 'make_private' | 'make_canonical') => {
+  const handleBatchWatchlistAction = async (action: 'delete' | 'soft_delete' | 'restore' | 'permanent_delete' | 'make_public' | 'make_private' | 'make_canonical') => {
     if (selectedWatchlistIds.length === 0) return;
-    const actionLabel = action === 'delete' ? 'delete' : action === 'make_public' ? 'make public' : action === 'make_private' ? 'make private' : 'mark as verified canonical';
+    const actionLabel = action === 'delete' || action === 'soft_delete'
+      ? 'move to trash'
+      : action === 'restore'
+      ? 'restore'
+      : action === 'permanent_delete'
+      ? 'permanently delete'
+      : action === 'make_public'
+      ? 'make public'
+      : action === 'make_private'
+      ? 'make private'
+      : 'mark as verified canonical';
+
     if (!confirm(`ADMIN ACTION: Are you sure you want to ${actionLabel} ${pluralize(selectedWatchlistIds.length, 'selected watchlist')}?`)) return;
 
     setProcessingWatchlistBatch(true);
@@ -597,7 +654,8 @@ export default function AdminDashboardPage() {
         watchlistLimit,
         watchlistVisibilityFilter,
         watchlistCanonicalFilter,
-        watchlistUserIdFilter
+        watchlistUserIdFilter,
+        watchlistStatusFilter
       );
     } catch (err: any) {
       toast.error(err.message || 'Batch action failed');
@@ -656,7 +714,8 @@ export default function AdminDashboardPage() {
         watchlistLimit,
         watchlistVisibilityFilter,
         watchlistCanonicalFilter,
-        watchlistUserIdFilter
+        watchlistUserIdFilter,
+        watchlistStatusFilter
       );
     } else if (activeTab === 'unverified') {
       fetchUnverifiedUsers(unverifiedPage, debouncedUnverifiedSearch, unverifiedLimit);
@@ -667,7 +726,7 @@ export default function AdminDashboardPage() {
     companyPage, debouncedCompanySearch, companyLimit,
     emailPage, debouncedEmailSearch, emailLimit, emailStatusFilter,
     userPage, debouncedUserSearch, userLimit, userRoleFilter,
-    watchlistPage, debouncedWatchlistSearch, watchlistLimit, watchlistVisibilityFilter, watchlistCanonicalFilter, watchlistUserIdFilter,
+    watchlistPage, debouncedWatchlistSearch, watchlistLimit, watchlistVisibilityFilter, watchlistCanonicalFilter, watchlistUserIdFilter, watchlistStatusFilter,
     unverifiedPage, debouncedUnverifiedSearch, unverifiedLimit,
     issuesPage, debouncedIssuesSearch, issuesLimit, issuesStatusFilter, issuesCategoryFilter,
     activeTab
@@ -2681,6 +2740,43 @@ export default function AdminDashboardPage() {
             </div>
 
             <div className="flex items-center gap-2">
+              {/* Active vs Trash Sub-Tab Switcher */}
+              <div className="flex items-center bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWatchlistStatusFilter('active');
+                    setWatchlistPage(1);
+                    setSelectedWatchlistIds([]);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                    watchlistStatusFilter === 'active'
+                      ? 'bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>Active</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWatchlistStatusFilter('deleted');
+                    setWatchlistPage(1);
+                    setSelectedWatchlistIds([]);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                    watchlistStatusFilter === 'deleted'
+                      ? 'bg-rose-600 text-white shadow-sm'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Trash</span>
+                </button>
+              </div>
+
               {/* View Mode Switcher */}
               <div className="flex items-center bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-800">
                 <button
@@ -2723,11 +2819,11 @@ export default function AdminDashboardPage() {
 
               <button
                 type="button"
-                onClick={() => fetchPaginatedWatchlists(watchlistPage, debouncedWatchlistSearch, watchlistLimit, watchlistVisibilityFilter, watchlistCanonicalFilter, watchlistUserIdFilter)}
+                onClick={() => fetchPaginatedWatchlists(watchlistPage, debouncedWatchlistSearch, watchlistLimit, watchlistVisibilityFilter, watchlistCanonicalFilter, watchlistUserIdFilter, watchlistStatusFilter)}
                 className="px-3.5 py-2 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-600 dark:text-purple-400 hover:bg-purple-500/20 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${loadingWatchlists ? 'animate-spin' : ''}`} />
-                Refresh Watch Lists
+                Refresh
               </button>
             </div>
           </div>
@@ -2817,41 +2913,65 @@ export default function AdminDashboardPage() {
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  type="button"
-                  disabled={processingWatchlistBatch}
-                  onClick={() => handleBatchWatchlistAction('make_public')}
-                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-sm cursor-pointer flex items-center gap-1 disabled:opacity-50"
-                >
-                  <Globe className="w-3.5 h-3.5" /> Make Public
-                </button>
+                {watchlistStatusFilter === 'deleted' ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={processingWatchlistBatch}
+                      onClick={() => handleBatchWatchlistAction('restore')}
+                      className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-sm cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" /> Restore Selected
+                    </button>
 
-                <button
-                  type="button"
-                  disabled={processingWatchlistBatch}
-                  onClick={() => handleBatchWatchlistAction('make_private')}
-                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold transition-all shadow-sm cursor-pointer flex items-center gap-1 disabled:opacity-50"
-                >
-                  <Lock className="w-3.5 h-3.5" /> Make Private
-                </button>
+                    <button
+                      type="button"
+                      disabled={processingWatchlistBatch}
+                      onClick={() => handleBatchWatchlistAction('permanent_delete')}
+                      className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-all shadow-sm cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Permanently Delete
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      disabled={processingWatchlistBatch}
+                      onClick={() => handleBatchWatchlistAction('make_public')}
+                      className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-sm cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <Globe className="w-3.5 h-3.5" /> Make Public
+                    </button>
 
-                <button
-                  type="button"
-                  disabled={processingWatchlistBatch}
-                  onClick={() => handleBatchWatchlistAction('make_canonical')}
-                  className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-sm cursor-pointer flex items-center gap-1 disabled:opacity-50"
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Verify Canonical
-                </button>
+                    <button
+                      type="button"
+                      disabled={processingWatchlistBatch}
+                      onClick={() => handleBatchWatchlistAction('make_private')}
+                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold transition-all shadow-sm cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <Lock className="w-3.5 h-3.5" /> Make Private
+                    </button>
 
-                <button
-                  type="button"
-                  disabled={processingWatchlistBatch}
-                  onClick={() => handleBatchWatchlistAction('delete')}
-                  className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-all shadow-sm cursor-pointer flex items-center gap-1 disabled:opacity-50"
-                >
-                  <Trash2 className="w-3.5 h-3.5" /> Delete Selected
-                </button>
+                    <button
+                      type="button"
+                      disabled={processingWatchlistBatch}
+                      onClick={() => handleBatchWatchlistAction('make_canonical')}
+                      className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-sm cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Verify Canonical
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={processingWatchlistBatch}
+                      onClick={() => handleBatchWatchlistAction('soft_delete')}
+                      className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-all shadow-sm cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Move to Trash
+                    </button>
+                  </>
+                )}
 
                 <button
                   type="button"
@@ -2964,32 +3084,55 @@ export default function AdminDashboardPage() {
 
                     {/* Action Controls - Visible on Card Hover */}
                     <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                      <button
-                        type="button"
-                        onClick={() => handleOpenEditWatchlist(wl)}
-                        className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-blue-600 dark:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
-                        title="Edit Watchlist Details"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                      </button>
+                      {wl.deletedAt ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleRestoreWatchlist(wl.id, wl.name)}
+                            className="p-1.5 rounded-lg border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold"
+                            title="Restore Watch List"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5 text-emerald-500" /> Restore
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handlePermanentDeleteWatchlist(wl.id, wl.name)}
+                            className="p-1.5 rounded-lg border border-rose-500/30 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold"
+                            title="Permanently Delete Watch List"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-rose-500" /> Hard Delete
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditWatchlist(wl)}
+                            className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-blue-600 dark:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                            title="Edit Watchlist Details"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
 
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteWatchlist(wl.id, wl.name)}
-                        className="p-1.5 rounded-lg border border-rose-500/30 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer"
-                        title="Delete Watchlist"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSoftDeleteWatchlist(wl.id, wl.name)}
+                            className="p-1.5 rounded-lg border border-rose-500/30 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer"
+                            title="Move Watchlist to Trash"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
 
-                      <Link
-                        href={`/lists/${wl.slug}`}
-                        target="_blank"
-                        className="text-xs font-semibold text-purple-600 dark:text-purple-400 flex items-center gap-1 pl-1 transition-all"
-                        title="View Public Openings Page"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </Link>
+                          <Link
+                            href={`/lists/${wl.slug}`}
+                            target="_blank"
+                            className="text-xs font-semibold text-purple-600 dark:text-purple-400 flex items-center gap-1 pl-1 transition-all"
+                            title="View Public Openings Page"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </Link>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -3120,21 +3263,43 @@ export default function AdminDashboardPage() {
 
                       <td className="py-3.5 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => handleOpenEditWatchlist(wl)}
-                            className="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center gap-1 cursor-pointer"
-                            title="Edit Watchlist Details"
-                          >
-                            <Edit3 className="w-3.5 h-3.5 text-blue-500" /> Edit
-                          </button>
+                          {wl.deletedAt ? (
+                            <>
+                              <button
+                                onClick={() => handleRestoreWatchlist(wl.id, wl.name)}
+                                className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 transition-colors flex items-center gap-1 cursor-pointer"
+                                title="Restore Watch List"
+                              >
+                                <RefreshCw className="w-3.5 h-3.5" /> Restore
+                              </button>
 
-                          <button
-                            onClick={() => handleDeleteWatchlist(wl.id, wl.name)}
-                            className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition-colors flex items-center gap-1 cursor-pointer"
-                            title="Permanently Delete Watchlist"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" /> Delete
-                          </button>
+                              <button
+                                onClick={() => handlePermanentDeleteWatchlist(wl.id, wl.name)}
+                                className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition-colors flex items-center gap-1 cursor-pointer"
+                                title="Permanently Delete Watch List"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" /> Hard Delete
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => handleOpenEditWatchlist(wl)}
+                                className="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center gap-1 cursor-pointer"
+                                title="Edit Watchlist Details"
+                              >
+                                <Edit3 className="w-3.5 h-3.5 text-blue-500" /> Edit
+                              </button>
+
+                              <button
+                                onClick={() => handleSoftDeleteWatchlist(wl.id, wl.name)}
+                                className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition-colors flex items-center gap-1 cursor-pointer"
+                                title="Move Watchlist to Trash"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" /> Move to Trash
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>

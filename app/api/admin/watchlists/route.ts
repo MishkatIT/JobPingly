@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
   const search = searchParams.get('search');
   const visibilityFilter = searchParams.get('visibility');
   const canonicalFilter = searchParams.get('canonical');
+  const statusFilter = searchParams.get('status') || 'active'; // 'active' | 'deleted' | 'all'
   const userIdFilter = searchParams.get('userId');
   const page = Math.max(1, Number(searchParams.get('page')) || 1);
   const limit = Math.max(1, Math.min(100, Number(searchParams.get('limit')) || 10));
@@ -31,6 +32,7 @@ export async function GET(req: NextRequest) {
       isCanonical: lists.isCanonical,
       followerCount: lists.followerCount,
       contributionCount: lists.contributionCount,
+      deletedAt: lists.deletedAt,
       createdAt: lists.createdAt,
       updatedAt: lists.updatedAt,
       userName: users.name,
@@ -39,9 +41,16 @@ export async function GET(req: NextRequest) {
     })
     .from(lists)
     .leftJoin(users, eq(lists.userId, users.id))
-    .orderBy(desc(lists.createdAt));
+    .orderBy(desc(lists.updatedAt));
 
   let results = [...allLists];
+
+  // Status Filter (active vs deleted/trash)
+  if (statusFilter === 'active') {
+    results = results.filter(l => !l.deletedAt);
+  } else if (statusFilter === 'deleted' || statusFilter === 'trash') {
+    results = results.filter(l => !!l.deletedAt);
+  }
 
   // Specific User Filter
   if (userIdFilter && userIdFilter.trim()) {

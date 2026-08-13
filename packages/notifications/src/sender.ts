@@ -4,7 +4,16 @@ import { db } from '@/lib/db/client';
 import { emailApprovals } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 
-export async function sendEmailDigest(toEmail: string, userName: string, jobListings: { companyName: string; title: string; url?: string }[]) {
+export interface SendEmailDigestResult {
+  success: boolean;
+  messageId?: string;
+  error?: string;
+  disabled?: boolean;
+  unapproved?: boolean;
+  mocked?: boolean;
+}
+
+export async function sendEmailDigest(toEmail: string, userName: string, jobListings: { companyName: string; title: string; url?: string }[]): Promise<SendEmailDigestResult> {
   // 1. Check feature flag
   const notificationsEnabled = await isFeatureEnabled('notifications.enabled', true);
   if (!notificationsEnabled) {

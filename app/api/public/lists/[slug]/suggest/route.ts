@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
 import { lists, listContributions } from '@/lib/db/schema';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 
 function detectAtsType(url: string): string {
   const lowercase = url.toLowerCase();
@@ -17,7 +17,7 @@ function detectAtsType(url: string): string {
 export async function POST(req: NextRequest, { params }: { params: { slug: string } }) {
   const user = await getAuthUser(req);
 
-  const [list] = await db.select().from(lists).where(and(eq(lists.slug, params.slug), eq(lists.visibility, 'public')));
+  const [list] = await db.select().from(lists).where(and(eq(lists.slug, params.slug), eq(lists.visibility, 'public'), isNull(lists.deletedAt)));
   if (!list) {
     return NextResponse.json({ error: 'Public list not found' }, { status: 404 });
   }

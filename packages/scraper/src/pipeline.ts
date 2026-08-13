@@ -13,7 +13,7 @@ import { generateContentHash } from './hash';
 import { extractJobsWithAI } from './aiExtractor';
 import { db } from '../../../lib/db/client';
 import { careerPages, jobs, scrapeLogs, subscriptions, listSubscriptions, listCareerPages, lists, notificationQueue } from '../../../lib/db/schema';
-import { eq, and, inArray, sql } from 'drizzle-orm';
+import { eq, and, inArray, sql, isNull } from 'drizzle-orm';
 import { matchKeywords } from '../../notifications/src/matcher';
 import { isFeatureEnabled } from '../../../lib/flags/check';
 
@@ -317,9 +317,11 @@ export async function runScraperPipeline(careerPageId: string, options?: { force
           listId: listCareerPages.listId,
         })
         .from(listCareerPages)
+        .innerJoin(lists, eq(listCareerPages.listId, lists.id))
         .where(and(
           eq(listCareerPages.careerPageId, careerPageId),
-          eq(listCareerPages.isPaused, false)
+          eq(listCareerPages.isPaused, false),
+          isNull(lists.deletedAt)
         ));
 
         const targetListIds = Array.from(new Set(activeListPages.map(lp => lp.listId)));

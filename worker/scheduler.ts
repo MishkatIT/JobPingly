@@ -1,7 +1,8 @@
 import { db } from '@/lib/db/client';
-import { careerPages } from '@/lib/db/schema';
-import { lte, ne, and, isNull, or } from 'drizzle-orm';
+import { careerPages, listCareerPages, lists } from '@/lib/db/schema';
+import { lte, ne, and, isNull, or, eq } from 'drizzle-orm';
 import { runScraperPipeline, autoRemoveExpiredJobsFromDb } from '@/packages/scraper/src/pipeline';
+import { processNotificationQueue } from '@/packages/notifications/src/processor';
 import { isFeatureEnabled } from '@/lib/flags/check';
 
 const POLL_INTERVAL_MS = Number(process.env.WORKER_POLL_INTERVAL_MS) || 10000;
@@ -48,6 +49,22 @@ export async function processDuePages() {
       console.log(`[JobPingly Worker] Found ${duePages.length} due career page(s) to check.`);
 
       for (const page of duePages) {
+        // Ensure page is attached to at least one active, non-soft-deleted, unpaused watch list
+        const activeLinks = await db.select({ id: listCareerPages.id })
+          .from(listCareerPages)
+          .innerJoin(lists, eq(listCareerPages.listId, lists.id))
+          .where(and(
+            eq(listCareerPages.careerPageId, page.id),
+            eq(listCareerPages.isPaused, false),
+            isNull(lists.deletedAt)
+          ))
+          .limit(1);
+
+        if (activeLinks.length === 0) {
+          console.log(`[JobPingly Worker] Skipping ${page.url}: Not linked to any active watch list.`);
+          continue;
+        }
+
         console.log(`[JobPingly Worker] Scraping ${page.url} (${page.companyName || 'Unknown'})...`);
         try {
           const res = await runScraperPipeline(page.id);
@@ -57,6 +74,11 @@ export async function processDuePages() {
         }
       }
     }
+
+    // Process unsent email notification queue items
+    await processNotificationQueue().catch(err => {
+      console.error('[JobPingly Worker] Notification queue processing error:', err.message);
+    });
   } catch (err: any) {
     console.error('[JobPingly Worker] Scheduler error:', err.message);
   } finally {

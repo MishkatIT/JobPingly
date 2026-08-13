@@ -19,15 +19,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No watch lists selected for batch action.' }, { status: 400 });
   }
 
-  if (!['delete', 'make_public', 'make_private', 'make_canonical'].includes(action)) {
+  if (!['delete', 'soft_delete', 'restore', 'permanent_delete', 'make_public', 'make_private', 'make_canonical'].includes(action)) {
     return NextResponse.json({ error: 'Invalid batch action.' }, { status: 400 });
   }
 
   let message = '';
 
-  if (action === 'delete') {
+  if (action === 'delete' || action === 'soft_delete') {
+    await db.update(lists).set({ deletedAt: new Date(), updatedAt: new Date() }).where(inArray(lists.id, listIds));
+    message = `Successfully moved ${pluralize(listIds.length, 'watchlist')} to trash.`;
+  } else if (action === 'restore') {
+    await db.update(lists).set({ deletedAt: null, updatedAt: new Date() }).where(inArray(lists.id, listIds));
+    message = `Successfully restored ${pluralize(listIds.length, 'watchlist')}.`;
+  } else if (action === 'permanent_delete') {
     await db.delete(lists).where(inArray(lists.id, listIds));
-    message = `Successfully deleted ${pluralize(listIds.length, 'watchlist')}.`;
+    message = `Successfully permanently deleted ${pluralize(listIds.length, 'watchlist')}.`;
   } else if (action === 'make_public') {
     await db
       .update(lists)

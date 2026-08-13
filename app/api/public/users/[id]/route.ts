@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/client';
 import { lists, listCareerPages, users, jobs } from '@/lib/db/schema';
 import { isFeatureEnabled } from '@/lib/flags/check';
-import { eq, and, inArray, count } from 'drizzle-orm';
+import { eq, and, inArray, count, isNull } from 'drizzle-orm';
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const publicEnabled = await isFeatureEnabled('public_lists.enabled', true);
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     updatedAt: lists.updatedAt,
   })
   .from(lists)
-  .where(and(eq(lists.userId, userId), eq(lists.visibility, 'public')));
+  .where(and(eq(lists.userId, userId), eq(lists.visibility, 'public'), isNull(lists.deletedAt)));
 
   const userListIds = userLists.map(l => l.id);
 

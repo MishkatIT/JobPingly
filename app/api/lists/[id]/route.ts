@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
 import { lists, listCareerPages, careerPages, jobs, listCollaborators } from '@/lib/db/schema';
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and, inArray, desc, isNull } from 'drizzle-orm';
 
 import { users } from '@/lib/db/schema';
 
@@ -28,7 +28,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     })
     .from(lists)
     .leftJoin(users, eq(lists.userId, users.id))
-    .where(eq(lists.id, listId));
+    .where(and(eq(lists.id, listId), isNull(lists.deletedAt)));
 
   if (!listData) {
     return NextResponse.json({ error: 'Watch list not found' }, { status: 404 });
@@ -82,7 +82,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
   // Fetch active jobs ONLY for unpaused pages on this list
   const activeJobs = activePageIdsForList.length > 0
-    ? await db.select().from(jobs).where(and(inArray(jobs.careerPageId, activePageIdsForList), eq(jobs.status, 'active')))
+    ? await db.select().from(jobs).where(and(inArray(jobs.careerPageId, activePageIdsForList), eq(jobs.status, 'active'))).orderBy(desc(jobs.firstSeenAt))
     : [];
 
   const pageMap = new Map(pagesWithListStatus.map(p => [p.id, p]));
@@ -161,7 +161,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   const isAdmin = user.role === 'admin';
   const condition = isAdmin ? eq(lists.id, listId) : and(eq(lists.id, listId), eq(lists.userId, user.userId));
 
-  await db.delete(lists).where(condition);
+  await db.update(lists).set({ deletedAt: new Date(), updatedAt: new Date() }).where(condition);
 
-  return NextResponse.json({ success: true });
+  return NextResponse.json({ success: true, message: 'Watch list moved to trash.' });
 }

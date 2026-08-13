@@ -65,7 +65,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   });
 }
 
-// DELETE watchlist (admin)
+// DELETE watchlist (admin: soft delete by default, hard delete if permanent=true)
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   const adminUser = await requireAdmin(req);
   if (!adminUser) {
@@ -73,28 +73,37 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   }
 
   const listId = params.id;
+  const permanent = req.nextUrl.searchParams.get('permanent') === 'true';
+
   const [existing] = await db.select().from(lists).where(eq(lists.id, listId));
   if (!existing) {
     return NextResponse.json({ error: 'Watchlist not found.' }, { status: 404 });
   }
 
-  await db.delete(lists).where(eq(lists.id, listId));
+  if (permanent) {
+    await db.delete(lists).where(eq(lists.id, listId));
+  } else {
+    await db.update(lists).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(lists.id, listId));
+  }
 
   // Record Admin Audit Log
   await db.insert(adminAuditLog).values({
     adminId: adminUser.userId,
-    action: 'admin_delete_watchlist',
+    action: permanent ? 'admin_permanent_delete_watchlist' : 'admin_soft_delete_watchlist',
     targetType: 'watchlist',
     targetId: listId,
     metadata: {
       listName: existing.name,
       listSlug: existing.slug,
       userId: existing.userId,
+      permanent,
     },
   }).catch(() => null);
 
   return NextResponse.json({
     success: true,
-    message: `Watchlist "${existing.name}" deleted successfully.`,
+    message: permanent
+      ? `Watchlist "${existing.name}" permanently deleted.`
+      : `Watchlist "${existing.name}" moved to trash.`,
   });
 }

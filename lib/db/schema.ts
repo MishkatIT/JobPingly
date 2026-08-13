@@ -82,12 +82,14 @@ export const lists = pgTable('lists', {
   isCanonical: boolean('is_canonical').default(true).notNull(),
   followerCount: integer('follower_count').default(0).notNull(),
   contributionCount: integer('contribution_count').default(0).notNull(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   userIdIdx: index('idx_list_user').on(table.userId),
   visibilityIdx: index('idx_list_visibility').on(table.visibility),
   parentListIdx: index('idx_list_parent').on(table.parentListId),
+  deletedAtIdx: index('idx_list_deleted_at').on(table.deletedAt),
 }));
 
 // 7. Career Pages

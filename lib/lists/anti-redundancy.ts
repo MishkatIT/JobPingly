@@ -1,6 +1,6 @@
 import { db } from '@/lib/db/client';
 import { lists, listCareerPages } from '@/lib/db/schema';
-import { eq, ne, and } from 'drizzle-orm';
+import { eq, ne, and, isNull } from 'drizzle-orm';
 
 export interface SimilarityResult {
   isDuplicate: boolean;
@@ -36,9 +36,11 @@ export async function checkListRedundancy(
     })
     .from(lists)
     .where(
-      excludeListId
-        ? and(eq(lists.visibility, 'public'), ne(lists.id, excludeListId))
-        : eq(lists.visibility, 'public')
+      and(
+        eq(lists.visibility, 'public'),
+        isNull(lists.deletedAt),
+        excludeListId ? ne(lists.id, excludeListId) : undefined
+      )
     );
 
   let highestScore = 0;

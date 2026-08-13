@@ -3,7 +3,7 @@ import { getAuthUser } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
 import { lists, listCareerPages, careerPages, jobs, users, listCollaborators } from '@/lib/db/schema';
 import { isFeatureEnabled } from '@/lib/flags/check';
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and, inArray, desc, isNull } from 'drizzle-orm';
 
 export async function GET(req: NextRequest, { params }: { params: { slug: string } }) {
   const publicEnabled = await isFeatureEnabled('public_lists.enabled', true);
@@ -30,7 +30,7 @@ export async function GET(req: NextRequest, { params }: { params: { slug: string
   })
   .from(lists)
   .leftJoin(users, eq(lists.userId, users.id))
-  .where(eq(lists.slug, slug));
+  .where(and(eq(lists.slug, slug), isNull(lists.deletedAt)));
 
   if (!list) {
     return NextResponse.json({ error: 'Watch list not found.' }, { status: 404 });
@@ -73,7 +73,7 @@ export async function GET(req: NextRequest, { params }: { params: { slug: string
     : Promise.resolve([]);
 
   const jobsPromise = activePageIdsForList.length > 0
-    ? db.select().from(jobs).where(and(inArray(jobs.careerPageId, activePageIdsForList), eq(jobs.status, 'active')))
+    ? db.select().from(jobs).where(and(inArray(jobs.careerPageId, activePageIdsForList), eq(jobs.status, 'active'))).orderBy(desc(jobs.firstSeenAt))
     : Promise.resolve([]);
 
   const [pages, activeJobs] = await Promise.all([pagesPromise, jobsPromise]);

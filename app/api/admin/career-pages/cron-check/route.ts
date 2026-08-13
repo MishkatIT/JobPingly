@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/client';
-import { careerPages } from '@/lib/db/schema';
+import { careerPages, listCareerPages, lists } from '@/lib/db/schema';
 import { eq, and, lte, or, isNull, ne } from 'drizzle-orm';
 import { runScraperPipeline, autoRemoveExpiredJobsFromDb } from '@/packages/scraper/src/pipeline';
+import { processNotificationQueue } from '@/packages/notifications/src/processor';
 import { isFeatureEnabled } from '@/lib/flags/check';
 
 let isCronCheckRunning = false;
@@ -44,6 +45,22 @@ async function executeCronCheckTask() {
     const processSummary: any[] = [];
 
     for (const page of duePages) {
+      // Ensure page is attached to at least one active, non-soft-deleted, unpaused watch list
+      const activeLinks = await db.select({ id: listCareerPages.id })
+        .from(listCareerPages)
+        .innerJoin(lists, eq(listCareerPages.listId, lists.id))
+        .where(and(
+          eq(listCareerPages.careerPageId, page.id),
+          eq(listCareerPages.isPaused, false),
+          isNull(lists.deletedAt)
+        ))
+        .limit(1);
+
+      if (activeLinks.length === 0) {
+        console.log(`[CronCheck] Skipping ${page.url}: Not attached to any active watch list.`);
+        continue;
+      }
+
       try {
         const result = await runScraperPipeline(page.id);
         checkedCount++;
@@ -80,11 +97,20 @@ async function executeCronCheckTask() {
       }
     }
 
+    // Process pending notification queue
+    const notificationResult = await processNotificationQueue().catch(err => ({
+      processedCount: 0,
+      emailsSent: 0,
+      errors: [err.message || 'Failed to process notifications'],
+    }));
+
     return {
       duePagesFound: duePages.length,
       checkedCount,
       totalJobsFound,
       totalJobsAdded,
+      notificationsProcessed: notificationResult.processedCount,
+      emailsSent: notificationResult.emailsSent,
       useGlobalTimer,
       effectiveIntervalMinutes: useGlobalTimer ? globalIntervalMinutes : 'per-site',
       summary: processSummary,

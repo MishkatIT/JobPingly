@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
 import { lists, listSubscriptions, listCollaborators } from '@/lib/db/schema';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, isNull } from 'drizzle-orm';
 
 // Helper to check authorization for private lists
 async function getAuthorizedList(slug: string, userId?: string, isAdmin?: boolean) {
-  const [list] = await db.select().from(lists).where(eq(lists.slug, slug));
+  const [list] = await db.select().from(lists).where(and(eq(lists.slug, slug), isNull(lists.deletedAt)));
   if (!list) return null;
   if (list.visibility === 'public') return list;
 

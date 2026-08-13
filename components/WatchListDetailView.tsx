@@ -36,6 +36,7 @@ import {
   MoreVertical,
   Building2,
   Bot,
+  ArrowUpDown,
 } from 'lucide-react';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
@@ -72,7 +73,10 @@ export default function WatchListDetailView({
   // View Mode State (Grid, Tiles, Table)
   const [jobViewMode, setJobViewMode] = useState<'grid' | 'tiles' | 'table'>('grid');
 
-  // Search State
+  // Sort & Search State for Active Positions
+  const [jobSortBy, setJobSortBy] = useState<
+    'newest' | 'oldest' | 'posted_desc' | 'posted_asc' | 'deadline_asc' | 'deadline_desc' | 'company' | 'company_desc' | 'title' | 'title_desc' | 'location_asc'
+  >('newest');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Scroll Pagination State for Monitored Pages and Jobs
@@ -149,7 +153,7 @@ export default function WatchListDetailView({
   useEffect(() => {
     setPagesLimit(15);
     setJobsLimit(15);
-  }, [searchQuery, data]);
+  }, [searchQuery, jobSortBy, data]);
 
   useEffect(() => {
     const saved = localStorage.getItem('jobpingly_job_view');
@@ -758,19 +762,166 @@ export default function WatchListDetailView({
 
   const { list, pages, jobs } = data;
 
+  const extractDateSearchableStrings = (val: any): string[] => {
+    if (!val) return [];
+    const results: string[] = [];
+    const str = String(val).trim();
+    if (str) results.push(str);
+
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) {
+      results.push(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
+      results.push(d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }));
+      results.push(d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' }));
+      results.push(d.getFullYear().toString());
+      results.push(d.toLocaleString('en-US', { month: 'short' }));
+      results.push(d.toLocaleString('en-US', { month: 'long' }));
+    }
+    return results;
+  };
+
+  const getJobSearchableText = (j: any): string => {
+    const parts: string[] = [];
+
+    if (j.title) parts.push(j.title);
+    if (j.companyName) parts.push(j.companyName);
+    if (j.location) parts.push(j.location);
+    if (j.jobType) parts.push(j.jobType);
+    if (j.department) parts.push(j.department);
+    if (j.url) parts.push(j.url);
+
+    if (j.firstSeenAt) {
+      parts.push(...extractDateSearchableStrings(j.firstSeenAt));
+    }
+    if (j.createdAt) {
+      parts.push(...extractDateSearchableStrings(j.createdAt));
+    }
+
+    const raw = j.rawData || {};
+    for (const [key, val] of Object.entries(raw)) {
+      if (val == null) continue;
+      if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
+        parts.push(String(val));
+        const keyLower = key.toLowerCase();
+        if (
+          typeof val === 'string' &&
+          val.length >= 4 &&
+          (keyLower.includes('date') ||
+            keyLower.includes('deadline') ||
+            keyLower.includes('posted') ||
+            keyLower.includes('created') ||
+            keyLower.includes('expires') ||
+            keyLower.includes('last') ||
+            keyLower.includes('time') ||
+            keyLower.includes('valid'))
+        ) {
+          parts.push(...extractDateSearchableStrings(val));
+        }
+      } else if (Array.isArray(val)) {
+        parts.push(val.map(v => String(v)).join(' '));
+      }
+    }
+
+    return parts.join(' ').toLowerCase();
+  };
+
   const filteredPages = (pages || []).filter((p: any) => {
     if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase().trim();
-    return (p.companyName || '').toLowerCase().includes(q) || (p.url || '').toLowerCase().includes(q);
+    const terms = searchQuery.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    const text = `${p.companyName || ''} ${p.url || ''} ${Array.isArray(p.positiveKeywords) ? p.positiveKeywords.join(' ') : ''}`.toLowerCase();
+    return terms.every(t => text.includes(t));
   });
 
   const filteredJobs = (jobs || []).filter((j: any) => {
     if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase().trim();
-    const title = (j.title || '').toLowerCase();
-    const company = ((j.companyName || j.rawData?.company || '') as string).toLowerCase();
-    const location = (j.location || '').toLowerCase();
-    return title.includes(q) || company.includes(q) || location.includes(q);
+    const terms = searchQuery.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    const searchableText = getJobSearchableText(j);
+    return terms.every(t => searchableText.includes(t));
+  });
+
+  const getJobDeadlineTime = (j: any): number => {
+    const raw = j.rawData || {};
+    const dStr = raw.deadline || raw.deadlineDate || raw.applyLastDate || raw.apply_last_date || raw.lastDateToApply || raw.last_date_to_apply || raw.closingDate || raw.closing_date || raw.expiresAt || raw.expiresOn || raw.validThrough || raw.expirationDate || raw.lastDate || raw.applyBy || raw.valid_through || raw.deadline_date || null;
+    if (!dStr) return 0;
+    const d = new Date(dStr);
+    const t = d.getTime();
+    return isNaN(t) ? 0 : t;
+  };
+
+  const getJobPostedTime = (j: any): number => {
+    const raw = j.rawData || {};
+    const pStr = raw.postedDate || raw.posted_date || raw.datePosted || raw.publishedAt || raw.published_at || raw.created || null;
+    if (pStr) {
+      const d = new Date(pStr);
+      const t = d.getTime();
+      if (!isNaN(t)) return t;
+    }
+    return j.firstSeenAt ? new Date(j.firstSeenAt).getTime() : 0;
+  };
+
+  const sortedJobs = [...filteredJobs].sort((a: any, b: any) => {
+    if (jobSortBy === 'newest') {
+      const timeA = a.firstSeenAt ? new Date(a.firstSeenAt).getTime() : 0;
+      const timeB = b.firstSeenAt ? new Date(b.firstSeenAt).getTime() : 0;
+      return timeB - timeA;
+    }
+    if (jobSortBy === 'oldest') {
+      const timeA = a.firstSeenAt ? new Date(a.firstSeenAt).getTime() : 0;
+      const timeB = b.firstSeenAt ? new Date(b.firstSeenAt).getTime() : 0;
+      return timeA - timeB;
+    }
+    if (jobSortBy === 'posted_desc') {
+      const timeA = getJobPostedTime(a);
+      const timeB = getJobPostedTime(b);
+      return timeB - timeA;
+    }
+    if (jobSortBy === 'posted_asc') {
+      const timeA = getJobPostedTime(a);
+      const timeB = getJobPostedTime(b);
+      return timeA - timeB;
+    }
+    if (jobSortBy === 'deadline_asc') {
+      const timeA = getJobDeadlineTime(a);
+      const timeB = getJobDeadlineTime(b);
+      if (timeA === 0 && timeB === 0) return 0;
+      if (timeA === 0) return 1;
+      if (timeB === 0) return -1;
+      return timeA - timeB;
+    }
+    if (jobSortBy === 'deadline_desc') {
+      const timeA = getJobDeadlineTime(a);
+      const timeB = getJobDeadlineTime(b);
+      if (timeA === 0 && timeB === 0) return 0;
+      if (timeA === 0) return 1;
+      if (timeB === 0) return -1;
+      return timeB - timeA;
+    }
+    if (jobSortBy === 'company') {
+      const compA = (a.companyName || a.rawData?.company || '').toLowerCase();
+      const compB = (b.companyName || b.rawData?.company || '').toLowerCase();
+      return compA.localeCompare(compB);
+    }
+    if (jobSortBy === 'company_desc') {
+      const compA = (a.companyName || a.rawData?.company || '').toLowerCase();
+      const compB = (b.companyName || b.rawData?.company || '').toLowerCase();
+      return compB.localeCompare(compA);
+    }
+    if (jobSortBy === 'title') {
+      const titleA = (a.title || '').toLowerCase();
+      const titleB = (b.title || '').toLowerCase();
+      return titleA.localeCompare(titleB);
+    }
+    if (jobSortBy === 'title_desc') {
+      const titleA = (a.title || '').toLowerCase();
+      const titleB = (b.title || '').toLowerCase();
+      return titleB.localeCompare(titleA);
+    }
+    if (jobSortBy === 'location_asc') {
+      const locA = (a.location || a.rawData?.location || '').toLowerCase();
+      const locB = (b.location || b.rawData?.location || '').toLowerCase();
+      return locA.localeCompare(locB);
+    }
+    return 0;
   });
 
   const handlePagesScroll = (e: React.UIEvent<HTMLDivElement>) => {
@@ -783,12 +934,12 @@ export default function WatchListDetailView({
   const handleJobsScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
     if (scrollHeight - scrollTop - clientHeight < 150) {
-      setJobsLimit(prev => Math.min(filteredJobs.length, prev + 15));
+      setJobsLimit(prev => Math.min(sortedJobs.length, prev + 15));
     }
   };
 
   const visiblePagesList = filteredPages.slice(0, pagesLimit);
-  const visibleJobsList = filteredJobs.slice(0, jobsLimit);
+  const visibleJobsList = sortedJobs.slice(0, jobsLimit);
 
   const companyIndexMap = new Map<string, number>();
   (pages || []).forEach((p: any, idx: number) => {
@@ -1304,55 +1455,14 @@ export default function WatchListDetailView({
         {/* Detected Jobs Feed Column */}
         <div className="lg:col-span-2 sticky top-[72px] h-[calc(100vh-88px)] flex flex-col glass-panel rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden z-10">
           {/* Sticky Column Header Bar */}
-          <div className="shrink-0 p-4 sm:p-5 pb-3 bg-white/95 dark:bg-[#080c14]/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 z-10 flex items-center justify-between gap-3">
-            <h2 className="text-base font-extrabold text-slate-900 dark:text-white shrink-0">
-              Active Open Positions ({filteredJobs.length})
-            </h2>
+          <div className="shrink-0 p-3.5 sm:p-4 bg-white/95 dark:bg-[#080c14]/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 z-10 space-y-2.5">
+            {/* Line 1: Title on Left, Search Bar on Right */}
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-base font-extrabold text-slate-900 dark:text-white shrink-0">
+                Active Open Positions ({filteredJobs.length})
+              </h2>
 
-            <div className="flex flex-col sm:flex-row items-end sm:items-center justify-end gap-2 shrink-0">
-              <div className="flex items-center bg-slate-100 dark:bg-slate-900/90 p-1 rounded-xl border border-slate-200 dark:border-slate-800 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => handleJobViewChange('grid')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
-                    jobViewMode === 'grid'
-                      ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                  title="Grid Card View"
-                >
-                  <LayoutGrid className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Grid</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleJobViewChange('tiles')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
-                    jobViewMode === 'tiles'
-                      ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                  title="Tiles View (2 Columns)"
-                >
-                  <Grid2X2 className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Tiles</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleJobViewChange('table')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
-                    jobViewMode === 'table'
-                      ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                  title="Table List View"
-                >
-                  <List className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Table List</span>
-                </button>
-              </div>
-
-              <div className="relative w-full sm:w-48">
+              <div className="relative min-w-[140px] w-44 sm:w-52 md:w-60 shrink">
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
@@ -1370,6 +1480,74 @@ export default function WatchListDetailView({
                     &times;
                   </button>
                 )}
+              </div>
+            </div>
+
+            {/* Line 2: Sort Selector & View Mode Switcher aligned to the Right */}
+            <div className="flex items-center justify-end gap-2">
+              {/* Sort Filter Selector */}
+              <div className="relative flex items-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1 shadow-sm shrink-0">
+                <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 mr-1.5 shrink-0" />
+                <select
+                  value={jobSortBy}
+                  onChange={e => setJobSortBy(e.target.value as any)}
+                  className="bg-transparent text-slate-900 dark:text-white text-xs font-semibold focus:outline-none cursor-pointer pr-1"
+                >
+                  <option value="newest" className="dark:bg-slate-900">Tracked Date (Newest First)</option>
+                  <option value="oldest" className="dark:bg-slate-900">Tracked Date (Oldest First)</option>
+                  <option value="posted_desc" className="dark:bg-slate-900">Post Date (Newest First)</option>
+                  <option value="posted_asc" className="dark:bg-slate-900">Post Date (Oldest First)</option>
+                  <option value="deadline_asc" className="dark:bg-slate-900">Deadline (Expiring Soonest)</option>
+                  <option value="deadline_desc" className="dark:bg-slate-900">Deadline (Latest First)</option>
+                  <option value="title" className="dark:bg-slate-900">Job Title (A-Z)</option>
+                  <option value="title_desc" className="dark:bg-slate-900">Job Title (Z-A)</option>
+                  <option value="company" className="dark:bg-slate-900">Company (A-Z)</option>
+                  <option value="company_desc" className="dark:bg-slate-900">Company (Z-A)</option>
+                  <option value="location_asc" className="dark:bg-slate-900">Location (A-Z)</option>
+                </select>
+              </div>
+
+              {/* View Mode Switcher */}
+              <div className="flex items-center bg-slate-100 dark:bg-slate-900/90 p-1 rounded-xl border border-slate-200 dark:border-slate-800 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleJobViewChange('grid')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                    jobViewMode === 'grid'
+                      ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="Grid Card View"
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span className="hidden xl:inline">Grid</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleJobViewChange('tiles')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                    jobViewMode === 'tiles'
+                      ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="Tiles View (2 Columns)"
+                >
+                  <Grid2X2 className="w-3.5 h-3.5" />
+                  <span className="hidden xl:inline">Tiles</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleJobViewChange('table')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                    jobViewMode === 'table'
+                      ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="Table List View"
+                >
+                  <List className="w-3.5 h-3.5" />
+                  <span className="hidden xl:inline">Table List</span>
+                </button>
               </div>
             </div>
           </div>
