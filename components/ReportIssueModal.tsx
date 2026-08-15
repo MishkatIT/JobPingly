@@ -100,21 +100,22 @@ export function ReportIssueModal({ isOpen, onClose, defaultTargetUrl = '' }: Rep
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150 cursor-default"
+        className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-150 cursor-default"
       >
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <AlertCircle className="w-5 h-5 text-rose-500" />
-            Report an Issue or Feedback
-          </h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-900 dark:hover:text-white text-xl font-bold cursor-pointer"
-          >
-            &times;
-          </button>
-        </div>
+        <div className="p-6 sm:p-8 overflow-y-auto hover-scrollbar space-y-5 flex-1">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-rose-500" />
+              Report an Issue or Feedback
+            </h3>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-slate-400 hover:text-slate-900 dark:hover:text-white text-xl font-bold cursor-pointer"
+            >
+              &times;
+            </button>
+          </div>
 
         <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
           Spotted a broken career page URL, jobs not loading, or have feedback? Submit your report below and our engineering team will investigate.
@@ -256,7 +257,8 @@ export function ReportIssueModal({ isOpen, onClose, defaultTargetUrl = '' }: Rep
           </div>
         </form>
       </div>
-    </div>,
-    document.body
-  );
+    </div>
+  </div>,
+  document.body
+);
 }

@@ -292,3 +292,24 @@ export const reportedIssues = pgTable('reported_issues', {
   statusIdx: index('idx_reported_issues_status').on(table.status),
   categoryIdx: index('idx_reported_issues_category').on(table.category),
 }));
+
+// 17. Sent Email Logs Table (Audit History of all outbound Brevo emails)
+export const sentEmailLogs = pgTable('sent_email_logs', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  recipientEmail: text('recipient_email').notNull(),
+  senderEmail: text('sender_email'),
+  subject: text('subject').notNull(),
+  templateType: text('template_type').default('general').notNull(), // 'otp' | 'digest' | 'invite' | 'reset' | 'broadcast' | 'test'
+  status: text('status').default('sent').notNull(), // 'sent' | 'failed'
+  errorMessage: text('error_message'),
+  htmlContent: text('html_content'),
+  senderId: uuid('sender_id').references(() => users.id, { onDelete: 'set null' }),
+  metadata: jsonb('metadata'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  recipientIdx: index('idx_sent_email_recipient').on(table.recipientEmail),
+  templateIdx: index('idx_sent_email_template').on(table.templateType),
+  createdIdx: index('idx_sent_email_created').on(table.createdAt),
+}));
+
+

@@ -71,20 +71,73 @@ function parseDeadlineInfo(rawDeadline?: string | null): { text: string; isUrgen
   }
 }
 
+function stripHtmlTags(str?: string | null): string | null {
+  if (!str) return null;
+  let text = String(str);
+  text = text
+    .replace(/<\/(div|p|h[1-6]|li|tr|section|article)>/gi, ' ')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&rsquo;/gi, "'")
+    .replace(/&lsquo;/gi, "'")
+    .replace(/&rdquo;/gi, '"')
+    .replace(/&ldquo;/gi, '"');
+  text = text.replace(/\s+/g, ' ').trim();
+  return text || null;
+}
+
 function cleanDeadlineValue(val?: string | null): string | null {
   if (!val) return null;
   let str = String(val).trim();
   if (!str) return null;
   if (/^posted/i.test(str) || /\bposted\b/i.test(str)) return null;
-  return str.replace(/^(deadline|closing date|apply by|expires|last date|application deadline)\s*:?\s*/i, '').trim();
+  str = str.replace(/^(deadline|closing date|apply by|expires|last date|application deadline)\s*:?\s*/i, '').trim();
+
+  // Handle epoch millisecond or second timestamps
+  if (/^\d{10,13}$/.test(str)) {
+    const num = Number(str);
+    const dateMs = str.length === 10 ? num * 1000 : num;
+    const d = new Date(dateMs);
+    if (!isNaN(d.getTime())) {
+      return d.toISOString();
+    }
+  }
+
+  return str;
 }
 
-function cleanPostedDateValue(val?: string | null): string | null {
+function cleanPostedDateValue(val?: string | number | null): string | null {
   if (!val) return null;
   let str = String(val).trim();
   if (!str) return null;
   if (/^deadline/i.test(str) || /\bdeadline\b/i.test(str)) return null;
-  return str.replace(/^(posted|date posted|published|posted on)\s*:?\s*/i, '').trim();
+
+  str = str.replace(/^(posted|date posted|published|posted on)\s*:?\s*/i, '').trim();
+
+  // Handle Unix timestamp in milliseconds or seconds (e.g. 1779270222288 or 1779270222)
+  if (/^\d{10,13}$/.test(str)) {
+    const num = Number(str);
+    const dateMs = str.length === 10 ? num * 1000 : num;
+    const d = new Date(dateMs);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+  }
+
+  // Handle ISO date strings (e.g. 2026-08-15T16:05:47.646Z)
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+  }
+
+  return str;
 }
 
 export function JobCard({ job, companyIndex }: JobCardProps) {
@@ -101,9 +154,18 @@ export function JobCard({ job, companyIndex }: JobCardProps) {
   const rawDeadline = cleanDeadlineValue(uncleanedDeadline);
 
   const rawPostedStr = raw.postedDate || raw.postedAt || raw.posted_at || raw.datePosted || raw.date_posted || raw.publishedAt || raw.published_at || raw.created_at || raw.createdAt || raw.posted || null;
-  const postedDate = cleanPostedDateValue(rawPostedStr);
+  let postedDate = cleanPostedDateValue(rawPostedStr);
 
-  const description = raw.description || null;
+  // Fallback to firstSeenAt if postedDate could not be determined
+  if (!postedDate && job.firstSeenAt) {
+    const d = new Date(job.firstSeenAt);
+    if (!isNaN(d.getTime())) {
+      postedDate = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+  }
+
+  const rawDescription = raw.description || null;
+  const description = stripHtmlTags(rawDescription);
   const jobType = job.jobType || raw.employmentType || 'Full-Time';
 
   const deadlineInfo = parseDeadlineInfo(rawDeadline);

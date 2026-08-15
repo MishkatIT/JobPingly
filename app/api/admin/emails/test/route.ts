@@ -43,23 +43,23 @@ export async function POST(req: NextRequest) {
         <!DOCTYPE html>
         <html>
         <head><meta charset="utf-8"></head>
-        <body style="margin:0; padding:0; background-color:#0b0f19; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color:#e2e8f0;">
-          <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#0b0f19; padding:40px 20px;">
+        <body style="margin:0; padding:0; background-color:#f8fafc; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color:#334155;">
+          <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#f8fafc; padding:40px 20px;">
             <tr>
               <td align="center">
-                <table width="100%" max-width="550" border="0" cellspacing="0" cellpadding="0" style="max-width:550px; background-color:#1e293b; border-radius:16px; border:1px solid #334155; padding:32px;">
+                <table width="100%" max-width="550" border="0" cellspacing="0" cellpadding="0" style="max-width:550px; background-color:#ffffff; border-radius:16px; border:1px solid #e2e8f0; padding:32px; box-shadow:0 10px 30px rgba(15,23,42,0.06);">
                   <tr>
                     <td style="padding-bottom:16px;">
-                      <div style="font-size:22px; font-weight:800; color:#ffffff;">Job<span style="color:#2563eb;">Pingly</span> Admin Test</div>
+                      <div style="font-size:22px; font-weight:800; color:#0f172a;">Job<span style="color:#2563eb;">Pingly</span> Admin Test</div>
                     </td>
                   </tr>
                   <tr>
-                    <td style="padding-bottom:20px; line-height:1.6; font-size:15px; color:#cbd5e1;">
+                    <td style="padding-bottom:20px; line-height:1.6; font-size:15px; color:#334155;">
                       ${messageText.replace(/\n/g, '<br/>')}
                     </td>
                   </tr>
                   <tr>
-                    <td style="border-top:1px solid #334155; padding-top:16px; font-size:12px; color:#64748b;">
+                    <td style="border-top:1px solid #f1f5f9; padding-top:16px; font-size:12px; color:#94a3b8;">
                       Sent via Brevo Email Service by Admin (${adminUser.email})
                     </td>
                   </tr>
@@ -76,6 +76,9 @@ export async function POST(req: NextRequest) {
         subject,
         htmlContent,
         textContent: `${subject}\n\n${messageText}\n\nSent via Brevo by Admin`,
+        templateType: 'test',
+        senderId: adminUser.userId,
+        senderEmail: adminUser.email,
       });
     } else {
       return NextResponse.json({ error: 'Invalid template type specified.' }, { status: 400 });

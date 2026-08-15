@@ -115,6 +115,21 @@ export async function extractJobsWithAI(
               const l = j.location;
               j.location = l.name || l.address || l.text || JSON.stringify(l).replace(/[{}"\\]/g, '');
             }
+            if (j && typeof j.description === 'string' && j.description) {
+              j.description = j.description
+                .replace(/<\/(div|p|h[1-6]|li|tr|section|article)>/gi, ' ')
+                .replace(/<[^>]*>/g, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+            }
+            if (j && typeof j.postedDate === 'string' && j.postedDate && /^\d{10,13}$/.test(j.postedDate.trim())) {
+              const num = Number(j.postedDate.trim());
+              const dateMs = j.postedDate.trim().length === 10 ? num * 1000 : num;
+              const d = new Date(dateMs);
+              if (!isNaN(d.getTime())) {
+                j.postedDate = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+              }
+            }
           }
         }
       }

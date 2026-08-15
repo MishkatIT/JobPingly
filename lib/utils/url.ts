@@ -8,14 +8,14 @@ export function getBaseUrl(req?: NextRequest | Request): string {
   // 1. Check incoming HTTP request headers (Host & Protocol)
   if (req) {
     const host = req.headers.get('x-forwarded-host') || req.headers.get('host');
-    if (host && !host.includes('jobpingly.com')) {
+    if (host) {
       const proto = req.headers.get('x-forwarded-proto') || (host.includes('localhost') || host.includes('127.0.0.1') ? 'http' : 'https');
       return `${proto}://${host.replace(/\/$/, '')}`;
     }
   }
 
   // 2. Check explicit NEXT_PUBLIC_APP_URL environment variable
-  if (process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_APP_URL.includes('jobpingly.com')) {
+  if (process.env.NEXT_PUBLIC_APP_URL) {
     return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '');
   }
 

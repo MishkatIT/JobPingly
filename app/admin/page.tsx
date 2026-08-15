@@ -6,7 +6,7 @@ import Link from 'next/link';
 import {
   ShieldAlert, Cpu, Zap, RefreshCw, Flag, Layers, Users, Activity, History, UserCheck,
   ExternalLink, Play, Search, ArrowLeft, Mail, CheckCircle2, Clock, XCircle, Plus, CheckCheck, CheckSquare, Square, PauseCircle, PlayCircle, Timer, Sliders, ChevronLeft, ChevronRight, Lock, Trash2, Ban, MailCheck, UserX, Edit3, Globe, Eye, X,
-  LayoutGrid, Grid2X2, List, Crown, GitFork
+  LayoutGrid, Grid2X2, List, Crown, GitFork, Send
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import { useAuth } from '@/components/auth/AuthContext';
@@ -20,7 +20,7 @@ import { pluralize } from '@/lib/utils/pluralize';
 export default function AdminDashboardPage() {
   const toast = useToast();
   const [mounted, setMounted] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'emails' | 'users' | 'watchlists' | 'unverified' | 'issues' | 'audit'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'emails' | 'users' | 'watchlists' | 'unverified' | 'issues' | 'audit' | 'sent_emails' | 'companies'>('overview');
   const [data, setData] = useState<any>(null);
   const [flags, setFlags] = useState<any[]>([]);
   const [userList, setUserList] = useState<any[]>([]);
@@ -235,6 +235,19 @@ export default function AdminDashboardPage() {
   const [bannerLinkUrl, setBannerLinkUrl] = useState('');
   const [bannerLinkText, setBannerLinkText] = useState('');
   const [savingBanner, setSavingBanner] = useState(false);
+
+  // Sent Email History Logs State
+  const [sentEmailLogsList, setSentEmailLogsList] = useState<any[]>([]);
+  const [loadingSentEmailLogs, setLoadingSentEmailLogs] = useState(false);
+  const [sentEmailLogsPagination, setSentEmailLogsPagination] = useState({ total: 0, page: 1, limit: 15, totalPages: 1 });
+  const [sentEmailLogsPage, setSentEmailLogsPage] = useState(1);
+  const [sentEmailLogsSearch, setSentEmailLogsSearch] = useState('');
+  const [sentEmailLogsType, setSentEmailLogsType] = useState('all');
+  const [sentEmailLogsTypeCounts, setSentEmailLogsTypeCounts] = useState<Record<string, number>>({
+    all: 0, broadcast: 0, otp: 0, digest: 0, invite: 0, reset: 0, test: 0
+  });
+  const [inspectingEmailLog, setInspectingEmailLog] = useState<any | null>(null);
+
 
   useEffect(() => {
     if (showBroadcastModal) {
@@ -691,7 +704,7 @@ export default function AdminDashboardPage() {
     }
   };
 
-  const handleTabChange = (tab: 'overview' | 'emails' | 'users' | 'watchlists' | 'unverified' | 'issues' | 'audit') => {
+  const handleTabChange = (tab: 'overview' | 'emails' | 'users' | 'watchlists' | 'unverified' | 'issues' | 'audit' | 'sent_emails' | 'companies') => {
     setActiveTab(tab);
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
@@ -708,12 +721,13 @@ export default function AdminDashboardPage() {
       const params = new URLSearchParams(window.location.search);
       const urlTab = params.get('tab') as any;
       const savedTab = localStorage.getItem('admin_active_tab') as any;
-      const validTabs = ['overview', 'emails', 'users', 'watchlists', 'unverified', 'issues', 'audit'];
+      const validTabs = ['overview', 'emails', 'users', 'watchlists', 'unverified', 'issues', 'audit', 'sent_emails', 'companies'];
       const initialTab = validTabs.includes(urlTab) ? urlTab : validTabs.includes(savedTab) ? savedTab : 'overview';
       if (initialTab !== activeTab) {
         setActiveTab(initialTab);
       }
     }
+
     // Initial fetch for badge counts
     fetchPaginatedUsers(1, '', 10, 'all');
     fetchUnverifiedUsers(1, '', 10);
@@ -748,6 +762,8 @@ export default function AdminDashboardPage() {
       fetchUnverifiedUsers(unverifiedPage, debouncedUnverifiedSearch, unverifiedLimit);
     } else if (activeTab === 'issues') {
       fetchPaginatedIssues(issuesPage, debouncedIssuesSearch, issuesLimit, issuesStatusFilter, issuesCategoryFilter);
+    } else if (activeTab === 'sent_emails') {
+      fetchSentEmailLogs();
     }
   }, [
     companyPage, debouncedCompanySearch, companyLimit,
@@ -756,6 +772,7 @@ export default function AdminDashboardPage() {
     watchlistPage, debouncedWatchlistSearch, watchlistLimit, watchlistVisibilityFilter, watchlistCanonicalFilter, watchlistUserIdFilter, watchlistStatusFilter,
     unverifiedPage, debouncedUnverifiedSearch, unverifiedLimit,
     issuesPage, debouncedIssuesSearch, issuesLimit, issuesStatusFilter, issuesCategoryFilter,
+    sentEmailLogsPage, sentEmailLogsType, sentEmailLogsSearch,
     activeTab
   ]);
 
@@ -782,7 +799,11 @@ export default function AdminDashboardPage() {
     if (activeTab === 'audit') {
       fetchAuditLogsPage(1, false);
     }
-  }, [activeTab]);
+    if (activeTab === 'sent_emails') {
+      fetchSentEmailLogs();
+    }
+  }, [activeTab, sentEmailLogsPage, sentEmailLogsType, sentEmailLogsSearch]);
+
 
   // IntersectionObserver for Infinite Scroll on Audit Log Tab
   useEffect(() => {
@@ -974,6 +995,7 @@ export default function AdminDashboardPage() {
       }
       toast.success(json.message || 'Test email dispatched successfully via Brevo!');
       setShowTestEmailModal(false);
+      fetchSentEmailLogs();
     } catch (err: any) {
       toast.error(err.message || 'Error sending test email');
     } finally {
@@ -1081,6 +1103,7 @@ export default function AdminDashboardPage() {
 
       toast.success(json.message || `Broadcast email sent to ${json.stats?.sentCount || targetedUsers.length} users!`);
       setShowBroadcastModal(false);
+      fetchSentEmailLogs();
     } catch (err: any) {
       toast.error(err.message || 'Error sending broadcast email');
     } finally {
@@ -1140,6 +1163,35 @@ export default function AdminDashboardPage() {
       setSavingBanner(false);
     }
   };
+
+  const fetchSentEmailLogs = async () => {
+    setLoadingSentEmailLogs(true);
+    try {
+      const query = new URLSearchParams({
+        page: sentEmailLogsPage.toString(),
+        limit: '15',
+        type: sentEmailLogsType,
+        search: sentEmailLogsSearch,
+      });
+      const res = await fetch(`/api/admin/emails/logs?${query.toString()}`);
+      if (res.ok) {
+        const json = await res.json();
+        setSentEmailLogsList(json.logs || []);
+        if (json.typeCounts) {
+          setSentEmailLogsTypeCounts(json.typeCounts);
+        }
+        if (json.pagination) {
+          setSentEmailLogsPagination(json.pagination);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingSentEmailLogs(false);
+    }
+  };
+
+
 
   const handleToggleGlobalTimer = async () => {
     const newValue = !isGlobalTimerOn;
@@ -1691,104 +1743,204 @@ export default function AdminDashboardPage() {
           </button>
         </div>
 
-        {/* Tab Controls Bar */}
-        <div className="flex items-center gap-3 border-t border-slate-200 dark:border-slate-800/80 pt-4 flex-wrap">
-          <button
-            onClick={() => handleTabChange('overview')}
-            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
-              activeTab === 'overview'
-                ? 'bg-blue-600 text-white shadow-md'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
-            }`}
-          >
-            <Activity className="w-4 h-4" /> Overview &amp; Scrapers
-          </button>
+        {/* CATEGORIES NAVIGATION BAR */}
+        <div className="border-t border-slate-200 dark:border-slate-800/80 pt-5 space-y-4">
+          {/* Tier 1: Main Category Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {/* Category 1: Overview */}
+            <button
+              type="button"
+              onClick={() => handleTabChange('overview')}
+              className={`p-3.5 rounded-2xl text-left border transition-all cursor-pointer flex items-center justify-between ${
+                activeTab === 'overview'
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-500/30'
+                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-xl ${activeTab === 'overview' ? 'bg-white/20 text-white' : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'}`}>
+                  <Activity className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="font-extrabold text-xs">1. Overview</div>
+                  <div className={`text-[11px] font-medium ${activeTab === 'overview' ? 'text-blue-100' : 'text-slate-500 dark:text-slate-400'}`}>System &amp; Scrapers</div>
+                </div>
+              </div>
+            </button>
 
-          <button
-            onClick={() => handleTabChange('emails')}
-            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
-              activeTab === 'emails'
-                ? 'bg-blue-600 text-white shadow-md'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
-            }`}
-          >
-            <Mail className="w-4 h-4" /> Email Approvals
-            <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-              pendingEmailCount > 0
-                ? 'bg-amber-500 text-white animate-pulse'
-                : 'bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-300/60 dark:border-slate-700/60'
-            }`}>
-              {pendingEmailCount}
-            </span>
-          </button>
+            {/* Category 2: Content & Scraping */}
+            <button
+              type="button"
+              onClick={() => handleTabChange(['companies', 'watchlists'].includes(activeTab) ? activeTab : 'companies')}
+              className={`p-3.5 rounded-2xl text-left border transition-all cursor-pointer flex items-center justify-between ${
+                ['companies', 'watchlists'].includes(activeTab)
+                  ? 'bg-purple-600 text-white border-purple-600 shadow-md ring-2 ring-purple-500/30'
+                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-xl ${['companies', 'watchlists'].includes(activeTab) ? 'bg-white/20 text-white' : 'bg-purple-500/10 text-purple-600 dark:text-purple-400'}`}>
+                  <Layers className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="font-extrabold text-xs">2. Content &amp; Pages</div>
+                  <div className={`text-[11px] font-medium ${['companies', 'watchlists'].includes(activeTab) ? 'text-purple-100' : 'text-slate-500 dark:text-slate-400'}`}>Career Pages &amp; Lists</div>
+                </div>
+              </div>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${['companies', 'watchlists'].includes(activeTab) ? 'bg-white/20 text-white' : 'bg-purple-500/10 text-purple-600 dark:text-purple-400'}`}>
+                {companyPagination.total + watchlistPagination.total}
+              </span>
+            </button>
 
-          <button
-            onClick={() => handleTabChange('users')}
-            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
-              activeTab === 'users'
-                ? 'bg-blue-600 text-white shadow-md'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
-            }`}
-          >
-            <Users className="w-4 h-4" /> Users ({userPagination.total || metrics?.totalUsers || userList.length})
-          </button>
+            {/* Category 3: Users & Access */}
+            <button
+              type="button"
+              onClick={() => handleTabChange(['users', 'unverified'].includes(activeTab) ? activeTab : 'users')}
+              className={`p-3.5 rounded-2xl text-left border transition-all cursor-pointer flex items-center justify-between ${
+                ['users', 'unverified'].includes(activeTab)
+                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-500/30'
+                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-xl ${['users', 'unverified'].includes(activeTab) ? 'bg-white/20 text-white' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'}`}>
+                  <Users className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="font-extrabold text-xs">3. Users &amp; Accounts</div>
+                  <div className={`text-[11px] font-medium ${['users', 'unverified'].includes(activeTab) ? 'text-emerald-100' : 'text-slate-500 dark:text-slate-400'}`}>Accounts &amp; Unverified</div>
+                </div>
+              </div>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${['users', 'unverified'].includes(activeTab) ? 'bg-white/20 text-white' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'}`}>
+                {userPagination.total || metrics?.totalUsers || userList.length}
+              </span>
+            </button>
 
-          <button
-            onClick={() => handleTabChange('watchlists')}
-            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
-              activeTab === 'watchlists'
-                ? 'bg-blue-600 text-white shadow-md'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
-            }`}
-          >
-            <Layers className="w-4 h-4 text-purple-500 dark:text-purple-400" /> Watch Lists
-            <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-700 dark:text-purple-300 text-[10px] font-extrabold border border-purple-500/30">
-              {watchlistPagination.total}
-            </span>
-          </button>
+            {/* Category 4: Emails, Issues & Audit */}
+            <button
+              type="button"
+              onClick={() => handleTabChange(['emails', 'sent_emails', 'issues', 'audit'].includes(activeTab) ? activeTab : 'emails')}
+              className={`p-3.5 rounded-2xl text-left border transition-all cursor-pointer flex items-center justify-between ${
+                ['emails', 'sent_emails', 'issues', 'audit'].includes(activeTab)
+                  ? 'bg-amber-600 text-white border-amber-600 shadow-md ring-2 ring-amber-500/30'
+                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-xl ${['emails', 'sent_emails', 'issues', 'audit'].includes(activeTab) ? 'bg-white/20 text-white' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'}`}>
+                  <Mail className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="font-extrabold text-xs">4. Emails &amp; Audit Logs</div>
+                  <div className={`text-[11px] font-medium ${['emails', 'sent_emails', 'issues', 'audit'].includes(activeTab) ? 'text-amber-100' : 'text-slate-500 dark:text-slate-400'}`}>Approvals &amp; Logs</div>
+                </div>
+              </div>
+              {(pendingEmailCount > 0 || openIssuesCount > 0) && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500 text-white animate-pulse">
+                  {pendingEmailCount + openIssuesCount}
+                </span>
+              )}
+            </button>
+          </div>
 
-          <button
-            onClick={() => handleTabChange('unverified')}
-            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
-              activeTab === 'unverified'
-                ? 'bg-blue-600 text-white shadow-md'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
-            }`}
-          >
-            <Clock className="w-4 h-4 text-amber-500 dark:text-amber-400" /> Unverified Emails
-            <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 text-[10px] font-extrabold border border-amber-500/30">
-              {unverifiedPagination.total}
-            </span>
-          </button>
+          {/* Tier 2: Sub-Tab Pills Bar */}
+          {['companies', 'watchlists'].includes(activeTab) && (
+            <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-900/90 p-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 animate-in fade-in duration-150 overflow-x-auto">
+              <button
+                onClick={() => handleTabChange('companies')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+                  activeTab === 'companies'
+                    ? 'bg-purple-600 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Cpu className="w-3.5 h-3.5" /> Monitored Career Pages ({companyPagination.total})
+              </button>
+              <button
+                onClick={() => handleTabChange('watchlists')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+                  activeTab === 'watchlists'
+                    ? 'bg-purple-600 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" /> Watch Lists Moderation ({watchlistPagination.total})
+              </button>
+            </div>
+          )}
 
-          <button
-            onClick={() => handleTabChange('issues')}
-            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
-              activeTab === 'issues'
-                ? 'bg-blue-600 text-white shadow-md'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
-            }`}
-          >
-            <ShieldAlert className="w-4 h-4 text-rose-500" /> Reported Issues
-            <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-              openIssuesCount > 0
-                ? 'bg-rose-500 text-white animate-pulse'
-                : 'bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-300/60 dark:border-slate-700/60'
-            }`}>
-              {openIssuesCount}
-            </span>
-          </button>
+          {['users', 'unverified'].includes(activeTab) && (
+            <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-900/90 p-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 animate-in fade-in duration-150 overflow-x-auto">
+              <button
+                onClick={() => handleTabChange('users')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+                  activeTab === 'users'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" /> User Accounts ({userPagination.total || metrics?.totalUsers || userList.length})
+              </button>
+              <button
+                onClick={() => handleTabChange('unverified')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+                  activeTab === 'unverified'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5" /> Unverified Emails ({unverifiedPagination.total})
+              </button>
+            </div>
+          )}
 
-          <button
-            onClick={() => handleTabChange('audit')}
-            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
-              activeTab === 'audit'
-                ? 'bg-blue-600 text-white shadow-md'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
-            }`}
-          >
-            <History className="w-4 h-4" /> Audit Log ({auditLogs.length})
-          </button>
+          {['emails', 'sent_emails', 'issues', 'audit'].includes(activeTab) && (
+            <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-900/90 p-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 animate-in fade-in duration-150 overflow-x-auto">
+              <button
+                onClick={() => handleTabChange('emails')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+                  activeTab === 'emails'
+                    ? 'bg-amber-600 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Mail className="w-3.5 h-3.5" /> Email Approvals Queue ({pendingEmailCount})
+              </button>
+
+              <button
+                onClick={() => handleTabChange('sent_emails')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+                  activeTab === 'sent_emails'
+                    ? 'bg-amber-600 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <MailCheck className="w-3.5 h-3.5" /> Sent Email History ({sentEmailLogsPagination.total})
+              </button>
+
+              <button
+                onClick={() => handleTabChange('issues')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+                  activeTab === 'issues'
+                    ? 'bg-amber-600 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <ShieldAlert className="w-3.5 h-3.5" /> Reported Issues ({openIssuesCount})
+              </button>
+
+              <button
+                onClick={() => handleTabChange('audit')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+                  activeTab === 'audit'
+                    ? 'bg-amber-600 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <History className="w-3.5 h-3.5" /> Administrative Audit Log
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -2612,7 +2764,7 @@ export default function AdminDashboardPage() {
                 </button>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <button
                   onClick={handleOpenBroadcastModal}
                   className="px-3.5 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-sm flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors whitespace-nowrap"
@@ -2634,6 +2786,7 @@ export default function AdminDashboardPage() {
                   <Plus className="w-4 h-4" /> Add Email
                 </button>
               </div>
+
             </div>
 
             {/* Bottom Row: Full-width Search Bar & Page Limit Dropdown */}
@@ -4205,51 +4358,283 @@ export default function AdminDashboardPage() {
           </div>
         </div>
       )}
+
+      {/* SENT EMAIL HISTORY LOGS TAB */}
+      {activeTab === 'sent_emails' && (
+        <div className="space-y-6">
+          {/* Automated System Email Delivery Counters (Count Only) */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-slate-100/80 dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-extrabold uppercase text-slate-400 tracking-wider">🔑 OTP Codes</p>
+                <p className="text-xl font-black text-slate-900 dark:text-white mt-0.5">{sentEmailLogsTypeCounts.otp || 0}</p>
+              </div>
+              <span className="px-2 py-0.5 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 font-extrabold text-[10px] uppercase border border-blue-500/20">COUNT ONLY</span>
+            </div>
+
+            <div className="bg-slate-100/80 dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-extrabold uppercase text-slate-400 tracking-wider">📬 Job Digests</p>
+                <p className="text-xl font-black text-slate-900 dark:text-white mt-0.5">{sentEmailLogsTypeCounts.digest || 0}</p>
+              </div>
+              <span className="px-2 py-0.5 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 font-extrabold text-[10px] uppercase border border-purple-500/20">COUNT ONLY</span>
+            </div>
+
+            <div className="bg-slate-100/80 dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-extrabold uppercase text-slate-400 tracking-wider">👥 Invites</p>
+                <p className="text-xl font-black text-slate-900 dark:text-white mt-0.5">{sentEmailLogsTypeCounts.invite || 0}</p>
+              </div>
+              <span className="px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-extrabold text-[10px] uppercase border border-emerald-500/20">COUNT ONLY</span>
+            </div>
+
+            <div className="bg-slate-100/80 dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-extrabold uppercase text-slate-400 tracking-wider">🔒 Resets</p>
+                <p className="text-xl font-black text-slate-900 dark:text-white mt-0.5">{sentEmailLogsTypeCounts.reset || 0}</p>
+              </div>
+              <span className="px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 font-extrabold text-[10px] uppercase border border-amber-500/20">COUNT ONLY</span>
+            </div>
+          </div>
+
+          <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <MailCheck className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                  Admin Sent Email Audit History ({sentEmailLogsPagination.total})
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Detailed audit records, sender info, recipient logs, and HTML content previews for emails dispatched directly from the Admin Panel.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              {/* Template Filter for Admin Panel Emails */}
+              <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-900 p-1.5 rounded-2xl overflow-x-auto">
+                <button
+                  onClick={() => { setSentEmailLogsType('all'); setSentEmailLogsPage(1); }}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+                    sentEmailLogsType === 'all' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  All Admin Emails
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
+                    sentEmailLogsType === 'all' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                  }`}>
+                    {sentEmailLogsTypeCounts.allAdmin || 0}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => { setSentEmailLogsType('broadcast'); setSentEmailLogsPage(1); }}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+                    sentEmailLogsType === 'broadcast' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  📢 Broadcast Announcements
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
+                    sentEmailLogsType === 'broadcast' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                  }`}>
+                    {sentEmailLogsTypeCounts.broadcast || 0}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => { setSentEmailLogsType('test'); setSentEmailLogsPage(1); }}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+                    sentEmailLogsType === 'test' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  🧪 Test Emails
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
+                    sentEmailLogsType === 'test' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                  }`}>
+                    {sentEmailLogsTypeCounts.test || 0}
+                  </span>
+                </button>
+              </div>
+
+            {/* Search Bar */}
+            <div className="relative w-full sm:w-64">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={sentEmailLogsSearch}
+                onChange={e => { setSentEmailLogsSearch(e.target.value); setSentEmailLogsPage(1); }}
+                placeholder="Search email address or subject..."
+                className="w-full pl-9 pr-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-purple-600"
+              />
+            </div>
+          </div>
+
+          <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-slate-100 dark:bg-slate-900/90 text-slate-600 dark:text-slate-400 uppercase font-semibold border-b border-slate-200 dark:border-slate-800 text-xs">
+                <tr>
+                  <th className="py-3.5 px-4">Sent Time</th>
+                  <th className="py-3.5 px-4">Sender (From)</th>
+                  <th className="py-3.5 px-4">Recipient (To)</th>
+                  <th className="py-3.5 px-4">Template Type</th>
+                  <th className="py-3.5 px-4">Subject</th>
+                  <th className="py-3.5 px-4">Delivery Status</th>
+                  <th className="py-3.5 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-800/80 text-xs font-sans">
+                {loadingSentEmailLogs ? (
+                  <tr>
+                    <td colSpan={7} className="py-8 text-center">
+                      <LoadingSpinner message="Loading sent email history logs..." fullPage={false} />
+                    </td>
+                  </tr>
+                ) : sentEmailLogsList.map(log => (
+                  <tr key={log.id} className="hover:bg-slate-100/60 dark:hover:bg-slate-900/40 transition-colors">
+                    <td className="py-3.5 px-4 text-slate-500 font-mono whitespace-nowrap">
+                      {new Date(log.createdAt).toLocaleString()}
+                    </td>
+                    <td className="py-3.5 px-4 whitespace-nowrap">
+                      {['broadcast', 'test', 'admin_custom'].includes(log.templateType) ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono font-bold text-purple-700 dark:text-purple-300 text-xs">{log.senderEmail || 'Admin'}</span>
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-500/30">ADMIN</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono text-slate-500 dark:text-slate-400 text-xs">{log.senderEmail || 'notifications@jobpingly.com'}</span>
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400">AUTOMATED</span>
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <span className="font-bold text-slate-900 dark:text-white text-sm block">{log.recipientEmail}</span>
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
+                        {log.templateType}
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <span className="font-semibold text-slate-800 dark:text-slate-200">{log.subject}</span>
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase border ${
+                        log.status === 'sent'
+                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                          : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'
+                      }`}>
+                        {log.status === 'sent' ? '✓ SENT' : 'FAILED'}
+                      </span>
+                      {log.errorMessage && (
+                        <p className="text-[11px] text-rose-500 mt-1">{log.errorMessage}</p>
+                      )}
+                    </td>
+                    <td className="py-3.5 px-4 text-right">
+                      {['broadcast', 'test', 'admin_custom'].includes(log.templateType) ? (
+                        <button
+                          type="button"
+                          onClick={() => setInspectingEmailLog(log)}
+                          className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs flex items-center gap-1.5 ml-auto shadow-sm cursor-pointer transition-colors whitespace-nowrap"
+                        >
+                          <Eye className="w-3.5 h-3.5" /> View Content
+                        </button>
+                      ) : (
+                        <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 italic block text-right">
+                          Count Tracked
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+
+                {!loadingSentEmailLogs && sentEmailLogsList.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="py-8 text-center text-slate-500 text-xs">
+                      No sent email logs recorded yet. Outbound emails will appear here automatically in real time!
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Sent Emails Pagination Controls */}
+          {sentEmailLogsPagination.totalPages > 1 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-200 dark:border-slate-800/80">
+              <span className="text-xs text-slate-500">
+                Page <span className="font-bold text-slate-900 dark:text-white">{sentEmailLogsPagination.page}</span> of <span className="font-bold text-slate-900 dark:text-white">{sentEmailLogsPagination.totalPages}</span> ({pluralize(sentEmailLogsPagination.total, 'sent email log')})
+              </span>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setSentEmailLogsPage(prev => Math.max(1, prev - 1))}
+                  disabled={sentEmailLogsPage <= 1}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 flex items-center gap-1 cursor-pointer"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" /> Previous
+                </button>
+
+                <button
+                  onClick={() => setSentEmailLogsPage(prev => Math.min(sentEmailLogsPagination.totalPages, prev + 1))}
+                  disabled={sentEmailLogsPage >= sentEmailLogsPagination.totalPages}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 flex items-center gap-1 cursor-pointer"
+                >
+                  Next <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
+    )}
+  </div>
 
       {/* Manual Add Email Modal */}
       {showAddEmailModal && mounted && createPortal(
         <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-md glass-panel p-6 rounded-3xl border-slate-200 dark:border-slate-800 shadow-2xl">
-            <h3 className="text-base font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
-              <Mail className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-              Manually Add Approved Email Address
-            </h3>
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-6 sm:p-8 overflow-y-auto hover-scrollbar space-y-4 flex-1">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Mail className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                Manually Add Approved Email Address
+              </h3>
 
-            <form onSubmit={handleManualAddEmail} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-2">
-                  Email Address *
-                </label>
-                <input
-                  ref={addEmailInputRef}
-                  autoFocus
-                  type="email"
-                  required
-                  value={manualEmail}
-                  onChange={e => setManualEmail(e.target.value)}
-                  placeholder="e.g. user@targetcompany.com"
-                  className="w-full px-4 py-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-blue-600"
-                />
-              </div>
+              <form onSubmit={handleManualAddEmail} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-2">
+                    Email Address *
+                  </label>
+                  <input
+                    ref={addEmailInputRef}
+                    autoFocus
+                    type="email"
+                    required
+                    value={manualEmail}
+                    onChange={e => setManualEmail(e.target.value)}
+                    placeholder="e.g. user@targetcompany.com"
+                    className="w-full px-4 py-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-blue-600"
+                  />
+                </div>
 
-              <div className="pt-3 flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowAddEmailModal(false)}
-                  className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={addingEmail}
-                  className="px-5 py-2.5 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-md cursor-pointer"
-                >
-                  {addingEmail ? 'Adding...' : 'Add to Approved Emails'}
-                </button>
-              </div>
-            </form>
+                <div className="pt-3 flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddEmailModal(false)}
+                    className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={addingEmail}
+                    className="px-5 py-2.5 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-md cursor-pointer"
+                  >
+                    {addingEmail ? 'Adding...' : 'Add to Approved Emails'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>,
         document.body
@@ -4258,135 +4643,135 @@ export default function AdminDashboardPage() {
       {/* Test Email Dispatcher Modal */}
       {showTestEmailModal && mounted && createPortal(
         <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-lg glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Mail className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                Send Brevo Test Email
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowTestEmailModal(false)}
-                className="text-slate-400 hover:text-slate-900 dark:hover:text-white text-xl font-bold cursor-pointer"
-              >
-                &times;
-              </button>
-            </div>
-
-            <form onSubmit={handleSendTestEmailSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
-                  Recipient Email Address *
-                </label>
-                <input
-                  ref={testEmailInputRef}
-                  autoFocus
-                  type="email"
-                  required
-                  value={testRecipientEmail}
-                  onChange={e => setTestRecipientEmail(e.target.value)}
-                  placeholder="e.g. targetuser@gmail.com"
-                  className="w-full px-4 py-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-indigo-600"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
-                  Select Email Format / Template *
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setTestEmailTemplate('otp')}
-                    className={`px-3 py-2.5 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
-                      testEmailTemplate === 'otp'
-                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-indigo-500'
-                    }`}
-                  >
-                    🔑 6-Digit OTP Code
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTestEmailTemplate('digest')}
-                    className={`px-3 py-2.5 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
-                      testEmailTemplate === 'digest'
-                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-indigo-500'
-                    }`}
-                  >
-                    📬 Job Digest Alert
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTestEmailTemplate('custom')}
-                    className={`px-3 py-2.5 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
-                      testEmailTemplate === 'custom'
-                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-indigo-500'
-                    }`}
-                  >
-                    ✏️ Custom Message
-                  </button>
-                </div>
-              </div>
-
-              {testEmailTemplate === 'custom' && (
-                <div className="space-y-3 pt-1 animate-in fade-in duration-150">
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
-                      Custom Email Subject
-                    </label>
-                    <input
-                      type="text"
-                      value={testCustomSubject}
-                      onChange={e => setTestCustomSubject(e.target.value)}
-                      placeholder="e.g. System Maintenance Notice"
-                      className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-indigo-600"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
-                      Custom Message Body
-                    </label>
-                    <textarea
-                      rows={3}
-                      value={testCustomMessage}
-                      onChange={e => setTestCustomMessage(e.target.value)}
-                      placeholder="Type your message body content here..."
-                      className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-indigo-600 resize-none"
-                    />
-                  </div>
-                </div>
-              )}
-
-              <div className="pt-3 flex justify-end gap-3 border-t border-slate-200 dark:border-slate-800">
+          <div className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-6 sm:p-8 overflow-y-auto hover-scrollbar space-y-5 flex-1">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Mail className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                  Send Brevo Test Email
+                </h3>
                 <button
                   type="button"
                   onClick={() => setShowTestEmailModal(false)}
-                  className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 cursor-pointer"
+                  className="text-slate-400 hover:text-slate-900 dark:hover:text-white text-xl font-bold cursor-pointer"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={sendingTestEmail}
-                  className="px-5 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-md flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
-                >
-                  {sendingTestEmail ? (
-                    <>
-                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      Sending...
-                    </>
-                  ) : (
-                    <>
-                      <Mail className="w-4 h-4" /> Send Test Email via Brevo
-                    </>
-                  )}
+                  &times;
                 </button>
               </div>
-            </form>
+
+              <form onSubmit={handleSendTestEmailSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
+                    Recipient Email Address *
+                  </label>
+                  <input
+                    ref={testEmailInputRef}
+                    autoFocus
+                    type="email"
+                    required
+                    value={testRecipientEmail}
+                    onChange={e => setTestRecipientEmail(e.target.value)}
+                    placeholder="e.g. targetuser@gmail.com"
+                    className="w-full px-4 py-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-indigo-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
+                    Select Email Format / Template *
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setTestEmailTemplate('otp')}
+                      className={`px-3 py-2.5 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                        testEmailTemplate === 'otp'
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                          : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-indigo-500'
+                      }`}
+                    >
+                      🔑 6-Digit OTP Code
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTestEmailTemplate('digest')}
+                      className={`px-3 py-2.5 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                        testEmailTemplate === 'digest'
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                          : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-indigo-500'
+                      }`}
+                    >
+                      📬 Job Digest Alert
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTestEmailTemplate('custom')}
+                      className={`px-3 py-2.5 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                        testEmailTemplate === 'custom'
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                          : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-indigo-500'
+                      }`}
+                    >
+                      ✏️ Custom Message
+                    </button>
+                  </div>
+                </div>
+
+                {testEmailTemplate === 'custom' && (
+                  <div className="space-y-3 pt-1 animate-in fade-in duration-150">
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
+                        Custom Email Subject
+                      </label>
+                      <input
+                        type="text"
+                        value={testCustomSubject}
+                        onChange={e => setTestCustomSubject(e.target.value)}
+                        placeholder="e.g. System Maintenance Notice"
+                        className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-indigo-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
+                        Custom Message Content
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={testCustomMessage}
+                        onChange={e => setTestCustomMessage(e.target.value)}
+                        placeholder="Type custom test email body..."
+                        className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-indigo-600 font-sans"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="pt-3 flex justify-end gap-3 border-t border-slate-200 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setShowTestEmailModal(false)}
+                    className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={sendingTestEmail}
+                    className="px-5 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-md cursor-pointer transition-all flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {sendingTestEmail ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Dispatching Test Email...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-3.5 h-3.5" /> Send Test Email via Brevo
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>,
         document.body
@@ -4395,137 +4780,127 @@ export default function AdminDashboardPage() {
       {/* Broadcast Announcement Email Modal */}
       {showBroadcastModal && mounted && createPortal(
         <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <MailCheck className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-                Send Broadcast Email / Platform Announcement
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowBroadcastModal(false)}
-                className="text-slate-400 hover:text-slate-900 dark:hover:text-white text-xl font-bold cursor-pointer"
-              >
-                &times;
-              </button>
-            </div>
-
-            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-              Send an update or announcement email to registered users. Use the checkboxes below to exclude specific users from receiving this broadcast.
-            </p>
-
-            <form onSubmit={handleSendBroadcastSubmit} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
-                    Target Role Filter
-                  </label>
-                  <select
-                    value={broadcastTargetRole}
-                    onChange={e => setBroadcastTargetRole(e.target.value as any)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
-                  >
-                    <option value="all">All Users &amp; Admins</option>
-                    <option value="user">Standard Users Only</option>
-                    <option value="admin">Administrators Only</option>
-                  </select>
-                </div>
-
-                <div className="flex items-center pt-5">
-                  <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 dark:text-slate-300 select-none">
-                    <input
-                      type="checkbox"
-                      checked={broadcastOnlyVerified}
-                      onChange={e => setBroadcastOnlyVerified(e.target.checked)}
-                      className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
-                    />
-                    Only Email-Verified Users
-                  </label>
-                </div>
+          <div className="w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-6 sm:p-8 overflow-y-auto hover-scrollbar space-y-5 flex-1">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <MailCheck className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                  Send Broadcast Email / Platform Announcement
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowBroadcastModal(false)}
+                  className="text-slate-400 hover:text-slate-900 dark:hover:text-white text-xl font-bold cursor-pointer"
+                >
+                  &times;
+                </button>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
-                  Broadcast Email Subject *
-                </label>
-                <input
-                  ref={broadcastSubjectRef}
-                  type="text"
-                  required
-                  value={broadcastSubject}
-                  onChange={e => setBroadcastSubject(e.target.value)}
-                  placeholder="e.g. Platform Update: New Job Search & Filtering Features"
-                  className="w-full px-4 py-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-sm font-semibold focus:outline-none focus:border-purple-600"
-                />
-              </div>
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                Send an update or announcement email to registered users. Use the checkboxes below to exclude specific users from receiving this broadcast.
+              </p>
 
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
-                  Announcement Message Body *
-                </label>
-                <textarea
-                  rows={4}
-                  required
-                  value={broadcastMessage}
-                  onChange={e => setBroadcastMessage(e.target.value)}
-                  placeholder="Type your platform update message here..."
-                  className="w-full px-4 py-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-purple-600"
-                />
-              </div>
-
-              {/* Exclusion Controls & Checkbox List */}
-              <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-800">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                    User Recipient List ({broadcastUsersList.length} total)
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-bold text-purple-600 dark:text-purple-400">
-                      Sending to {broadcastUsersList.filter(u => {
-                        if (broadcastTargetRole !== 'all' && u.role !== broadcastTargetRole) return false;
-                        if (broadcastOnlyVerified && u.emailVerified === false) return false;
-                        if (excludedBroadcastUserIds.includes(u.id)) return false;
-                        return true;
-                      }).length} users ({excludedBroadcastUserIds.length} excluded)
-                    </span>
-                    <button
-                      type="button"
-                      onClick={handleToggleExcludeAllBroadcastUsers}
-                      className="text-[11px] font-bold text-slate-600 dark:text-slate-400 hover:text-purple-600 dark:hover:text-purple-400 underline cursor-pointer"
+              <form onSubmit={handleSendBroadcastSubmit} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
+                      Target Role Filter
+                    </label>
+                    <select
+                      value={broadcastTargetRole}
+                      onChange={e => setBroadcastTargetRole(e.target.value as any)}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
                     >
-                      Toggle Exclude All
-                    </button>
+                      <option value="all">All Users &amp; Admins</option>
+                      <option value="user">Standard Users Only</option>
+                      <option value="admin">Administrators Only</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center pt-5">
+                    <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 dark:text-slate-300 select-none">
+                      <input
+                        type="checkbox"
+                        checked={broadcastOnlyVerified}
+                        onChange={e => setBroadcastOnlyVerified(e.target.checked)}
+                        className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
+                      />
+                      Only Email-Verified Users
+                    </label>
                   </div>
                 </div>
 
-                {/* User Search Input */}
-                <div className="relative">
-                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
+                    Broadcast Email Subject *
+                  </label>
                   <input
+                    ref={broadcastSubjectRef}
                     type="text"
-                    value={broadcastSearch}
-                    onChange={e => setBroadcastSearch(e.target.value)}
-                    placeholder="Search users to exclude/include..."
-                    className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white focus:outline-none"
+                    required
+                    value={broadcastSubject}
+                    onChange={e => setBroadcastSubject(e.target.value)}
+                    placeholder="e.g. Platform Update: New Job Search & Filtering Features"
+                    className="w-full px-4 py-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-sm font-semibold focus:outline-none focus:border-purple-600"
                   />
                 </div>
 
-                {/* Scrollable User Checkbox List */}
-                <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800/80 bg-slate-50/50 dark:bg-slate-900/50 p-1">
-                  {loadingBroadcastUsers ? (
-                    <div className="py-6 text-center text-xs text-slate-400">Loading user list...</div>
-                  ) : broadcastUsersList.filter(u => {
-                    if (broadcastTargetRole !== 'all' && u.role !== broadcastTargetRole) return false;
-                    if (broadcastOnlyVerified && u.emailVerified === false) return false;
-                    if (broadcastSearch) {
-                      const q = broadcastSearch.toLowerCase();
-                      return u.email.toLowerCase().includes(q) || (u.name && u.name.toLowerCase().includes(q));
-                    }
-                    return true;
-                  }).length === 0 ? (
-                    <div className="py-6 text-center text-xs text-slate-400">No users match filter criteria.</div>
-                  ) : (
-                    broadcastUsersList.filter(u => {
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
+                    Announcement Message Body *
+                  </label>
+                  <textarea
+                    rows={4}
+                    required
+                    value={broadcastMessage}
+                    onChange={e => setBroadcastMessage(e.target.value)}
+                    placeholder="Type your platform update message here..."
+                    className="w-full px-4 py-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-purple-600"
+                  />
+                </div>
+
+                {/* Exclusion Controls & Checkbox List */}
+                <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                      User Recipient List ({broadcastUsersList.length} total)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-bold text-purple-600 dark:text-purple-400">
+                        Sending to {broadcastUsersList.filter(u => {
+                          if (broadcastTargetRole !== 'all' && u.role !== broadcastTargetRole) return false;
+                          if (broadcastOnlyVerified && u.emailVerified === false) return false;
+                          if (excludedBroadcastUserIds.includes(u.id)) return false;
+                          return true;
+                        }).length} users ({excludedBroadcastUserIds.length} excluded)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleToggleExcludeAllBroadcastUsers}
+                        className="text-[11px] font-bold text-slate-600 dark:text-slate-400 hover:text-purple-600 dark:hover:text-purple-400 underline cursor-pointer"
+                      >
+                        Toggle Exclude All
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* User Search Input */}
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={broadcastSearch}
+                      onChange={e => setBroadcastSearch(e.target.value)}
+                      placeholder="Search users to exclude/include..."
+                      className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white focus:outline-none"
+                    />
+                  </div>
+
+                  {/* Scrollable User Checkbox List */}
+                  <div className="max-h-48 overflow-y-auto hover-scrollbar rounded-xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800/80 bg-slate-50/50 dark:bg-slate-900/50 p-1">
+                    {loadingBroadcastUsers ? (
+                      <div className="py-6 text-center text-xs text-slate-400">Loading user list...</div>
+                    ) : broadcastUsersList.filter(u => {
                       if (broadcastTargetRole !== 'all' && u.role !== broadcastTargetRole) return false;
                       if (broadcastOnlyVerified && u.emailVerified === false) return false;
                       if (broadcastSearch) {
@@ -4533,75 +4908,87 @@ export default function AdminDashboardPage() {
                         return u.email.toLowerCase().includes(q) || (u.name && u.name.toLowerCase().includes(q));
                       }
                       return true;
-                    }).map(u => {
-                      const isExcluded = excludedBroadcastUserIds.includes(u.id);
-                      return (
-                        <div
-                          key={u.id}
-                          onClick={() => handleToggleExcludeBroadcastUser(u.id)}
-                          className={`flex items-center justify-between p-2 rounded-lg text-xs cursor-pointer transition-colors ${
-                            isExcluded ? 'bg-rose-500/10 text-slate-500 dark:text-slate-400' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-900 dark:text-white'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2.5 truncate pr-2">
-                            <input
-                              type="checkbox"
-                              checked={!isExcluded}
-                              onChange={() => handleToggleExcludeBroadcastUser(u.id)}
-                              onClick={e => e.stopPropagation()}
-                              className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
-                            />
-                            <div className="truncate">
-                              <span className="font-semibold block truncate">{u.name || 'User'}</span>
-                              <span className="text-[11px] text-slate-500 dark:text-slate-400 block truncate">{u.email}</span>
+                    }).length === 0 ? (
+                      <div className="py-6 text-center text-xs text-slate-400">No matching users found for this filter.</div>
+                    ) : (
+                      broadcastUsersList.filter(u => {
+                        if (broadcastTargetRole !== 'all' && u.role !== broadcastTargetRole) return false;
+                        if (broadcastOnlyVerified && u.emailVerified === false) return false;
+                        if (broadcastSearch) {
+                          const q = broadcastSearch.toLowerCase();
+                          return u.email.toLowerCase().includes(q) || (u.name && u.name.toLowerCase().includes(q));
+                        }
+                        return true;
+                      }).map(u => {
+                        const isExcluded = excludedBroadcastUserIds.includes(u.id);
+                        return (
+                          <div
+                            key={u.id}
+                            onClick={() => handleToggleExcludeBroadcastUser(u.id)}
+                            className={`flex items-center justify-between p-2.5 rounded-lg cursor-pointer transition-colors ${
+                              isExcluded
+                                ? 'bg-rose-500/10 opacity-70'
+                                : 'hover:bg-slate-200/50 dark:hover:bg-slate-800/50'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <input
+                                type="checkbox"
+                                checked={!isExcluded}
+                                onChange={() => {}} // handled by parent div click
+                                className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 cursor-pointer shrink-0"
+                              />
+                              <div className="min-w-0 text-xs">
+                                <span className="font-semibold block truncate">{u.name || 'User'}</span>
+                                <span className="text-[11px] text-slate-500 dark:text-slate-400 block truncate">{u.email}</span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase ${
+                                u.role === 'admin' ? 'bg-rose-500/10 text-rose-600' : 'bg-blue-500/10 text-blue-600'
+                              }`}>
+                                {u.role}
+                              </span>
+                              {isExcluded && (
+                                <span className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-700 dark:text-rose-300 text-[9px] font-extrabold uppercase">
+                                  Excluded
+                                </span>
+                              )}
                             </div>
                           </div>
-
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase ${
-                              u.role === 'admin' ? 'bg-rose-500/10 text-rose-600' : 'bg-blue-500/10 text-blue-600'
-                            }`}>
-                              {u.role}
-                            </span>
-                            {isExcluded && (
-                              <span className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-700 dark:text-rose-300 text-[9px] font-extrabold uppercase">
-                                Excluded
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
-              </div>
 
-              <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowBroadcastModal(false)}
-                  className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={sendingBroadcast}
-                  className="px-5 py-2.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-md flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
-                >
-                  {sendingBroadcast ? (
-                    <>
-                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      Sending Broadcast...
-                    </>
-                  ) : (
-                    <>
-                      <MailCheck className="w-4 h-4" /> Send Broadcast Email
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
+                <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-200 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setShowBroadcastModal(false)}
+                    className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={sendingBroadcast}
+                    className="px-5 py-2.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-md cursor-pointer transition-all flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {sendingBroadcast ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Dispatching Broadcast...
+                      </>
+                    ) : (
+                      <>
+                        <MailCheck className="w-4 h-4" /> Send Broadcast Email
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>,
         document.body
@@ -4787,10 +5174,11 @@ export default function AdminDashboardPage() {
       )}
       {/* User Subscriptions & Monitored URLs Audit Modal */}
       {inspectingEmail && (
-        <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-3xl w-full p-6 sm:p-8 space-y-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150 my-8">
-            {/* Modal Header */}
-            <div className="flex items-start justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
+        <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-3xl w-full shadow-2xl overflow-hidden max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-6 sm:p-8 overflow-y-auto hover-scrollbar space-y-6 flex-1">
+              {/* Modal Header */}
+              <div className="flex items-start justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
               <div>
                 <div className="flex items-center gap-2">
                   <h2 className="text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">
@@ -5074,6 +5462,103 @@ export default function AdminDashboardPage() {
             </div>
           </div>
         </div>
+      </div>
+      )}
+
+      {/* Sent Email Inspector Modal */}
+      {inspectingEmailLog && mounted && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-3xl w-full p-6 sm:p-8 space-y-5 shadow-2xl animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4 shrink-0">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <MailCheck className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                  Sent Email Inspector &amp; Full Content
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-mono">ID: {inspectingEmailLog.id}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInspectingEmailLog(null)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Email Headers Info Box */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shrink-0">
+              <div>
+                <span className="font-bold text-slate-500 block text-[11px] uppercase">From (Sender):</span>
+                <span className="font-mono text-slate-900 dark:text-white">{inspectingEmailLog.senderEmail || 'notifications@jobpingly.com'}</span>
+              </div>
+              <div>
+                <span className="font-bold text-slate-500 block text-[11px] uppercase">To (Recipient):</span>
+                <span className="font-mono font-bold text-blue-600 dark:text-blue-400">{inspectingEmailLog.recipientEmail}</span>
+              </div>
+              <div>
+                <span className="font-bold text-slate-500 block text-[11px] uppercase">Subject:</span>
+                <span className="font-semibold text-slate-900 dark:text-white">{inspectingEmailLog.subject}</span>
+              </div>
+              <div>
+                <span className="font-bold text-slate-500 block text-[11px] uppercase">Template Type &amp; Status:</span>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
+                    {inspectingEmailLog.templateType}
+                  </span>
+                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${
+                    inspectingEmailLog.status === 'sent'
+                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                      : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'
+                  }`}>
+                    {inspectingEmailLog.status === 'sent' ? '✓ SENT' : 'FAILED'}
+                  </span>
+                </div>
+              </div>
+              <div className="sm:col-span-2">
+                <span className="font-bold text-slate-500 block text-[11px] uppercase">Sent Time:</span>
+                <span className="font-mono text-slate-600 dark:text-slate-400">{new Date(inspectingEmailLog.createdAt).toLocaleString()}</span>
+              </div>
+              {inspectingEmailLog.errorMessage && (
+                <div className="sm:col-span-2 p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-600 dark:text-rose-400 text-xs">
+                  <strong>Error Message:</strong> {inspectingEmailLog.errorMessage}
+                </div>
+              )}
+            </div>
+
+            {/* Email HTML Body View */}
+            <div className="flex-1 flex flex-col min-h-0 space-y-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                Email HTML Body Content
+              </span>
+              <div className="flex-1 min-h-[300px] border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-white">
+                {inspectingEmailLog.htmlContent ? (
+                  <iframe
+                    srcDoc={inspectingEmailLog.htmlContent}
+                    title="Sent Email Content Preview"
+                    className="w-full h-full border-0 min-h-[350px]"
+                  />
+                ) : (
+                  <div className="p-8 text-center text-slate-400 text-xs flex flex-col items-center justify-center h-full">
+                    <Mail className="w-8 h-8 mb-2 text-slate-300" />
+                    <span>No HTML body captured for this record.</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end shrink-0">
+              <button
+                type="button"
+                onClick={() => setInspectingEmailLog(null)}
+                className="px-5 py-2.5 rounded-xl bg-slate-900 text-white dark:bg-slate-800 dark:hover:bg-slate-700 font-bold text-xs cursor-pointer"
+              >
+                Close Inspector
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
 
       <PublicUserProfileModal userId={selectedUserId} onClose={() => setSelectedUserId(null)} />
