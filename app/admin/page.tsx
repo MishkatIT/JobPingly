@@ -215,6 +215,33 @@ export default function AdminDashboardPage() {
   const [testCustomMessage, setTestCustomMessage] = useState('');
   const [sendingTestEmail, setSendingTestEmail] = useState(false);
 
+  // Broadcast Email Announcement Modal State
+  const [showBroadcastModal, setShowBroadcastModal] = useState(false);
+  const [broadcastSubject, setBroadcastSubject] = useState('');
+  const [broadcastMessage, setBroadcastMessage] = useState('');
+  const [broadcastOnlyVerified, setBroadcastOnlyVerified] = useState(true);
+  const [broadcastTargetRole, setBroadcastTargetRole] = useState<'all' | 'user' | 'admin'>('all');
+  const [broadcastUsersList, setBroadcastUsersList] = useState<any[]>([]);
+  const [loadingBroadcastUsers, setLoadingBroadcastUsers] = useState(false);
+  const [excludedBroadcastUserIds, setExcludedBroadcastUserIds] = useState<string[]>([]);
+  const [broadcastSearch, setBroadcastSearch] = useState('');
+  const [sendingBroadcast, setSendingBroadcast] = useState(false);
+  const broadcastSubjectRef = useRef<HTMLInputElement>(null);
+
+  // Site Announcement Banner Admin State
+  const [bannerEnabled, setBannerEnabled] = useState(false);
+  const [bannerMessage, setBannerMessage] = useState('');
+  const [bannerType, setBannerType] = useState<'info' | 'warning' | 'danger' | 'success'>('info');
+  const [bannerLinkUrl, setBannerLinkUrl] = useState('');
+  const [bannerLinkText, setBannerLinkText] = useState('');
+  const [savingBanner, setSavingBanner] = useState(false);
+
+  useEffect(() => {
+    if (showBroadcastModal) {
+      setTimeout(() => broadcastSubjectRef.current?.focus(), 50);
+    }
+  }, [showBroadcastModal]);
+
   // Debounce search input for company pages (300ms)
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -815,6 +842,7 @@ export default function AdminDashboardPage() {
         const fJson = await flagsRes.json();
         setFlags(fJson.flags || []);
       }
+      fetchAdminBannerConfig();
     } catch (e) {
       console.error(e);
     } finally {
@@ -950,6 +978,166 @@ export default function AdminDashboardPage() {
       toast.error(err.message || 'Error sending test email');
     } finally {
       setSendingTestEmail(false);
+    }
+  };
+
+  const handleOpenBroadcastModal = async () => {
+    setShowBroadcastModal(true);
+    setBroadcastSubject('');
+    setBroadcastMessage('');
+    setBroadcastOnlyVerified(true);
+    setBroadcastTargetRole('all');
+    setExcludedBroadcastUserIds([]);
+    setBroadcastSearch('');
+    setLoadingBroadcastUsers(true);
+    try {
+      const res = await fetch('/api/admin/emails/broadcast');
+      if (res.ok) {
+        const json = await res.json();
+        setBroadcastUsersList(json.users || []);
+      } else {
+        toast.error('Failed to load user list for broadcast');
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'Error loading user list');
+    } finally {
+      setLoadingBroadcastUsers(false);
+    }
+  };
+
+  const handleToggleExcludeBroadcastUser = (userId: string) => {
+    setExcludedBroadcastUserIds(prev =>
+      prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
+    );
+  };
+
+  const handleToggleExcludeAllBroadcastUsers = () => {
+    const visibleUserIds = broadcastUsersList
+      .filter(u => {
+        if (broadcastTargetRole !== 'all' && u.role !== broadcastTargetRole) return false;
+        if (broadcastOnlyVerified && u.emailVerified === false) return false;
+        if (broadcastSearch) {
+          const q = broadcastSearch.toLowerCase();
+          return u.email.toLowerCase().includes(q) || (u.name && u.name.toLowerCase().includes(q));
+        }
+        return true;
+      })
+      .map(u => u.id);
+
+    const allVisibleExcluded = visibleUserIds.length > 0 && visibleUserIds.every(id => excludedBroadcastUserIds.includes(id));
+
+    if (allVisibleExcluded) {
+      setExcludedBroadcastUserIds(prev => prev.filter(id => !visibleUserIds.includes(id)));
+    } else {
+      setExcludedBroadcastUserIds(prev => Array.from(new Set([...prev, ...visibleUserIds])));
+    }
+  };
+
+  const handleSendBroadcastSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!broadcastSubject.trim()) {
+      toast.error('Please enter a broadcast subject line');
+      return;
+    }
+    if (!broadcastMessage.trim()) {
+      toast.error('Please enter the announcement message content');
+      return;
+    }
+
+    const targetedUsers = broadcastUsersList.filter(u => {
+      if (broadcastTargetRole !== 'all' && u.role !== broadcastTargetRole) return false;
+      if (broadcastOnlyVerified && u.emailVerified === false) return false;
+      if (excludedBroadcastUserIds.includes(u.id)) return false;
+      return true;
+    });
+
+    if (targetedUsers.length === 0) {
+      toast.error('No users match your criteria. All users are currently excluded.');
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to send this broadcast email to ${pluralize(targetedUsers.length, 'user')} (${excludedBroadcastUserIds.length} excluded)?`)) {
+      return;
+    }
+
+    setSendingBroadcast(true);
+    try {
+      const res = await fetch('/api/admin/emails/broadcast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject: broadcastSubject,
+          message: broadcastMessage,
+          excludedUserIds: excludedBroadcastUserIds,
+          onlyVerified: broadcastOnlyVerified,
+          targetRole: broadcastTargetRole,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.error || 'Failed to dispatch broadcast emails');
+      }
+
+      toast.success(json.message || `Broadcast email sent to ${json.stats?.sentCount || targetedUsers.length} users!`);
+      setShowBroadcastModal(false);
+    } catch (err: any) {
+      toast.error(err.message || 'Error sending broadcast email');
+    } finally {
+      setSendingBroadcast(false);
+    }
+  };
+
+  const fetchAdminBannerConfig = async () => {
+    try {
+      const res = await fetch('/api/admin/banner');
+      if (res.ok) {
+        const json = await res.json();
+        setBannerEnabled(Boolean(json.enabled));
+        setBannerMessage(json.message || '');
+        setBannerType(json.type || 'info');
+        setBannerLinkUrl(json.linkUrl || '');
+        setBannerLinkText(json.linkText || '');
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handlePublishBanner = async (enable: boolean, resetDismissals: boolean = false) => {
+    if (enable && !bannerMessage.trim()) {
+      toast.error('Please enter an announcement message content before publishing');
+      return;
+    }
+
+    setSavingBanner(true);
+    try {
+      const res = await fetch('/api/admin/banner', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: enable,
+          message: bannerMessage,
+          type: bannerType,
+          linkUrl: bannerLinkUrl,
+          linkText: bannerLinkText,
+          forceResetDismissal: resetDismissals,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to update announcement banner');
+
+      setBannerEnabled(enable);
+      toast.success(
+        enable
+          ? (resetDismissals ? 'Banner published & reset for ALL users!' : 'Site Announcement Banner published & LIVE!')
+          : 'Site Announcement Banner turned OFF.'
+      );
+      fetchAdminBannerConfig();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update banner');
+    } finally {
+      setSavingBanner(false);
     }
   };
 
@@ -1651,6 +1839,166 @@ export default function AdminDashboardPage() {
             </div>
           </div>
 
+          {/* Top Site Announcement Banner Configuration Card */}
+          <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-5 shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0 border border-purple-500/20">
+                  <Globe className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                    Top Site Announcement Banner
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Configure a global announcement banner displayed at the top of the site for all users. Users can dismiss it with an X (saved in localStorage).
+                  </p>
+                </div>
+              </div>
+
+              {/* Status Badge */}
+              <div className="flex items-center gap-2 shrink-0">
+                <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase border flex items-center gap-1.5 ${
+                  bannerEnabled
+                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-300 dark:border-slate-700'
+                }`}>
+                  <span className={`w-2 h-2 rounded-full ${bannerEnabled ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+                  {bannerEnabled ? 'LIVE ON SITE' : 'DISABLED / HIDDEN'}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-4 pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {/* Theme Variant Picker */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
+                    Variant Style &amp; Color
+                  </label>
+                  <select
+                    value={bannerType}
+                    onChange={e => setBannerType(e.target.value as any)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
+                  >
+                    <option value="info">🔵 Info / Update (Blue)</option>
+                    <option value="warning">🟠 Warning / Alert (Amber)</option>
+                    <option value="danger">🔴 Danger / Maintenance (Red)</option>
+                    <option value="success">🟢 Success / Launch (Green)</option>
+                  </select>
+                </div>
+
+                {/* Optional CTA Link URL */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
+                    Optional Action Link URL
+                  </label>
+                  <input
+                    type="text"
+                    value={bannerLinkUrl}
+                    onChange={e => setBannerLinkUrl(e.target.value)}
+                    placeholder="e.g. /discover or https://..."
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-purple-600 font-mono"
+                  />
+                </div>
+
+                {/* Optional CTA Link Text */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
+                    Optional Link Button Label
+                  </label>
+                  <input
+                    type="text"
+                    value={bannerLinkText}
+                    onChange={e => setBannerLinkText(e.target.value)}
+                    placeholder="e.g. Check Watch Lists &rarr;"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-purple-600"
+                  />
+                </div>
+              </div>
+
+              {/* Banner Message Text */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
+                  Announcement Message Content *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={bannerMessage}
+                  onChange={e => setBannerMessage(e.target.value)}
+                  placeholder="e.g. Scheduled system maintenance tonight at 10:00 PM UTC."
+                  className="w-full px-4 py-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs font-semibold focus:outline-none focus:border-purple-600"
+                />
+              </div>
+
+              {/* Live Preview Bar */}
+              {bannerMessage.trim() && (
+                <div className="space-y-1 pt-1">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">
+                    Live Banner Preview:
+                  </span>
+                  <div className={`p-3 rounded-xl text-xs font-semibold flex items-center justify-between gap-3 text-white shadow-sm ${
+                    bannerType === 'warning' ? 'bg-gradient-to-r from-amber-500 to-orange-600' :
+                    bannerType === 'danger' ? 'bg-gradient-to-r from-rose-600 to-red-600' :
+                    bannerType === 'success' ? 'bg-gradient-to-r from-emerald-600 to-teal-600' :
+                    'bg-gradient-to-r from-blue-600 to-indigo-600'
+                  }`}>
+                    <div className="flex items-center gap-2 truncate">
+                      <span className="truncate">{bannerMessage}</span>
+                      {bannerLinkUrl && (
+                        <span className="px-2 py-0.5 rounded bg-white text-slate-900 text-[10px] font-bold shrink-0">
+                          {bannerLinkText || 'Learn More'}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[10px] font-mono opacity-80 shrink-0">&times;</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons Row */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+                {bannerEnabled ? (
+                  <button
+                    type="button"
+                    disabled={savingBanner}
+                    onClick={() => handlePublishBanner(false, false)}
+                    className="px-4 py-2.5 rounded-xl text-xs font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <X className="w-4 h-4" /> Turn Off / Hide Banner
+                  </button>
+                ) : (
+                  <span className="text-xs text-slate-500">
+                    Banner is currently turned off. Click Publish to show it on site.
+                  </span>
+                )}
+
+                <div className="flex items-center gap-2 flex-wrap justify-end">
+                  <button
+                    type="button"
+                    disabled={savingBanner}
+                    onClick={() => handlePublishBanner(true, true)}
+                    className="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all cursor-pointer flex items-center gap-1.5"
+                    title="Publish and force reset closed state so even users who clicked X before will see this new message"
+                  >
+                    ⚡ Re-Publish to ALL Users (Reset Closed State)
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={savingBanner}
+                    onClick={() => handlePublishBanner(true, false)}
+                    className="px-5 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md cursor-pointer transition-all disabled:opacity-50 flex items-center gap-1.5"
+                  >
+                    <Globe className="w-4 h-4" />
+                    {savingBanner ? 'Publishing...' : '🚀 Publish & Enable Banner'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* System Quotas & User Limits Configuration Panel */}
           <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-5 shadow-sm">
             <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
@@ -2265,6 +2613,13 @@ export default function AdminDashboardPage() {
               </div>
 
               <div className="flex items-center gap-2">
+                <button
+                  onClick={handleOpenBroadcastModal}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-sm flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors whitespace-nowrap"
+                >
+                  <MailCheck className="w-4 h-4" /> Broadcast Announcement
+                </button>
+
                 <button
                   onClick={() => openTestEmailModalFor()}
                   className="px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors whitespace-nowrap"
@@ -4027,6 +4382,221 @@ export default function AdminDashboardPage() {
                   ) : (
                     <>
                       <Mail className="w-4 h-4" /> Send Test Email via Brevo
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Broadcast Announcement Email Modal */}
+      {showBroadcastModal && mounted && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <MailCheck className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                Send Broadcast Email / Platform Announcement
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowBroadcastModal(false)}
+                className="text-slate-400 hover:text-slate-900 dark:hover:text-white text-xl font-bold cursor-pointer"
+              >
+                &times;
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+              Send an update or announcement email to registered users. Use the checkboxes below to exclude specific users from receiving this broadcast.
+            </p>
+
+            <form onSubmit={handleSendBroadcastSubmit} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
+                    Target Role Filter
+                  </label>
+                  <select
+                    value={broadcastTargetRole}
+                    onChange={e => setBroadcastTargetRole(e.target.value as any)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
+                  >
+                    <option value="all">All Users &amp; Admins</option>
+                    <option value="user">Standard Users Only</option>
+                    <option value="admin">Administrators Only</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center pt-5">
+                  <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 dark:text-slate-300 select-none">
+                    <input
+                      type="checkbox"
+                      checked={broadcastOnlyVerified}
+                      onChange={e => setBroadcastOnlyVerified(e.target.checked)}
+                      className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
+                    />
+                    Only Email-Verified Users
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
+                  Broadcast Email Subject *
+                </label>
+                <input
+                  ref={broadcastSubjectRef}
+                  type="text"
+                  required
+                  value={broadcastSubject}
+                  onChange={e => setBroadcastSubject(e.target.value)}
+                  placeholder="e.g. Platform Update: New Job Search & Filtering Features"
+                  className="w-full px-4 py-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-sm font-semibold focus:outline-none focus:border-purple-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
+                  Announcement Message Body *
+                </label>
+                <textarea
+                  rows={4}
+                  required
+                  value={broadcastMessage}
+                  onChange={e => setBroadcastMessage(e.target.value)}
+                  placeholder="Type your platform update message here..."
+                  className="w-full px-4 py-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-purple-600"
+                />
+              </div>
+
+              {/* Exclusion Controls & Checkbox List */}
+              <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    User Recipient List ({broadcastUsersList.length} total)
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-bold text-purple-600 dark:text-purple-400">
+                      Sending to {broadcastUsersList.filter(u => {
+                        if (broadcastTargetRole !== 'all' && u.role !== broadcastTargetRole) return false;
+                        if (broadcastOnlyVerified && u.emailVerified === false) return false;
+                        if (excludedBroadcastUserIds.includes(u.id)) return false;
+                        return true;
+                      }).length} users ({excludedBroadcastUserIds.length} excluded)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleToggleExcludeAllBroadcastUsers}
+                      className="text-[11px] font-bold text-slate-600 dark:text-slate-400 hover:text-purple-600 dark:hover:text-purple-400 underline cursor-pointer"
+                    >
+                      Toggle Exclude All
+                    </button>
+                  </div>
+                </div>
+
+                {/* User Search Input */}
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={broadcastSearch}
+                    onChange={e => setBroadcastSearch(e.target.value)}
+                    placeholder="Search users to exclude/include..."
+                    className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white focus:outline-none"
+                  />
+                </div>
+
+                {/* Scrollable User Checkbox List */}
+                <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800/80 bg-slate-50/50 dark:bg-slate-900/50 p-1">
+                  {loadingBroadcastUsers ? (
+                    <div className="py-6 text-center text-xs text-slate-400">Loading user list...</div>
+                  ) : broadcastUsersList.filter(u => {
+                    if (broadcastTargetRole !== 'all' && u.role !== broadcastTargetRole) return false;
+                    if (broadcastOnlyVerified && u.emailVerified === false) return false;
+                    if (broadcastSearch) {
+                      const q = broadcastSearch.toLowerCase();
+                      return u.email.toLowerCase().includes(q) || (u.name && u.name.toLowerCase().includes(q));
+                    }
+                    return true;
+                  }).length === 0 ? (
+                    <div className="py-6 text-center text-xs text-slate-400">No users match filter criteria.</div>
+                  ) : (
+                    broadcastUsersList.filter(u => {
+                      if (broadcastTargetRole !== 'all' && u.role !== broadcastTargetRole) return false;
+                      if (broadcastOnlyVerified && u.emailVerified === false) return false;
+                      if (broadcastSearch) {
+                        const q = broadcastSearch.toLowerCase();
+                        return u.email.toLowerCase().includes(q) || (u.name && u.name.toLowerCase().includes(q));
+                      }
+                      return true;
+                    }).map(u => {
+                      const isExcluded = excludedBroadcastUserIds.includes(u.id);
+                      return (
+                        <div
+                          key={u.id}
+                          onClick={() => handleToggleExcludeBroadcastUser(u.id)}
+                          className={`flex items-center justify-between p-2 rounded-lg text-xs cursor-pointer transition-colors ${
+                            isExcluded ? 'bg-rose-500/10 text-slate-500 dark:text-slate-400' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-900 dark:text-white'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 truncate pr-2">
+                            <input
+                              type="checkbox"
+                              checked={!isExcluded}
+                              onChange={() => handleToggleExcludeBroadcastUser(u.id)}
+                              onClick={e => e.stopPropagation()}
+                              className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
+                            />
+                            <div className="truncate">
+                              <span className="font-semibold block truncate">{u.name || 'User'}</span>
+                              <span className="text-[11px] text-slate-500 dark:text-slate-400 block truncate">{u.email}</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase ${
+                              u.role === 'admin' ? 'bg-rose-500/10 text-rose-600' : 'bg-blue-500/10 text-blue-600'
+                            }`}>
+                              {u.role}
+                            </span>
+                            {isExcluded && (
+                              <span className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-700 dark:text-rose-300 text-[9px] font-extrabold uppercase">
+                                Excluded
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowBroadcastModal(false)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={sendingBroadcast}
+                  className="px-5 py-2.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-md flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                >
+                  {sendingBroadcast ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Sending Broadcast...
+                    </>
+                  ) : (
+                    <>
+                      <MailCheck className="w-4 h-4" /> Send Broadcast Email
                     </>
                   )}
                 </button>

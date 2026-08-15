@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { ToastProvider } from '@/components/Toast';
 import { AuthProvider } from '@/components/auth/AuthContext';
+import { SiteAnnouncementBanner } from '@/components/SiteAnnouncementBanner';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -50,6 +51,7 @@ export default function RootLayout({
         <AuthProvider>
           <ThemeProvider>
             <ToastProvider>
+              <SiteAnnouncementBanner />
               {children}
             </ToastProvider>
           </ThemeProvider>
