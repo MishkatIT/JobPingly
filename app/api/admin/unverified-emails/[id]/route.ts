@@ -3,7 +3,7 @@ import { requireAdmin } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
 import { users, emailVerifications, emailApprovals, adminAuditLog } from '@/lib/db/schema';
 import { generateOtp, hashOtp } from '@/lib/auth/otp';
-import { sendOtpVerificationEmail } from '@/lib/email/brevo';
+import { sendOtpVerificationEmail, sendWelcomeEmail } from '@/lib/email/brevo';
 import { isFeatureEnabled } from '@/lib/flags/check';
 import { eq } from 'drizzle-orm';
 
@@ -45,6 +45,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         approvedAt: autoApprove ? new Date() : null,
         approvedBy: adminUser.userId,
       });
+
+      if (initialStatus === 'approved') {
+        sendWelcomeEmail(user.email, { userName: user.name || undefined, senderId: adminUser.userId }).catch(err => {
+          console.error('[Welcome Email Send Error - Admin Verify]', err);
+        });
+      }
     }
 
     // 4. Audit Log

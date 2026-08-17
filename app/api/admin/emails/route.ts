@@ -3,6 +3,7 @@ import { requireAdmin } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
 import { emailApprovals, users, adminAuditLog } from '@/lib/db/schema';
 import { eq, desc } from 'drizzle-orm';
+import { sendWelcomeEmail } from '@/lib/email/brevo';
 
 // GET list of email approvals with backend pagination + search + status filter
 export async function GET(req: NextRequest) {
@@ -97,6 +98,7 @@ export async function POST(req: NextRequest) {
   const [existing] = await db.select().from(emailApprovals).where(eq(emailApprovals.email, cleanEmail));
 
   let updatedRecord;
+  let matchingUser;
   if (existing) {
     [updatedRecord] = await db.update(emailApprovals).set({
       status: 'approved',
@@ -105,7 +107,7 @@ export async function POST(req: NextRequest) {
     }).where(eq(emailApprovals.id, existing.id)).returning();
   } else {
     // Check if user exists in users table
-    const [matchingUser] = await db.select().from(users).where(eq(users.email, cleanEmail));
+    [matchingUser] = await db.select().from(users).where(eq(users.email, cleanEmail));
     [updatedRecord] = await db.insert(emailApprovals).values({
       email: cleanEmail,
       userId: matchingUser?.id || null,
@@ -114,6 +116,11 @@ export async function POST(req: NextRequest) {
       approvedBy: adminUser.userId,
     }).returning();
   }
+
+  // Send Welcome Email
+  sendWelcomeEmail(cleanEmail, { userName: matchingUser?.name || undefined, senderId: adminUser.userId }).catch(err => {
+    console.error('[Welcome Email Send Error - Manual Add]', err);
+  });
 
   await db.insert(adminAuditLog).values({
     adminId: adminUser.userId,
@@ -145,6 +152,13 @@ export async function PUT(req: NextRequest) {
       approvedBy: adminUser.userId,
     }).where(eq(emailApprovals.status, 'pending'));
 
+    // Send Welcome Email to all approved users
+    for (const item of pendingList) {
+      sendWelcomeEmail(item.email, { senderId: adminUser.userId }).catch(err => {
+        console.error(`[Welcome Email Send Error - Bulk Approve (${item.email})]`, err);
+      });
+    }
+
     await db.insert(adminAuditLog).values({
       adminId: adminUser.userId,
       action: 'approve_all_pending_emails',
@@ -165,6 +179,14 @@ export async function PUT(req: NextRequest) {
     approvedBy: adminUser.userId,
   }).where(eq(emailApprovals.id, emailId)).returning();
 
+  if (updated && newStatus === 'approved') {
+    // Lookup user name if available
+    const [matchingUser] = await db.select().from(users).where(eq(users.email, updated.email.toLowerCase().trim()));
+    sendWelcomeEmail(updated.email, { userName: matchingUser?.name || undefined, senderId: adminUser.userId }).catch(err => {
+      console.error(`[Welcome Email Send Error - Single Approve (${updated.email})]`, err);
+    });
+  }
+
   await db.insert(adminAuditLog).values({
     adminId: adminUser.userId,
     action: newStatus === 'approved' ? 'approve_email' : 'unapprove_email',
@@ -175,3 +197,4 @@ export async function PUT(req: NextRequest) {
 
   return NextResponse.json({ emailApproval: updated });
 }
+

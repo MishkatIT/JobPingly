@@ -430,3 +430,96 @@ export async function sendPasswordResetEmail(toEmail: string, resetUrl: string, 
   });
 }
 
+/**
+ * Sends a Welcome email to a user when their email address is approved.
+ */
+export async function sendWelcomeEmail(
+  toEmail: string,
+  options?: { userName?: string; senderId?: string; senderEmail?: string }
+): Promise<{ success: boolean; error?: string }> {
+  const displayName = options?.userName || toEmail.split('@')[0];
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'https://jobpingly.onrender.com';
+  const cleanHost = baseUrl.replace(/\/$/, '');
+  const dashboardUrl = `${cleanHost}/dashboard`;
+
+  const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to JobPingly!</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f8fafc; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color:#334155;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#f8fafc; padding:40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="100%" max-width="560" border="0" cellspacing="0" cellpadding="0" style="max-width:560px; background-color:#ffffff; border-radius:16px; border:1px solid #e2e8f0; overflow:hidden; box-shadow:0 10px 30px rgba(15,23,42,0.06);">
+          <!-- Header / Logo -->
+          <tr>
+            <td align="center" style="padding:32px 32px 20px 32px; border-bottom:1px solid #f1f5f9;">
+              <div style="font-size:26px; font-weight:800; color:#0f172a; letter-spacing:-0.5px;">
+                Job<span style="color:#2563eb;">Pingly</span>
+              </div>
+            </td>
+          </tr>
+          
+          <!-- Content Padding -->
+          <tr>
+            <td style="padding:32px;">
+              <h1 style="margin:0 0 12px 0; font-size:22px; font-weight:800; color:#0f172a; text-align:center; letter-spacing:-0.3px;">
+                Welcome to JobPingly! 
+              </h1>
+              
+              <p style="margin:0 0 20px 0; font-size:15px; color:#475569; line-height:1.6; text-align:center;">
+                Hi <strong>${displayName}</strong>, welcome to JobPingly! Your account is ready and you are all set to receive personalized job alerts and digests.
+              </p>
+
+              <!-- Feature Highlights Box -->
+              <div style="background-color:#f0f9ff; border:1px solid #bae6fd; border-radius:12px; padding:20px; margin-bottom:24px;">
+                <div style="font-size:14px; font-weight:700; color:#0369a1; margin-bottom:10px; text-transform:uppercase; letter-spacing:0.5px;">
+                  What you can do now:
+                </div>
+                <ul style="margin:0; padding-left:18px; color:#334155; font-size:14px; line-height:1.7;">
+                  <li><strong>Track Career Pages:</strong> Monitor target companies for instant job openings.</li>
+                  <li><strong>Customize Job Alerts:</strong> Set criteria to only receive roles matching your skills.</li>
+                  <li><strong>Receive Daily/Instant Pings:</strong> Stay ahead of competition with automated email digests.</li>
+                </ul>
+              </div>
+
+              <!-- CTA Button -->
+              <div style="text-align:center; margin-bottom:28px;">
+                <a href="${dashboardUrl}" style="background-color:#2563eb; color:#ffffff; font-weight:700; text-decoration:none; padding:14px 32px; border-radius:12px; font-size:15px; display:inline-block; box-shadow:0 4px 14px rgba(37,99,235,0.35);">
+                  Explore Your Dashboard &rarr;
+                </a>
+              </div>
+              
+              <hr style="border:none; border-top:1px solid #f1f5f9; margin:0 0 24px 0;">
+              
+              <p style="margin:0; font-size:12px; color:#94a3b8; text-align:center; line-height:1.5;">
+                If you have any questions or feedback, simply reply to this email. We're happy to help!
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `.trim();
+
+  const textContent = `JobPingly\n\nWelcome to JobPingly!\n\nHi ${displayName},\n\nWelcome to JobPingly! Your account is ready and you are all set to receive personalized job alerts and digests.\n\nGo to Dashboard: ${dashboardUrl}`;
+
+  return sendBrevoEmail({
+    toEmail,
+    subject: 'Welcome to JobPingly! ',
+    htmlContent,
+    textContent,
+    templateType: 'welcome',
+    senderId: options?.senderId,
+    senderEmail: options?.senderEmail,
+  });
+}
+
+

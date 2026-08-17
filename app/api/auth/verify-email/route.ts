@@ -7,6 +7,7 @@ import { isFeatureEnabled } from '@/lib/flags/check';
 import { checkRateLimit, getClientIp } from '@/lib/security/rateLimit';
 import { eq, desc } from 'drizzle-orm';
 import { pluralize } from '@/lib/utils/pluralize';
+import { sendWelcomeEmail } from '@/lib/email/brevo';
 
 export async function POST(req: NextRequest) {
   try {
@@ -137,6 +138,12 @@ export async function POST(req: NextRequest) {
         requestedAt: new Date(),
         approvedAt: autoApprove ? new Date() : null,
       });
+
+      if (initialStatus === 'approved') {
+        sendWelcomeEmail(cleanEmail, { userName: user.name || undefined }).catch(err => {
+          console.error('[Welcome Email Send Error - OTP Verify]', err);
+        });
+      }
     }
 
     // Issue existing auth tokens & cookies

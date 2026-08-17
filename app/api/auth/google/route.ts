@@ -6,6 +6,7 @@ import { signAccessToken, generateRandomToken, hashToken } from '@/lib/auth/jwt'
 import { isFeatureEnabled } from '@/lib/flags/check';
 import { checkRateLimit, getClientIp } from '@/lib/security/rateLimit';
 import { eq } from 'drizzle-orm';
+import { sendWelcomeEmail } from '@/lib/email/brevo';
 
 export async function POST(req: NextRequest) {
   try {
@@ -150,6 +151,12 @@ export async function POST(req: NextRequest) {
           requestedAt: new Date(),
           approvedAt: autoApprove ? new Date() : null,
         });
+
+        if (initialStatus === 'approved') {
+          sendWelcomeEmail(googleEmail, { userName: googleName || undefined }).catch(err => {
+            console.error('[Welcome Email Send Error - Google OAuth]', err);
+          });
+        }
       }
     }
 

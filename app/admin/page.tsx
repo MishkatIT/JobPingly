@@ -1021,8 +1021,8 @@ export default function AdminDashboardPage() {
         fetch('/api/admin/flags'),
       ]);
 
-      if (overviewRes.status === 401 && retryCount < 1) {
-        // Access token expired, attempt refresh
+      if ((overviewRes.status === 401 || overviewRes.status === 403) && retryCount < 2) {
+        // Access token expired or unverified in request context, attempt token refresh
         const refreshRes = await fetch('/api/auth/refresh', { method: 'POST' });
         if (refreshRes.ok) {
           return loadAdminData(retryCount + 1);
@@ -1035,7 +1035,12 @@ export default function AdminDashboardPage() {
         if (json.metrics?.pendingEmailsCount !== undefined) {
           setPendingEmailsCountState(json.metrics.pendingEmailsCount);
         }
+      } else if (retryCount < 2 && (overviewRes.status >= 500 || overviewRes.status === 404)) {
+        // Transient server/DB glitch or cold start delay — retry after 800ms
+        await new Promise(r => setTimeout(r, 800));
+        return loadAdminData(retryCount + 1);
       }
+
       if (flagsRes.ok) {
         const fJson = await flagsRes.json();
         setFlags(fJson.flags || []);
@@ -1043,6 +1048,10 @@ export default function AdminDashboardPage() {
       fetchAdminBannerConfig();
     } catch (e) {
       console.error(e);
+      if (retryCount < 2) {
+        await new Promise(r => setTimeout(r, 800));
+        return loadAdminData(retryCount + 1);
+      }
     } finally {
       setLoading(false);
     }

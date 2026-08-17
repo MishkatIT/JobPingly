@@ -3,6 +3,7 @@ import { requireAdmin } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
 import { emailApprovals, adminAuditLog } from '@/lib/db/schema';
 import { inArray } from 'drizzle-orm';
+import { sendWelcomeEmail } from '@/lib/email/brevo';
 
 export async function POST(req: NextRequest) {
   const adminUser = await requireAdmin(req);
@@ -30,6 +31,14 @@ export async function POST(req: NextRequest) {
     approvedBy: adminUser.userId,
   }).where(inArray(emailApprovals.id, emailIds)).returning();
 
+  if (action === 'approve') {
+    for (const record of updatedRecords) {
+      sendWelcomeEmail(record.email, { senderId: adminUser.userId }).catch(err => {
+        console.error(`[Welcome Email Send Error - Batch Approve (${record.email})]`, err);
+      });
+    }
+  }
+
   // Audit log entry for batch action
   await db.insert(adminAuditLog).values({
     adminId: adminUser.userId,
@@ -45,3 +54,4 @@ export async function POST(req: NextRequest) {
     updatedRecords,
   });
 }
+
