@@ -22,32 +22,16 @@ export async function GET(req: NextRequest) {
   const limit = Math.max(1, Math.min(100, Number(searchParams.get('limit')) || 15));
 
   try {
-    // Auto-create/alter table if missing
-    await client`
-      CREATE TABLE IF NOT EXISTS sent_email_logs (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        recipient_email TEXT NOT NULL,
-        sender_email TEXT,
-        subject TEXT NOT NULL,
-        template_type TEXT NOT NULL DEFAULT 'general',
-        status TEXT NOT NULL DEFAULT 'sent',
-        error_message TEXT,
-        html_content TEXT,
-        sender_id UUID,
-        metadata JSONB,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      );
-      ALTER TABLE sent_email_logs ADD COLUMN IF NOT EXISTS html_content TEXT;
-      ALTER TABLE sent_email_logs ADD COLUMN IF NOT EXISTS sender_email TEXT;
-    `;
-
     const conditions = [];
 
-    // The audit table ONLY lists emails dispatched from the Admin Panel ('broadcast', 'test', 'admin_custom')
-    if (templateType && ['broadcast', 'test', 'admin_custom'].includes(templateType)) {
-      conditions.push(eq(sentEmailLogs.templateType, templateType));
-    } else {
-      conditions.push(inArray(sentEmailLogs.templateType, ['broadcast', 'test', 'admin_custom']));
+    if (templateType && templateType !== 'all') {
+      if (templateType === 'admin_all') {
+        conditions.push(or(inArray(sentEmailLogs.templateType, ['broadcast', 'test', 'admin_custom']), sql`${sentEmailLogs.senderId} IS NOT NULL`));
+      } else if (templateType === 'system_all') {
+        conditions.push(and(inArray(sentEmailLogs.templateType, ['otp', 'digest', 'invite', 'reset']), sql`${sentEmailLogs.senderId} IS NULL`));
+      } else {
+        conditions.push(eq(sentEmailLogs.templateType, templateType));
+      }
     }
 
     if (search && search.trim()) {
@@ -61,7 +45,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const whereClause = and(...conditions);
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
     const logs = await db
       .select()
@@ -72,16 +56,18 @@ export async function GET(req: NextRequest) {
       .offset((page - 1) * limit);
 
     const totalLogs = await db
-      .select({ id: sentEmailLogs.id })
+      .select({ count: sql<number>`count(*)` })
       .from(sentEmailLogs)
       .where(whereClause);
 
-    const total = totalLogs.length;
+    const total = Number(totalLogs[0]?.count || 0);
     const totalPages = Math.ceil(total / limit) || 1;
 
     // Aggregate delivery counts for all email categories (Admin + System automated)
     const typeCounts: Record<string, number> = {
+      all: 0,
       allAdmin: 0,
+      allSystem: 0,
       broadcast: 0,
       test: 0,
       admin_custom: 0,
@@ -89,7 +75,6 @@ export async function GET(req: NextRequest) {
       digest: 0,
       invite: 0,
       reset: 0,
-      totalSystem: 0,
     };
 
     const typeCountRows = await db
@@ -100,18 +85,24 @@ export async function GET(req: NextRequest) {
       .from(sentEmailLogs)
       .groupBy(sentEmailLogs.templateType);
 
-    let totalSystem = 0;
-    let totalAdmin = 0;
+    const adminCountRes = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(sentEmailLogs)
+      .where(or(inArray(sentEmailLogs.templateType, ['broadcast', 'test', 'admin_custom']), sql`${sentEmailLogs.senderId} IS NOT NULL`));
+
+    const totalAdmin = Number(adminCountRes[0]?.count || 0);
+    let grandTotal = 0;
+
     typeCountRows.forEach(row => {
       const typeKey = row.templateType || 'general';
-      typeCounts[typeKey] = (typeCounts[typeKey] || 0) + row.count;
-      totalSystem += row.count;
-      if (['broadcast', 'test', 'admin_custom'].includes(typeKey)) {
-        totalAdmin += row.count;
-      }
+      const cnt = Number(row.count) || 0;
+      typeCounts[typeKey] = (typeCounts[typeKey] || 0) + cnt;
+      grandTotal += cnt;
     });
+
+    typeCounts.all = grandTotal;
     typeCounts.allAdmin = totalAdmin;
-    typeCounts.totalSystem = totalSystem;
+    typeCounts.allSystem = Math.max(0, grandTotal - totalAdmin);
 
     return NextResponse.json({
       logs,

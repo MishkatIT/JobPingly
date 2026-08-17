@@ -32,6 +32,8 @@ export async function GET(req: NextRequest) {
     isBlocked: users.isBlocked,
     blockedReason: users.blockedReason,
     blockedAt: users.blockedAt,
+    notificationPreference: users.notificationPreference,
+    frequencyEnforcementExempt: users.frequencyEnforcementExempt,
     createdAt: users.createdAt,
   })
   .from(users)

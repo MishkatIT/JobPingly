@@ -14,10 +14,17 @@ export async function PUT(req: NextRequest) {
   const body = await req.json();
   const { name, avatarUrl, emailNotificationsEnabled, notificationPreference, socials } = body;
 
+  const isEnforcedGlobal = await isFeatureEnabled('notifications.enforce_frequency', false);
+  const enforcedFrequencyValue = await isFeatureEnabled('notifications.enforced_frequency_value', 'daily');
+  const isExempt = Boolean(authUser.userRecord?.frequencyEnforcementExempt);
+  const isEnforced = isEnforcedGlobal && !isExempt;
+
+  const finalPreference = isEnforced ? enforcedFrequencyValue : (notificationPreference || 'daily');
+
   const updateFields: any = {
     name,
     emailNotificationsEnabled: Boolean(emailNotificationsEnabled),
-    notificationPreference: notificationPreference || 'daily',
+    notificationPreference: finalPreference,
   };
 
   if (avatarUrl !== undefined) {

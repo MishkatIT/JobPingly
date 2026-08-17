@@ -5,8 +5,8 @@ import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import {
   ShieldAlert, Cpu, Zap, RefreshCw, Flag, Layers, Users, Activity, History, UserCheck,
-  ExternalLink, Play, Search, ArrowLeft, Mail, CheckCircle2, Clock, XCircle, Plus, CheckCheck, CheckSquare, Square, PauseCircle, PlayCircle, Timer, Sliders, ChevronLeft, ChevronRight, Lock, Trash2, Ban, MailCheck, UserX, Edit3, Globe, Eye, X,
-  LayoutGrid, Grid2X2, List, Crown, GitFork, Send
+  ExternalLink, Play, Search, ArrowLeft, Mail, CheckCircle2, Clock, XCircle, Plus, CheckCheck, CheckSquare, Square, PauseCircle, PlayCircle, Timer, Sliders, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Lock, Trash2, Ban, MailCheck, UserX, Edit3, Globe, Eye, X,
+  LayoutGrid, Grid2X2, List, Crown, GitFork, Send, Database, KeyRound, Megaphone, FlaskConical, Inbox
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import { useAuth } from '@/components/auth/AuthContext';
@@ -16,6 +16,7 @@ import { Footer } from '@/components/Footer';
 import { PublicUserProfileModal } from '@/components/PublicUserProfileModal';
 import { Badge } from '@/components/Badge';
 import { pluralize } from '@/lib/utils/pluralize';
+import { FREQUENCY_OPTIONS, formatFrequencyLabel, parseCustomFrequency, buildCustomFrequency, normalizeFrequencyValue } from '@/lib/utils/frequency';
 
 export default function AdminDashboardPage() {
   const toast = useToast();
@@ -157,6 +158,118 @@ export default function AdminDashboardPage() {
   const [selectedEmailIds, setSelectedEmailIds] = useState<string[]>([]);
   const [processingBatch, setProcessingBatch] = useState(false);
 
+  // Notification Frequency Enforcement State
+  const [freqEnforceGlobal, setFreqEnforceGlobal] = useState(false);
+  const [freqEnforceValue, setFreqEnforceValue] = useState<string>('daily');
+  const [freqStats, setFreqStats] = useState({ totalUsers: 0, enforcedUsersCount: 0, exemptUsersCount: 0 });
+  const [freqUsers, setFreqUsers] = useState<any[]>([]);
+  const [freqUserFilter, setFreqUserFilter] = useState<'all' | 'enforced' | 'exempt'>('all');
+  const [freqUserSearch, setFreqUserSearch] = useState('');
+  const [debouncedFreqUserSearch, setDebouncedFreqUserSearch] = useState('');
+  const [freqUserPage, setFreqUserPage] = useState(1);
+  const [freqUserLimit, setFreqUserLimit] = useState(10);
+  const [freqUserPagination, setFreqUserPagination] = useState({ total: 0, page: 1, limit: 10, totalPages: 1 });
+  const [freqSelectedUserIds, setFreqSelectedUserIds] = useState<string[]>([]);
+  const [loadingFreqUsers, setLoadingFreqUsers] = useState(false);
+  const [savingFreqPolicy, setSavingFreqPolicy] = useState(false);
+  const [savingFreqExemption, setSavingFreqExemption] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedFreqUserSearch(freqUserSearch);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [freqUserSearch]);
+
+  const fetchFrequencyEnforcementPolicy = async () => {
+    try {
+      const res = await fetch('/api/admin/frequency-enforcement');
+      if (res.ok) {
+        const json = await res.json();
+        setFreqEnforceGlobal(Boolean(json.isEnforced));
+        setFreqEnforceValue(json.enforcedFrequency || 'daily');
+        if (json.stats) setFreqStats(json.stats);
+      }
+    } catch {}
+  };
+
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
+
+  const toggleSection = (sectionKey: string) => {
+    setCollapsedSections(prev => ({
+      ...prev,
+      [sectionKey]: !prev[sectionKey]
+    }));
+  };
+
+  const handleSaveFrequencyPolicy = async (isEnforced: boolean, enforcedFrequency: string) => {
+    setSavingFreqPolicy(true);
+    try {
+      const res = await fetch('/api/admin/frequency-enforcement', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isEnforced, enforcedFrequency }),
+      });
+      if (res.ok) {
+        toast.success(`Frequency enforcement policy ${isEnforced ? 'enabled' : 'disabled'}`);
+        fetchFrequencyEnforcementPolicy();
+        fetchFrequencyUsers(freqUserPage, debouncedFreqUserSearch, freqUserLimit, freqUserFilter);
+      } else {
+        toast.error('Failed to update policy');
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'Error updating policy');
+    } finally {
+      setSavingFreqPolicy(false);
+    }
+  };
+
+  const fetchFrequencyUsers = async (p = 1, q = '', l = 10, f = 'all') => {
+    setLoadingFreqUsers(true);
+    try {
+      const res = await fetch(`/api/admin/frequency-enforcement/users?page=${p}&limit=${l}&search=${encodeURIComponent(q)}&filter=${f}`);
+      if (res.ok) {
+        const json = await res.json();
+        setFreqUsers(json.users || []);
+        if (json.pagination) setFreqUserPagination(json.pagination);
+      }
+    } catch {}
+    finally {
+      setLoadingFreqUsers(false);
+    }
+  };
+
+  const handleToggleUserExemption = async (userIds: string[], exempt: boolean) => {
+    if (userIds.length === 0) return;
+    setSavingFreqExemption(true);
+    try {
+      const res = await fetch('/api/admin/frequency-enforcement/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userIds, exempt }),
+      });
+      if (res.ok) {
+        toast.success(`Updated exemption status for ${userIds.length} user(s).`);
+        setFreqSelectedUserIds([]);
+        fetchFrequencyEnforcementPolicy();
+        fetchFrequencyUsers(freqUserPage, debouncedFreqUserSearch, freqUserLimit, freqUserFilter);
+      } else {
+        toast.error('Failed to update user exemption.');
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'Error updating user exemption.');
+    } finally {
+      setSavingFreqExemption(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'emails') {
+      fetchFrequencyEnforcementPolicy();
+      fetchFrequencyUsers(freqUserPage, debouncedFreqUserSearch, freqUserLimit, freqUserFilter);
+    }
+  }, [activeTab, freqUserPage, debouncedFreqUserSearch, freqUserLimit, freqUserFilter]);
+
   // Manual Add Email Modal State
   const [showAddEmailModal, setShowAddEmailModal] = useState(false);
   const [manualEmail, setManualEmail] = useState('');
@@ -247,6 +360,69 @@ export default function AdminDashboardPage() {
     all: 0, broadcast: 0, otp: 0, digest: 0, invite: 0, reset: 0, test: 0
   });
   const [inspectingEmailLog, setInspectingEmailLog] = useState<any | null>(null);
+  const [showPruneLogsModal, setShowPruneLogsModal] = useState(false);
+  const [pruneDays, setPruneDays] = useState(30);
+  const [pruneTemplateType, setPruneTemplateType] = useState('all');
+  const [pruningLogs, setPruningLogs] = useState(false);
+
+  const handlePruneLogsSubmit = async (action: 'purge_html' | 'delete_logs') => {
+    const confirmMsg = action === 'purge_html'
+      ? `Are you sure you want to purge HTML content bodies older than ${pruneDays} days? Audit log entries and counts will remain intact.`
+      : `CAUTION: Are you sure you want to permanently delete sent email log entries older than ${pruneDays} days?`;
+    
+    if (!confirm(confirmMsg)) return;
+
+    setPruningLogs(true);
+    try {
+      const res = await fetch('/api/admin/emails/logs/prune', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action,
+          days: pruneDays,
+          templateType: pruneTemplateType,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.error || 'Failed to prune email logs.');
+      }
+
+      toast.success(json.message || 'Email logs pruned successfully.');
+      setShowPruneLogsModal(false);
+      fetchSentEmailLogs();
+    } catch (err: any) {
+      toast.error(err.message || 'Error pruning email logs');
+    } finally {
+      setPruningLogs(false);
+    }
+  };
+
+  const handleDeleteSingleSentEmailLog = async (logId: string) => {
+    if (!confirm('Are you sure you want to delete this email log entry?')) return;
+
+    try {
+      const res = await fetch('/api/admin/emails/logs/prune', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'delete_single',
+          logId,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.error || 'Failed to delete email log.');
+      }
+
+      toast.success('Email log deleted successfully.');
+      fetchSentEmailLogs();
+    } catch (err: any) {
+      toast.error(err.message || 'Error deleting email log');
+    }
+  };
 
 
   useEffect(() => {
@@ -746,6 +922,7 @@ export default function AdminDashboardPage() {
       fetchPaginatedCareerPages(companyPage, debouncedCompanySearch, companyLimit);
     } else if (activeTab === 'emails') {
       fetchPaginatedEmails(emailPage, debouncedEmailSearch, emailLimit, emailStatusFilter);
+      fetchSentEmailLogs();
     } else if (activeTab === 'users') {
       fetchPaginatedUsers(userPage, debouncedUserSearch, userLimit, userRoleFilter);
     } else if (activeTab === 'watchlists') {
@@ -799,7 +976,7 @@ export default function AdminDashboardPage() {
     if (activeTab === 'audit') {
       fetchAuditLogsPage(1, false);
     }
-    if (activeTab === 'sent_emails') {
+    if (activeTab === 'sent_emails' || activeTab === 'emails') {
       fetchSentEmailLogs();
     }
   }, [activeTab, sentEmailLogsPage, sentEmailLogsType, sentEmailLogsSearch]);
@@ -1995,11 +2172,19 @@ export default function AdminDashboardPage() {
           <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-5 shadow-sm">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => toggleSection('banner')}
+                  className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer transition-colors"
+                  title={collapsedSections.banner ? 'Expand Section' : 'Collapse Section'}
+                >
+                  {collapsedSections.banner ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
+                </button>
                 <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0 border border-purple-500/20">
                   <Globe className="w-5 h-5" />
                 </div>
                 <div>
-                  <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                  <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2 cursor-pointer select-none" onClick={() => toggleSection('banner')}>
                     Top Site Announcement Banner
                   </h2>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
@@ -2021,8 +2206,9 @@ export default function AdminDashboardPage() {
               </div>
             </div>
 
-            <div className="space-y-4 pt-2">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {!collapsedSections.banner && (
+              <div className="space-y-4 pt-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 {/* Theme Variant Picker */}
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
@@ -2134,7 +2320,7 @@ export default function AdminDashboardPage() {
                     className="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all cursor-pointer flex items-center gap-1.5"
                     title="Publish and force reset closed state so even users who clicked X before will see this new message"
                   >
-                    ⚡ Re-Publish to ALL Users (Reset Closed State)
+                    <Zap className="w-4 h-4 text-amber-500" /> Re-Publish to ALL Users (Reset Closed State)
                   </button>
 
                   <button
@@ -2144,21 +2330,33 @@ export default function AdminDashboardPage() {
                     className="px-5 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md cursor-pointer transition-all disabled:opacity-50 flex items-center gap-1.5"
                   >
                     <Globe className="w-4 h-4" />
-                    {savingBanner ? 'Publishing...' : '🚀 Publish & Enable Banner'}
+                    {savingBanner ? 'Publishing...' : 'Publish & Enable Banner'}
                   </button>
                 </div>
               </div>
             </div>
-          </div>
+          )}
+        </div>
 
           {/* System Quotas & User Limits Configuration Panel */}
           <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-5 shadow-sm">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
-              <Sliders className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-              System Quotas &amp; Site-Wide User Limits
-            </h2>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => toggleSection('quotas')}
+                className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer transition-colors"
+                title={collapsedSections.quotas ? 'Expand Section' : 'Collapse Section'}
+              >
+                {collapsedSections.quotas ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
+              </button>
+              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2 cursor-pointer select-none" onClick={() => toggleSection('quotas')}>
+                <Sliders className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                System Quotas &amp; Site-Wide User Limits
+              </h2>
+            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+            {!collapsedSections.quotas && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
               {/* Max Watch Lists */}
               <div className="glass-card p-5 rounded-2xl border-slate-200 dark:border-slate-800 space-y-2">
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
@@ -2169,7 +2367,7 @@ export default function AdminDashboardPage() {
                   onChange={e => handleQuotaSelectChange('limits.max_lists_per_user', e.target.value, maxListsPerUser)}
                   className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-blue-600 cursor-pointer"
                 >
-                  <option value={-1}>♾ Unlimited Lists</option>
+                  <option value={-1}>Unlimited Lists</option>
                   <option value={5}>5 Watch Lists</option>
                   <option value={10}>10 Watch Lists (Default)</option>
                   <option value={20}>20 Watch Lists</option>
@@ -2178,7 +2376,7 @@ export default function AdminDashboardPage() {
                   {isCustomList && (
                     <option value="custom">Custom ({maxListsPerUser})</option>
                   )}
-                  <option value="custom">✏ Set Custom Value...</option>
+                  <option value="custom">Set Custom Value...</option>
                 </select>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">Enforced when users create new lists.</p>
               </div>
@@ -2193,7 +2391,7 @@ export default function AdminDashboardPage() {
                   onChange={e => handleQuotaSelectChange('limits.max_urls_per_list', e.target.value, maxUrlsPerList)}
                   className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-blue-600 cursor-pointer"
                 >
-                  <option value={-1}>♾ Unlimited URLs</option>
+                  <option value={-1}>Unlimited URLs</option>
                   <option value={10}>10 URLs</option>
                   <option value={25}>25 URLs (Default)</option>
                   <option value={50}>50 URLs</option>
@@ -2202,7 +2400,7 @@ export default function AdminDashboardPage() {
                   {isCustomUrl && (
                     <option value="custom">Custom ({maxUrlsPerList})</option>
                   )}
-                  <option value="custom">✏ Set Custom Value...</option>
+                  <option value="custom">Set Custom Value...</option>
                 </select>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">Enforced when adding career pages to a list.</p>
               </div>
@@ -2217,7 +2415,7 @@ export default function AdminDashboardPage() {
                   onChange={e => handleQuotaSelectChange('limits.max_keywords_per_sub', e.target.value, maxKeywordsPerSub)}
                   className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-blue-600 cursor-pointer"
                 >
-                  <option value={-1}>♾ Unlimited Keywords</option>
+                  <option value={-1}>Unlimited Keywords</option>
                   <option value={10}>10 Keywords</option>
                   <option value={20}>20 Keywords (Default)</option>
                   <option value={50}>50 Keywords</option>
@@ -2225,21 +2423,33 @@ export default function AdminDashboardPage() {
                   {isCustomKw && (
                     <option value="custom">Custom ({maxKeywordsPerSub})</option>
                   )}
-                  <option value="custom">✏ Set Custom Value...</option>
+                  <option value="custom">Set Custom Value...</option>
                 </select>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">Enforced on positive keyword match filters.</p>
               </div>
             </div>
+            )}
           </div>
 
           {/* Feature Flags */}
           <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-5">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
-              <Flag className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-              System Feature Flags
-            </h2>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => toggleSection('feature_flags')}
+                className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer transition-colors"
+                title={collapsedSections.feature_flags ? 'Expand Section' : 'Collapse Section'}
+              >
+                {collapsedSections.feature_flags ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
+              </button>
+              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2 cursor-pointer select-none" onClick={() => toggleSection('feature_flags')}>
+                <Flag className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                System Feature Flags
+              </h2>
+            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {!collapsedSections.feature_flags && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {[...flags].sort((a, b) => a.key.localeCompare(b.key)).map(f => {
                 const isLimitFlag = f.key.startsWith('limits.');
                 const isUnlimited = isLimitFlag && (f.value === -1 || f.value === '-1' || f.value === false || f.value === 'false');
@@ -2295,17 +2505,26 @@ export default function AdminDashboardPage() {
                 );
               })}
             </div>
+          )}
           </div>
 
           {/* Master Scrape Timer Control Bar (Placed directly above Monitored Career Pages) */}
           <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-4 shadow-sm">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => toggleSection('master_timer')}
+                  className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer transition-colors"
+                  title={collapsedSections.master_timer ? 'Expand Section' : 'Collapse Section'}
+                >
+                  {collapsedSections.master_timer ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
+                </button>
                 <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0 border border-purple-500/20">
                   <Timer className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2 cursor-pointer select-none" onClick={() => toggleSection('master_timer')}>
                     Master Sync Timer Configuration
                     {isGlobalTimerOn && (
                       <span className="px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30 text-[10px] font-extrabold uppercase">
@@ -2319,82 +2538,94 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-4 shrink-0">
-                {/* Global Timer Toggle Switch */}
-                <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-900 px-3 py-2 rounded-xl">
-                  <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Master Timer:
-                  </span>
-                  <button
-                    onClick={handleToggleGlobalTimer}
-                    type="button"
-                    className={`w-10 h-5 rounded-full transition-colors p-0.5 relative flex items-center cursor-pointer ${
-                      isGlobalTimerOn ? 'bg-purple-600' : 'bg-slate-300 dark:bg-slate-700'
-                    }`}
-                  >
-                    <div
-                      className={`w-4 h-4 rounded-full bg-white transition-transform transform shadow-sm ${
-                        isGlobalTimerOn ? 'translate-x-5' : 'translate-x-0'
-                      }`}
-                    />
-                  </button>
-                  <span className={`text-xs font-extrabold ${isGlobalTimerOn ? 'text-purple-600 dark:text-purple-400' : 'text-slate-500'}`}>
-                    {isGlobalTimerOn ? 'ON' : 'OFF'}
-                  </span>
-                </div>
-
-                {/* Global Interval Dropdown */}
-                {isGlobalTimerOn && (
-                  <div className="flex items-center gap-2">
+              {!collapsedSections.master_timer && (
+                <div className="flex items-center gap-4 shrink-0">
+                  {/* Global Timer Toggle Switch */}
+                  <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-900 px-3 py-2 rounded-xl">
                     <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                      Global Period:
+                      Master Timer:
                     </span>
-                    <select
-                      value={[30, 60, 180, 360, 720, 1440, 10080, 43200].includes(globalIntervalMinutes) ? globalIntervalMinutes : 'custom'}
-                      onChange={e => {
-                        if (e.target.value === 'custom') {
-                          setCustomTargetType('global');
-                          setCustomValue(2);
-                          setCustomUnit(60);
-                          setShowCustomTimerModal(true);
-                        } else {
-                          handleUpdateGlobalInterval(Number(e.target.value));
-                        }
-                      }}
-                      className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-purple-500/40 text-xs font-bold text-purple-700 dark:text-purple-300 focus:outline-none cursor-pointer"
+                    <button
+                      onClick={handleToggleGlobalTimer}
+                      type="button"
+                      className={`w-10 h-5 rounded-full transition-colors p-0.5 relative flex items-center cursor-pointer ${
+                        isGlobalTimerOn ? 'bg-purple-600' : 'bg-slate-300 dark:bg-slate-700'
+                      }`}
                     >
-                      <option value={30}>Every 30 mins</option>
-                      <option value={60}>Every 1 hour</option>
-                      <option value={180}>Every 3 hours</option>
-                      <option value={360}>Every 6 hours</option>
-                      <option value={720}>Every 12 hours</option>
-                      <option value={1440}>Every 24 hours (1 day)</option>
-                      <option value={10080}>Every 7 days (1 week)</option>
-                      <option value={43200}>Every 30 days (1 month)</option>
-                      {![30, 60, 180, 360, 720, 1440, 10080, 43200].includes(globalIntervalMinutes) && (
-                        <option value="custom">Custom: Every {formatMins(globalIntervalMinutes)}</option>
-                      )}
-                      <option value="custom">⚙ Custom Period...</option>
-                    </select>
+                      <div
+                        className={`w-4 h-4 rounded-full bg-white transition-transform transform shadow-sm ${
+                          isGlobalTimerOn ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                    <span className={`text-xs font-extrabold ${isGlobalTimerOn ? 'text-purple-600 dark:text-purple-400' : 'text-slate-500'}`}>
+                      {isGlobalTimerOn ? 'ON' : 'OFF'}
+                    </span>
                   </div>
-                )}
-              </div>
+
+                  {/* Global Interval Dropdown */}
+                  {isGlobalTimerOn && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                        Global Period:
+                      </span>
+                      <select
+                        value={[30, 60, 180, 360, 720, 1440, 10080, 43200].includes(globalIntervalMinutes) ? globalIntervalMinutes : 'custom'}
+                        onChange={e => {
+                          if (e.target.value === 'custom') {
+                            setCustomTargetType('global');
+                            setCustomValue(2);
+                            setCustomUnit(60);
+                            setShowCustomTimerModal(true);
+                          } else {
+                            handleUpdateGlobalInterval(Number(e.target.value));
+                          }
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-purple-500/40 text-xs font-bold text-purple-700 dark:text-purple-300 focus:outline-none cursor-pointer"
+                      >
+                        <option value={30}>Every 30 mins</option>
+                        <option value={60}>Every 1 hour</option>
+                        <option value={180}>Every 3 hours</option>
+                        <option value={360}>Every 6 hours</option>
+                        <option value={720}>Every 12 hours</option>
+                        <option value={1440}>Every 24 hours (1 day)</option>
+                        <option value={10080}>Every 7 days (1 week)</option>
+                        <option value={43200}>Every 30 days (1 month)</option>
+                        {![30, 60, 180, 360, 720, 1440, 10080, 43200].includes(globalIntervalMinutes) && (
+                          <option value="custom">Custom: Every {formatMins(globalIntervalMinutes)}</option>
+                        )}
+                        <option value="custom">Custom Period...</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
           {/* Monitored Pages Table with Items Per Page Dropdown & Server Pagination */}
           <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-5">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                  <Cpu className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                  Monitored Company Career Pages ({companyPagination.total})
-                </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {isGlobalTimerOn
-                    ? `Master Timer Active: All sites auto-check every ${formatMins(globalIntervalMinutes)}.`
-                    : 'Individual Timers Active: Sites check on per-site intervals.'}
-                </p>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => toggleSection('career_pages')}
+                  className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer transition-colors"
+                  title={collapsedSections.career_pages ? 'Expand Section' : 'Collapse Section'}
+                >
+                  {collapsedSections.career_pages ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
+                </button>
+                <div>
+                  <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2 cursor-pointer select-none" onClick={() => toggleSection('career_pages')}>
+                    <Cpu className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                    Monitored Company Career Pages ({companyPagination.total})
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {isGlobalTimerOn
+                      ? `Master Timer Active: All sites auto-check every ${formatMins(globalIntervalMinutes)}.`
+                      : 'Individual Timers Active: Sites check on per-site intervals.'}
+                  </p>
+                </div>
               </div>
 
               <div className="flex items-center gap-3 flex-wrap">
@@ -2459,6 +2690,9 @@ export default function AdminDashboardPage() {
               </div>
             </div>
 
+            {!collapsedSections.career_pages && (
+              <div className="space-y-4">
+
             {/* Batch Action Bar for Company Career Pages */}
             {selectedCompanyIds.length > 0 && (
               <div className="flex items-center justify-between gap-4 p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300 animate-in fade-in duration-150">
@@ -2479,9 +2713,9 @@ export default function AdminDashboardPage() {
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs sm:text-sm text-slate-800 dark:text-slate-200">
-                <thead className="bg-slate-100 dark:bg-slate-900/90 text-slate-600 dark:text-slate-400 uppercase font-semibold border-b border-slate-200 dark:border-slate-800 text-xs">
+                <thead className="bg-slate-100/90 dark:bg-slate-900/90 text-slate-500 dark:text-slate-400 uppercase font-extrabold border-b border-slate-200 dark:border-slate-800 text-[11px] tracking-wider">
                   <tr>
-                    <th className="py-3.5 px-4 w-10 text-center">
+                    <th className="py-2.5 px-3.5 w-10 text-center">
                       <button
                         type="button"
                         onClick={toggleSelectAllCompanies}
@@ -2489,23 +2723,23 @@ export default function AdminDashboardPage() {
                         title={isAllCompaniesSelected ? 'Deselect All' : 'Select All'}
                       >
                         {isAllCompaniesSelected ? (
-                          <CheckSquare className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                          <CheckSquare className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
                         ) : (
-                          <Square className="w-4 h-4" />
+                          <Square className="w-3.5 h-3.5" />
                         )}
                       </button>
                     </th>
-                    <th className="py-3.5 px-4">Company &amp; Target URL</th>
-                    <th className="py-3.5 px-4">Monitoring Status</th>
-                    <th className="py-3.5 px-4">Check Interval (Period)</th>
-                    <th className="py-3.5 px-4">Last Checked</th>
-                    <th className="py-3.5 px-4 text-right">Actions</th>
+                    <th className="py-2.5 px-3.5">Company &amp; Target URL</th>
+                    <th className="py-2.5 px-3.5">Status</th>
+                    <th className="py-2.5 px-3.5">Check Interval</th>
+                    <th className="py-2.5 px-3.5">Last Checked</th>
+                    <th className="py-2.5 px-3.5 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800/80">
                   {loadingPages ? (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center">
+                      <td colSpan={6} className="py-6 text-center">
                         <LoadingSpinner message="Loading company career pages..." fullPage={false} />
                       </td>
                     </tr>
@@ -2514,54 +2748,56 @@ export default function AdminDashboardPage() {
                     const isSelected = selectedCompanyIds.includes(p.id);
                     return (
                       <tr key={p.id} className={`hover:bg-slate-100/60 dark:hover:bg-slate-900/40 transition-colors ${isSelected ? 'bg-purple-50/50 dark:bg-purple-950/20' : ''}`}>
-                        <td className="py-3.5 px-4 text-center">
+                        <td className="py-2.5 px-3.5 text-center">
                           <button
                             type="button"
                             onClick={() => toggleSelectCompanyRow(p.id)}
                             className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
                           >
                             {isSelected ? (
-                              <CheckSquare className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                              <CheckSquare className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
                             ) : (
-                              <Square className="w-4 h-4" />
+                              <Square className="w-3.5 h-3.5" />
                             )}
                           </button>
                         </td>
 
-                        <td className="py-3.5 px-4">
-                          <span className="font-bold text-slate-900 dark:text-white text-sm block">{p.companyName || 'Unknown'}</span>
-                          <a href={p.url} target="_blank" rel="noreferrer" className="font-mono text-xs text-blue-600 dark:text-blue-400 hover:underline truncate max-w-sm block mt-0.5">
+                        <td className="py-2.5 px-3.5">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-slate-900 dark:text-white text-xs block">{p.companyName || 'Unknown'}</span>
+                            {p.watchListCount > 0 ? (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 text-[9px] font-extrabold">
+                                <Layers className="w-2.5 h-2.5" /> {p.watchListCount} Lists
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30 text-[9px] font-extrabold">
+                                Orphaned
+                              </span>
+                            )}
+                          </div>
+                          <a href={p.url} target="_blank" rel="noreferrer" className="font-mono text-[11px] text-blue-600 dark:text-blue-400 hover:underline truncate max-w-[240px] block mt-0.5" title={p.url}>
                             {p.url}
                           </a>
-                          {p.watchListCount > 0 ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 text-[10px] font-bold mt-1">
-                              <Layers className="w-3 h-3" /> In {pluralize(p.watchListCount, 'Watch List')}
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30 text-[10px] font-bold mt-1">
-                              <ShieldAlert className="w-3 h-3 text-amber-500" /> Orphaned (0 Watch Lists)
-                            </span>
-                          )}
                         </td>
 
-                        <td className="py-3.5 px-4">
+                        <td className="py-2.5 px-3.5">
                           <button
                             onClick={() => handleUpdatePageMonitoring(p.id, p.status)}
-                            className={`px-3 py-1 rounded-full text-xs font-bold uppercase flex items-center gap-1.5 cursor-pointer transition-all ${
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase flex items-center gap-1 cursor-pointer transition-all border ${
                               isPaused
-                                ? 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-300 dark:border-slate-700 hover:bg-slate-300'
-                                : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20'
+                                ? 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-300 dark:border-slate-700'
+                                : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
                             }`}
                           >
-                            {isPaused ? <PauseCircle className="w-3.5 h-3.5 text-slate-500" /> : <PlayCircle className="w-3.5 h-3.5 text-emerald-500" />}
+                            <span className={`w-1.5 h-1.5 rounded-full ${isPaused ? 'bg-slate-400' : 'bg-emerald-500 animate-pulse'}`} />
                             {isPaused ? 'PAUSED' : 'ACTIVE'}
                           </button>
                         </td>
 
-                        <td className="py-3.5 px-4">
+                        <td className="py-2.5 px-3.5">
                           {isGlobalTimerOn ? (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/30 text-xs font-extrabold">
-                              <Timer className="w-3.5 h-3.5" /> MASTER ({formatMins(globalIntervalMinutes)})
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/30 text-[10px] font-extrabold">
+                              <Timer className="w-3 h-3" /> MASTER ({formatMins(globalIntervalMinutes)})
                             </span>
                           ) : (
                             <select
@@ -2578,7 +2814,7 @@ export default function AdminDashboardPage() {
                                   handleChangeInterval(p.id, p.status, Number(e.target.value));
                                 }
                               }}
-                              className="px-2.5 py-1 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-blue-600 cursor-pointer"
+                              className="px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-[11px] font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-blue-600 cursor-pointer"
                             >
                               <option value={30}>Every 30 mins</option>
                               <option value={60}>Every 1 hour</option>
@@ -2588,7 +2824,7 @@ export default function AdminDashboardPage() {
                               <option value={1440}>Every 24 hours (1 day)</option>
                               <option value={10080}>Every 7 days (1 week)</option>
                               <option value={43200}>Every 30 days (1 month)</option>
-                              {![30, 60, 180, 360, 720, 1440, 10080, 43200].includes(p.checkIntervalMinutes || 180) && (
+                              {![30, 60, 180, 360, 720, 1440, 43200].includes(p.checkIntervalMinutes || 180) && (
                                 <option value="custom">Custom: Every {formatMins(p.checkIntervalMinutes)}</option>
                               )}
                               <option value="custom">⚙ Custom Period...</option>
@@ -2596,39 +2832,32 @@ export default function AdminDashboardPage() {
                           )}
                         </td>
 
-                        <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 text-xs whitespace-nowrap">
+                        <td className="py-2.5 px-3.5 text-slate-500 dark:text-slate-400 text-[11px] whitespace-nowrap font-mono">
                           {p.lastScrapedAt ? (
-                            <div className="flex flex-col">
-                              <span className="font-semibold text-slate-800 dark:text-slate-200">
-                                {new Date(p.lastScrapedAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
-                              </span>
-                              <span className="text-[11px] text-slate-500">
-                                {new Date(p.lastScrapedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </span>
-                            </div>
+                            <span>{new Date(p.lastScrapedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })} {new Date(p.lastScrapedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                           ) : (
                             'Never'
                           )}
                         </td>
 
-                        <td className="py-3.5 px-4 text-right">
-                          <div className="flex items-center justify-end gap-2">
+                        <td className="py-2.5 px-3.5 text-right whitespace-nowrap">
+                          <div className="flex items-center justify-end gap-1.5">
                             <button
                               onClick={() => handleForceScrape(p.id)}
                               disabled={triggeringId === p.id}
-                              className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 inline-flex items-center gap-1.5 shadow-sm cursor-pointer transition-all"
+                              className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 inline-flex items-center gap-1 shadow-sm cursor-pointer transition-all"
                             >
-                              <RefreshCw className={`w-3.5 h-3.5 ${triggeringId === p.id ? 'animate-spin' : ''}`} />
-                              {triggeringId === p.id ? 'Checking...' : 'Check Now'}
+                              <RefreshCw className={`w-3 h-3 ${triggeringId === p.id ? 'animate-spin' : ''}`} />
+                              {triggeringId === p.id ? 'Checking...' : 'Check'}
                             </button>
 
                             <button
                               onClick={() => handleDeleteSingleCompany(p.id, p.companyName || p.url)}
                               disabled={deletingCompanyId === p.id}
-                              className="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/20 cursor-pointer transition-all disabled:opacity-50 flex items-center justify-center"
+                              className="p-1 rounded-lg text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/20 cursor-pointer transition-all disabled:opacity-50 flex items-center justify-center"
                               title="Delete company career page"
                             >
-                              <Trash2 className={`w-3.5 h-3.5 ${deletingCompanyId === p.id ? 'animate-spin' : ''}`} />
+                              <Trash2 className={`w-3 h-3 ${deletingCompanyId === p.id ? 'animate-spin' : ''}`} />
                             </button>
                           </div>
                         </td>
@@ -2673,49 +2902,467 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
             )}
+            </div>
+          )}
           </div>
         </div>
       )}
 
-      {/* EMAIL APPROVALS TAB WITH SERVER PAGINATION */}
+      {/* EMAIL APPROVALS & FREQUENCY ENFORCEMENT TAB */}
       {activeTab === 'emails' && (
-        <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-5">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                <Mail className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                Email Approval Queue &amp; Management ({emailPagination.total})
-              </h2>
-              <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-                Approve, unapprove, or manually add email addresses authorized for digest delivery.
-              </p>
-            </div>
+        <div className="space-y-6">
+          {/* Notification Digest Frequency Policy & User Control Policy Card */}
+          <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-6 shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => toggleSection('frequency_policy')}
+                  className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer transition-colors"
+                  title={collapsedSections.frequency_policy ? 'Expand Section' : 'Collapse Section'}
+                >
+                  {collapsedSections.frequency_policy ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
+                </button>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2.5 cursor-pointer select-none" onClick={() => toggleSection('frequency_policy')}>
+                    <Sliders className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                    Notification Digest Frequency Policy &amp; User Control
+                  </h2>
+                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                    Control and enforce email digest notification frequency for users globally, with granular user-level exemption toggles.
+                  </p>
+                </div>
+              </div>
 
-            {/* Auto Approve Toggle Switch */}
-            <div className="flex items-center gap-3 glass-card px-4 py-2.5 rounded-2xl border-slate-200 dark:border-slate-800">
-              <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                Auto Approve New Emails:
-              </span>
-              <button
-                onClick={handleToggleAutoApprove}
-                type="button"
-                className={`w-11 h-6 rounded-full transition-colors p-0.5 relative flex items-center cursor-pointer ${
-                  isAutoApproveOn ? 'bg-emerald-600' : 'bg-slate-300 dark:bg-slate-700'
-                }`}
-              >
-                <div
-                  className={`w-5 h-5 rounded-full bg-white transition-transform transform shadow-sm ${
-                    isAutoApproveOn ? 'translate-x-5' : 'translate-x-0'
+              {/* Enable Policy Toggle Switch */}
+              <div className="flex items-center gap-3 glass-card px-4 py-2.5 rounded-2xl border-slate-200 dark:border-slate-800 shrink-0">
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                  Enforce Global Policy:
+                </span>
+                <button
+                  onClick={() => handleSaveFrequencyPolicy(!freqEnforceGlobal, freqEnforceValue)}
+                  disabled={savingFreqPolicy}
+                  type="button"
+                  className={`w-11 h-6 rounded-full transition-colors p-0.5 relative flex items-center cursor-pointer disabled:opacity-50 ${
+                    freqEnforceGlobal ? 'bg-purple-600' : 'bg-slate-300 dark:bg-slate-700'
                   }`}
-                />
-              </button>
-              <span className={`text-xs font-extrabold uppercase ${isAutoApproveOn ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500'}`}>
-                {isAutoApproveOn ? 'ON' : 'OFF'}
-              </span>
+                >
+                  <div
+                    className={`w-5 h-5 rounded-full bg-white transition-transform transform shadow-sm ${
+                      freqEnforceGlobal ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+                <span className={`text-xs font-extrabold uppercase ${freqEnforceGlobal ? 'text-purple-600 dark:text-purple-400' : 'text-slate-500'}`}>
+                  {freqEnforceGlobal ? 'ENFORCED' : 'UNENFORCED'}
+                </span>
+              </div>
             </div>
-          </div>
 
-          <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+            {!collapsedSections.frequency_policy && (
+              <div className="space-y-6 pt-2">
+            <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                    Enforced Frequency Option
+                  </label>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Non-exempt users will have their notification frequency dropdown bound to this setting.
+                  </p>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                  <select
+                    value={FREQUENCY_OPTIONS.some(o => o.value === normalizeFrequencyValue(freqEnforceValue)) ? normalizeFrequencyValue(freqEnforceValue) : 'custom'}
+                    onChange={(e) => {
+                      const selectedVal = e.target.value;
+                      if (selectedVal === 'custom') {
+                        const defaultCustom = buildCustomFrequency(3, 'hours');
+                        setFreqEnforceValue(defaultCustom);
+                        if (freqEnforceGlobal) handleSaveFrequencyPolicy(true, defaultCustom);
+                      } else {
+                        setFreqEnforceValue(selectedVal);
+                        if (freqEnforceGlobal) handleSaveFrequencyPolicy(true, selectedVal);
+                      }
+                    }}
+                    className="px-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-purple-600 cursor-pointer"
+                  >
+                    {FREQUENCY_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  {!freqEnforceGlobal && (
+                    <button
+                      onClick={() => handleSaveFrequencyPolicy(true, freqEnforceValue)}
+                      disabled={savingFreqPolicy}
+                      className="px-4 py-2.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-sm disabled:opacity-50 cursor-pointer transition-colors whitespace-nowrap"
+                    >
+                      Enable &amp; Enforce
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Custom Interval Builder Box (Rendered when custom option is selected) */}
+              {(freqEnforceValue === 'custom' || freqEnforceValue.startsWith('custom_')) && (
+                <div className="p-4 rounded-xl bg-purple-500/10 border border-purple-500/30 space-y-3 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-purple-700 dark:text-purple-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <Sliders className="w-3.5 h-3.5" /> Configure Custom Frequency Interval
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-full bg-purple-600 text-white text-[10px] font-extrabold uppercase">
+                      ACTIVE CUSTOM
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Repeat Every:</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={365}
+                        value={parseCustomFrequency(freqEnforceValue).num}
+                        onChange={(e) => {
+                          const newNum = Math.max(1, parseInt(e.target.value, 10) || 1);
+                          const { unit } = parseCustomFrequency(freqEnforceValue);
+                          const newCustom = buildCustomFrequency(newNum, unit);
+                          setFreqEnforceValue(newCustom);
+                          if (freqEnforceGlobal) handleSaveFrequencyPolicy(true, newCustom);
+                        }}
+                        className="w-20 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-purple-300 dark:border-purple-700 text-xs font-black text-slate-900 dark:text-white focus:outline-none text-center"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Unit:</span>
+                      <select
+                        value={parseCustomFrequency(freqEnforceValue).unit}
+                        onChange={(e) => {
+                          const newUnit = e.target.value as 'hours' | 'days' | 'weeks';
+                          const { num } = parseCustomFrequency(freqEnforceValue);
+                          const newCustom = buildCustomFrequency(num, newUnit);
+                          setFreqEnforceValue(newCustom);
+                          if (freqEnforceGlobal) handleSaveFrequencyPolicy(true, newCustom);
+                        }}
+                        className="px-3.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-purple-300 dark:border-purple-700 text-xs font-extrabold text-purple-700 dark:text-purple-300 focus:outline-none cursor-pointer"
+                      >
+                        <option value="hours">Hours</option>
+                        <option value="days">Days</option>
+                        <option value="weeks">Weeks</option>
+                      </select>
+                    </div>
+
+                    <div className="text-xs font-bold text-slate-600 dark:text-slate-400 pl-2 border-l border-purple-300 dark:border-purple-700">
+                      Summary: <span className="text-purple-600 dark:text-purple-400 font-extrabold">{formatFrequencyLabel(freqEnforceValue)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Quick Stats Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Users</span>
+                  <p className="text-xl font-black text-slate-900 dark:text-white mt-1">{freqStats.totalUsers}</p>
+                </div>
+                <Users className="w-6 h-6 text-slate-400" />
+              </div>
+
+              <div className="p-4 rounded-2xl bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-900/30 flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-bold text-purple-700 dark:text-purple-400 uppercase tracking-wider">Bound / Enforced Users</span>
+                  <p className="text-xl font-black text-purple-700 dark:text-purple-300 mt-1">{freqStats.enforcedUsersCount}</p>
+                </div>
+                <Lock className="w-6 h-6 text-purple-500" />
+              </div>
+
+              <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/30 flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider">Exempt / Self-Managed Users</span>
+                  <p className="text-xl font-black text-emerald-700 dark:text-emerald-300 mt-1">{freqStats.exemptUsersCount}</p>
+                </div>
+                <UserCheck className="w-6 h-6 text-emerald-500" />
+              </div>
+            </div>
+
+            {/* User Exemption Management Table & Filters */}
+            <div className="space-y-4 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-900 p-1.5 rounded-2xl overflow-x-auto">
+                  <button
+                    onClick={() => { setFreqUserFilter('all'); setFreqUserPage(1); }}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      freqUserFilter === 'all'
+                        ? 'bg-slate-800 text-white shadow-sm'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    All Users ({freqStats.totalUsers})
+                  </button>
+
+                  <button
+                    onClick={() => { setFreqUserFilter('enforced'); setFreqUserPage(1); }}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      freqUserFilter === 'enforced'
+                        ? 'bg-purple-600 text-white shadow-sm'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    Applied on Users ({freqStats.enforcedUsersCount})
+                  </button>
+
+                  <button
+                    onClick={() => { setFreqUserFilter('exempt'); setFreqUserPage(1); }}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      freqUserFilter === 'exempt'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    Not Applied / Exempt ({freqStats.exemptUsersCount})
+                  </button>
+                </div>
+
+                <div className="relative flex-1 max-w-xs">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={freqUserSearch}
+                    onChange={(e) => { setFreqUserSearch(e.target.value); setFreqUserPage(1); }}
+                    placeholder="Search user email or name..."
+                    className="w-full pl-10 pr-4 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-purple-600"
+                  />
+                </div>
+              </div>
+
+              {/* Batch Action Toolbar for Exemption */}
+              {freqSelectedUserIds.length > 0 && (
+                <div className="p-4 rounded-2xl bg-purple-600 text-white shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2">
+                  <div className="flex items-center gap-2 text-xs font-bold">
+                    <CheckSquare className="w-4 h-4" />
+                    <span>{pluralize(freqSelectedUserIds.length, 'user')} selected</span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleToggleUserExemption(freqSelectedUserIds, true)}
+                      disabled={savingFreqExemption}
+                      className="px-4 py-2 rounded-xl text-xs font-extrabold bg-white text-purple-700 hover:bg-slate-100 shadow-sm disabled:opacity-50 cursor-pointer"
+                    >
+                      {savingFreqExemption ? 'Updating...' : 'Exempt Selected Users'}
+                    </button>
+
+                    <button
+                      onClick={() => handleToggleUserExemption(freqSelectedUserIds, false)}
+                      disabled={savingFreqExemption}
+                      className="px-4 py-2 rounded-xl text-xs font-bold bg-purple-800 hover:bg-purple-900 text-white shadow-sm disabled:opacity-50 cursor-pointer"
+                    >
+                      {savingFreqExemption ? 'Updating...' : 'Enforce Policy on Selected'}
+                    </button>
+
+                    <button
+                      onClick={() => setFreqSelectedUserIds([])}
+                      className="px-3 py-2 rounded-xl text-xs text-purple-200 hover:text-white cursor-pointer"
+                    >
+                      Clear Selection
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Users Exemption Table */}
+              <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+                <table className="w-full text-left text-xs text-slate-800 dark:text-slate-200">
+                  <thead className="bg-slate-100/90 dark:bg-slate-900/90 uppercase text-[11px] font-extrabold text-slate-500 border-b border-slate-200 dark:border-slate-800 tracking-wider">
+                    <tr>
+                      <th className="px-3.5 py-2.5 w-10 text-center">
+                        <button
+                          onClick={() => {
+                            if (freqSelectedUserIds.length === freqUsers.length) {
+                              setFreqSelectedUserIds([]);
+                            } else {
+                              setFreqSelectedUserIds(freqUsers.map(u => u.id));
+                            }
+                          }}
+                          className="cursor-pointer text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                        >
+                          {freqUsers.length > 0 && freqSelectedUserIds.length === freqUsers.length ? (
+                            <CheckSquare className="w-3.5 h-3.5 text-purple-600" />
+                          ) : (
+                            <Square className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      </th>
+                      <th className="px-3.5 py-2.5">User</th>
+                      <th className="px-3.5 py-2.5">Role</th>
+                      <th className="px-3.5 py-2.5">Enforcement Policy</th>
+                      <th className="px-3.5 py-2.5">Effective Interval</th>
+                      <th className="px-3.5 py-2.5 text-right">Exemption Toggle</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                    {loadingFreqUsers ? (
+                      <tr>
+                        <td colSpan={6} className="py-6 text-center text-slate-500">
+                          <LoadingSpinner message="Loading user policies..." fullPage={false} />
+                        </td>
+                      </tr>
+                    ) : freqUsers.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-6 text-center text-slate-500 text-xs">
+                          No users found matching filter criteria.
+                        </td>
+                      </tr>
+                    ) : (
+                      freqUsers.map((u) => {
+                        const isSelected = freqSelectedUserIds.includes(u.id);
+                        return (
+                          <tr key={u.id} className={`hover:bg-slate-50 dark:hover:bg-slate-900/40 transition-colors ${isSelected ? 'bg-purple-500/5' : ''}`}>
+                            <td className="px-3.5 py-2.5 text-center">
+                              <button
+                                onClick={() => {
+                                  if (isSelected) {
+                                    setFreqSelectedUserIds(freqSelectedUserIds.filter(id => id !== u.id));
+                                  } else {
+                                    setFreqSelectedUserIds([...freqSelectedUserIds, u.id]);
+                                  }
+                                }}
+                                className="cursor-pointer text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                              >
+                                {isSelected ? <CheckSquare className="w-3.5 h-3.5 text-purple-600" /> : <Square className="w-3.5 h-3.5" />}
+                              </button>
+                            </td>
+                            <td className="px-3.5 py-2.5">
+                              <div className="font-bold text-slate-900 dark:text-white text-xs truncate max-w-[180px]">{u.name || 'Unnamed User'}</div>
+                              <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono truncate max-w-[180px]">{u.email}</div>
+                            </td>
+                            <td className="px-3.5 py-2.5">
+                              <span className="capitalize text-[10px] font-extrabold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 uppercase">
+                                {u.role}
+                              </span>
+                            </td>
+                            <td className="px-3.5 py-2.5">
+                              {u.isEnforced ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-500/30 text-[10px] font-extrabold uppercase">
+                                  <Lock className="w-3 h-3" /> Enforced Policy
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 text-[10px] font-extrabold uppercase">
+                                  <UserCheck className="w-3 h-3" /> Exempt (Self-Managed)
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-3.5 py-2.5 text-xs font-semibold text-slate-800 dark:text-slate-200">
+                              {formatFrequencyLabel(u.effectiveFrequency)}
+                            </td>
+                            <td className="px-3.5 py-2.5 text-right">
+                              <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(u.frequencyEnforcementExempt)}
+                                  onChange={(e) => handleToggleUserExemption([u.id], e.target.checked)}
+                                  disabled={savingFreqExemption}
+                                  className="w-3.5 h-3.5 rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer disabled:opacity-50"
+                                />
+                                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                                  Exempt
+                                </span>
+                              </label>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination Controls for Frequency Users */}
+              {freqUserPagination.totalPages > 1 && (
+                <div className="flex items-center justify-between pt-3">
+                  <span className="text-xs text-slate-500">
+                    Page {freqUserPagination.page} of {freqUserPagination.totalPages} ({freqUserPagination.total} total)
+                  </span>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setFreqUserPage(p => Math.max(1, p - 1))}
+                      disabled={freqUserPage === 1}
+                      className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 disabled:opacity-40 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+
+                    <button
+                      onClick={() => setFreqUserPage(p => Math.min(freqUserPagination.totalPages, p + 1))}
+                      disabled={freqUserPage >= freqUserPagination.totalPages}
+                      className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 disabled:opacity-40 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+              </div>
+            </div>
+          )}
+        </div>
+
+          <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-5">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => toggleSection('email_approvals')}
+                  className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer transition-colors"
+                  title={collapsedSections.email_approvals ? 'Expand Section' : 'Collapse Section'}
+                >
+                  {collapsedSections.email_approvals ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
+                </button>
+                <div>
+                  <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2 cursor-pointer select-none" onClick={() => toggleSection('email_approvals')}>
+                    <Mail className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    Email Approval Queue &amp; Management ({emailPagination.total})
+                  </h2>
+                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                    Approve, unapprove, or manually add email addresses authorized for digest delivery.
+                  </p>
+                </div>
+              </div>
+
+              {/* Auto Approve Toggle Switch */}
+              <div className="flex items-center gap-3 glass-card px-4 py-2.5 rounded-2xl border-slate-200 dark:border-slate-800">
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                  Auto Approve New Emails:
+                </span>
+                <button
+                  onClick={handleToggleAutoApprove}
+                  type="button"
+                  className={`w-11 h-6 rounded-full transition-colors p-0.5 relative flex items-center cursor-pointer ${
+                    isAutoApproveOn ? 'bg-emerald-600' : 'bg-slate-300 dark:bg-slate-700'
+                  }`}
+                >
+                  <div
+                    className={`w-5 h-5 rounded-full bg-white transition-transform transform shadow-sm ${
+                      isAutoApproveOn ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+                <span className={`text-xs font-extrabold uppercase ${isAutoApproveOn ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500'}`}>
+                  {isAutoApproveOn ? 'ON' : 'OFF'}
+                </span>
+              </div>
+            </div>
+
+            {!collapsedSections.email_approvals && (
+              <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-800">
             {/* Top Row: Filter Tabs on Left, Primary Actions on Right */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-900 p-1.5 rounded-2xl overflow-x-auto">
@@ -2812,9 +3459,8 @@ export default function AdminDashboardPage() {
                 <option value={50}>50 per page</option>
               </select>
             </div>
-          </div>
 
-          {/* Single Batch Group Action Toolbar */}
+            {/* Single Batch Group Action Toolbar */}
           {selectedEmailIds.length > 0 && (
             <div className="p-4 rounded-2xl bg-blue-600 text-white shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2">
               <div className="flex items-center gap-2 text-xs font-bold">
@@ -2851,32 +3497,32 @@ export default function AdminDashboardPage() {
 
           {/* Email Queue Table with Checkboxes */}
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs sm:text-sm text-slate-800 dark:text-slate-200">
-              <thead className="bg-slate-100 dark:bg-slate-900/90 text-slate-600 dark:text-slate-400 uppercase font-semibold border-b border-slate-200 dark:border-slate-800 text-xs">
+            <table className="w-full text-left">
+              <thead className="bg-slate-100/90 dark:bg-slate-900/90 text-slate-500 dark:text-slate-400 uppercase font-extrabold border-b border-slate-200 dark:border-slate-800 text-[11px] tracking-wider">
                 <tr>
-                  <th className="py-3.5 px-4 w-10">
+                  <th className="py-2.5 px-3.5 w-10 text-center">
                     <button
                       type="button"
                       onClick={toggleSelectAll}
-                      className="text-slate-500 hover:text-slate-900 dark:hover:text-white flex items-center justify-center cursor-pointer"
+                      className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
                     >
                       {isAllFilteredSelected ? (
-                        <CheckSquare className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                        <CheckSquare className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                       ) : (
-                        <Square className="w-4 h-4" />
+                        <Square className="w-3.5 h-3.5" />
                       )}
                     </button>
                   </th>
-                  <th className="py-3.5 px-4">Email Address &amp; User</th>
-                  <th className="py-3.5 px-4">Status</th>
-                  <th className="py-3.5 px-4">Requested Date</th>
-                  <th className="py-3.5 px-4 text-right">Approval Action</th>
+                  <th className="py-2.5 px-3.5">Email &amp; Account</th>
+                  <th className="py-2.5 px-3.5">Status</th>
+                  <th className="py-2.5 px-3.5">Requested</th>
+                  <th className="py-2.5 px-3.5 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800/80">
                 {loadingEmails ? (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center">
+                    <td colSpan={5} className="py-6 text-center">
                       <LoadingSpinner message="Loading email approvals..." fullPage={false} />
                     </td>
                   </tr>
@@ -2889,80 +3535,84 @@ export default function AdminDashboardPage() {
                         isChecked ? 'bg-blue-500/5 dark:bg-blue-900/20' : ''
                       }`}
                     >
-                      <td className="py-3.5 px-4 w-10">
+                      <td className="py-2.5 px-3.5 text-center">
                         <button
                           type="button"
                           onClick={() => toggleSelectRow(e.id)}
-                          className="text-slate-500 hover:text-slate-900 dark:hover:text-white flex items-center justify-center cursor-pointer"
+                          className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
                         >
                           {isChecked ? (
-                            <CheckSquare className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                            <CheckSquare className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                           ) : (
-                            <Square className="w-4 h-4" />
+                            <Square className="w-3.5 h-3.5" />
                           )}
                         </button>
                       </td>
 
-                      <td className="py-3.5 px-4">
-                        <span className="font-bold text-slate-900 dark:text-white text-sm block">{e.email}</span>
-                        <span className="text-slate-500 dark:text-slate-400 text-xs mt-0.5 block">
-                          {e.userName ? `Account: ${e.userName}` : 'Manual Entry'}
+                      <td className="py-2.5 px-3.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-slate-900 dark:text-white text-xs block truncate max-w-[200px]">{e.email}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleInspectSubscriptions(e.email)}
+                            className="text-[10px] font-bold text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-0.5 cursor-pointer shrink-0"
+                            title="Inspect watch lists and URLs sending emails to this address"
+                          >
+                            <Layers className="w-2.5 h-2.5" /> Audit
+                          </button>
+                        </div>
+                        <span className="text-slate-500 dark:text-slate-400 text-[11px] block truncate max-w-[200px]">
+                          {e.userName ? `User: ${e.userName}` : 'Manual'}
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => handleInspectSubscriptions(e.email)}
-                          className="text-[10px] font-bold text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-1 mt-1 cursor-pointer"
-                          title="Inspect watch lists and URLs sending emails to this address"
-                        >
-                          <Layers className="w-3 h-3" /> Audit Lists &amp; URLs
-                        </button>
                       </td>
 
-                      <td className="py-3.5 px-4">
+                      <td className="py-2.5 px-3.5">
                         {e.status === 'approved' && (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 text-xs font-bold uppercase">
-                            <CheckCircle2 className="w-3.5 h-3.5" /> Approved
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-[10px] font-extrabold uppercase">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Approved
                           </span>
                         )}
                         {e.status === 'pending' && (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30 text-xs font-bold uppercase">
-                            <Clock className="w-3.5 h-3.5" /> Pending Queue
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-[10px] font-extrabold uppercase">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" /> Pending
                           </span>
                         )}
                         {e.status === 'unapproved' && (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/30 text-xs font-bold uppercase">
-                            <XCircle className="w-3.5 h-3.5" /> Unapproved
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-[10px] font-extrabold uppercase">
+                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500" /> Revoked
                           </span>
                         )}
                       </td>
 
-                      <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 text-xs">
-                        {new Date(e.requestedAt).toLocaleString()}
+                      <td className="py-2.5 px-3.5 text-slate-500 dark:text-slate-400 text-[11px] font-mono whitespace-nowrap">
+                        {new Date(e.requestedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })} {new Date(e.requestedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </td>
 
-                      <td className="py-3.5 px-4 text-right flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => openTestEmailModalFor(e.email)}
-                          title="Send Brevo Test Email to this address"
-                          className="px-3 py-2 rounded-xl text-xs font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 flex items-center gap-1.5 cursor-pointer shrink-0"
-                        >
-                          <Mail className="w-3.5 h-3.5" /> Test Email
-                        </button>
-                        {e.status === 'pending' || e.status === 'unapproved' ? (
+                      <td className="py-2.5 px-3.5 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-1.5">
                           <button
-                            onClick={() => handleApproveEmail(e.id)}
-                            className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm cursor-pointer shrink-0"
+                            onClick={() => openTestEmailModalFor(e.email)}
+                            title="Send Brevo Test Email"
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 flex items-center gap-1 cursor-pointer"
                           >
-                            Approve Email
+                            <Mail className="w-3 h-3" /> Test
                           </button>
-                        ) : (
-                          <button
-                            onClick={() => handleUnapproveEmail(e.id)}
-                            className="px-4 py-2 rounded-xl text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30 hover:bg-rose-500/20 cursor-pointer shrink-0"
-                          >
-                            Unapprove / Revoke
-                          </button>
-                        )}
+                          {e.status === 'pending' || e.status === 'unapproved' ? (
+                            <button
+                              onClick={() => handleApproveEmail(e.id)}
+                              className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm cursor-pointer"
+                            >
+                              Approve
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleUnapproveEmail(e.id)}
+                              className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30 hover:bg-rose-500/20 cursor-pointer"
+                            >
+                              Revoke
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -3005,25 +3655,39 @@ export default function AdminDashboardPage() {
               </div>
             </div>
           )}
+          </div>
+          )}
         </div>
-      )}
+      </div>
+    )}
 
       {/* USER MODERATION TAB WITH ENV ADMIN PROTECTION & PAGINATION */}
       {activeTab === 'users' && (
         <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-5">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                <UserCheck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                Registered User Moderation ({userPagination.total})
-              </h2>
-              <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-                Manage user access permissions, upgrade/downgrade roles, and enforce ENV Superadmin safety locks.
-              </p>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => toggleSection('users')}
+                className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer transition-colors"
+                title={collapsedSections.users ? 'Expand Section' : 'Collapse Section'}
+              >
+                {collapsedSections.users ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
+              </button>
+              <div>
+                <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2 cursor-pointer select-none" onClick={() => toggleSection('users')}>
+                  <UserCheck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  Registered User Moderation ({userPagination.total})
+                </h2>
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                  Manage user access permissions, upgrade/downgrade roles, and enforce ENV Superadmin safety locks.
+                </p>
+              </div>
             </div>
           </div>
 
-          <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+          {!collapsedSections.users && (
+            <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-800">
             {/* Top Row: Role Filters */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-900 p-1.5 rounded-2xl overflow-x-auto">
@@ -3085,107 +3749,106 @@ export default function AdminDashboardPage() {
                 </select>
               </div>
             </div>
-          </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs sm:text-sm text-slate-800 dark:text-slate-200">
-              <thead className="bg-slate-100 dark:bg-slate-900/90 text-slate-600 dark:text-slate-400 uppercase font-semibold border-b border-slate-200 dark:border-slate-800 text-xs">
+              <thead className="bg-slate-100/90 dark:bg-slate-900/90 text-slate-500 dark:text-slate-400 uppercase font-extrabold border-b border-slate-200 dark:border-slate-800 text-[11px] tracking-wider">
                 <tr>
-                  <th className="py-3.5 px-4">User Account</th>
-                  <th className="py-3.5 px-4">Role</th>
-                  <th className="py-3.5 px-4">Status</th>
-                  <th className="py-3.5 px-4">Joined Date</th>
-                  <th className="py-3.5 px-4 text-right">Action</th>
+                  <th className="py-2.5 px-3.5">User Account</th>
+                  <th className="py-2.5 px-3.5">Role</th>
+                  <th className="py-2.5 px-3.5">Status</th>
+                  <th className="py-2.5 px-3.5">Joined</th>
+                  <th className="py-2.5 px-3.5 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800/80">
                 {loadingUsers ? (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center">
+                    <td colSpan={5} className="py-6 text-center">
                       <LoadingSpinner message="Loading user accounts..." fullPage={false} />
                     </td>
                   </tr>
                 ) : userList.map((u: any) => (
                   <tr key={u.id} className="hover:bg-slate-100/60 dark:hover:bg-slate-900/40">
-                    <td className="py-3.5 px-4">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedUserId(u.id)}
-                        className="text-left group/user cursor-pointer"
-                        title="Click to view User Profile & Published Watchlists"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-slate-900 dark:text-white text-sm block group-hover/user:underline group-hover/user:text-blue-600 dark:group-hover/user:text-blue-400 transition-colors">{u.name || 'User'}</span>
-                          {u.isEnvAdmin && (
-                            <span className="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-[10px] font-extrabold uppercase flex items-center gap-1">
-                              <Lock className="w-3 h-3" /> ENV SUPERADMIN
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-slate-500 dark:text-slate-400 text-xs block group-hover/user:underline">{u.email}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleInspectSubscriptions(u.email)}
-                        className="text-[10px] font-bold text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-1 mt-1 cursor-pointer"
-                        title="Inspect watch lists and URLs sending emails to this user"
-                      >
-                        <Layers className="w-3 h-3" /> Audit Lists &amp; URLs
-                      </button>
+                    <td className="py-2.5 px-3.5">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedUserId(u.id)}
+                          className="text-left group/user cursor-pointer"
+                          title="Click to view User Profile & Published Watchlists"
+                        >
+                          <span className="font-bold text-slate-900 dark:text-white text-xs block group-hover/user:underline group-hover/user:text-blue-600 dark:group-hover/user:text-blue-400 transition-colors">{u.name || 'User'}</span>
+                          <span className="text-slate-500 dark:text-slate-400 font-mono text-[11px] block group-hover/user:underline truncate max-w-[180px]">{u.email}</span>
+                        </button>
+                        {u.isEnvAdmin && (
+                          <span className="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-[9px] font-extrabold uppercase flex items-center gap-0.5 shrink-0">
+                            <Lock className="w-2.5 h-2.5" /> SUPERADMIN
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleInspectSubscriptions(u.email)}
+                          className="text-[10px] font-bold text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-0.5 shrink-0"
+                          title="Inspect watch lists and URLs"
+                        >
+                          <Layers className="w-2.5 h-2.5" /> Audit
+                        </button>
+                      </div>
                     </td>
 
-                    <td className="py-3.5 px-4">
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${
+                    <td className="py-2.5 px-3.5">
+                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase border ${
                         u.role === 'admin'
-                          ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30'
-                          : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/30'
+                          ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'
+                          : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30'
                       }`}>
                         {u.role}
                       </span>
                     </td>
 
-                    <td className="py-3.5 px-4">
+                    <td className="py-2.5 px-3.5">
                       {u.isBlocked ? (
                         <span
                           title={u.blockedReason || 'Blocked by administrator'}
-                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/30 text-xs font-bold uppercase"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-[10px] font-extrabold uppercase"
                         >
-                          <Ban className="w-3.5 h-3.5" /> Blocked
+                          <Ban className="w-3 h-3" /> Blocked
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 text-xs font-bold uppercase">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Active
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-[10px] font-extrabold uppercase">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Active
                         </span>
                       )}
                     </td>
 
-                    <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 text-xs">
-                      {new Date(u.createdAt).toLocaleDateString()}
+                    <td className="py-2.5 px-3.5 text-slate-500 dark:text-slate-400 text-[11px] font-mono whitespace-nowrap">
+                      {new Date(u.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
                     </td>
 
-                    <td className="py-3.5 px-4 text-right">
+                    <td className="py-2.5 px-3.5 text-right whitespace-nowrap">
                       {u.isEnvAdmin ? (
-                        <span className="px-3 py-1.5 rounded-xl text-xs font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 cursor-not-allowed inline-flex items-center gap-1">
-                          <Lock className="w-3 h-3" /> Protected ENV Admin
+                        <span className="px-2.5 py-1 rounded-lg text-[10px] font-extrabold text-slate-400 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 cursor-not-allowed inline-flex items-center gap-1 uppercase">
+                          <Lock className="w-3 h-3" /> Protected
                         </span>
                       ) : (
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="flex items-center justify-end gap-1.5">
                           <button
                             onClick={() => handleChangeRole(u.id, u.role, u.isEnvAdmin)}
-                            className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-700 cursor-pointer"
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer border border-slate-200 dark:border-slate-700"
                           >
-                            Toggle Role
+                            Role
                           </button>
 
                           <button
                             onClick={() => handleToggleBlockUser(u.id, Boolean(u.isBlocked), u.email, Boolean(u.isEnvAdmin))}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
                               u.isBlocked
                                 ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm'
                                 : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30 hover:bg-rose-500/20'
                             }`}
                           >
-                            {u.isBlocked ? 'Unblock User' : 'Block User'}
+                            {u.isBlocked ? 'Unblock' : 'Block'}
                           </button>
                         </div>
                       )}
@@ -3230,6 +3893,8 @@ export default function AdminDashboardPage() {
               </div>
             </div>
           )}
+          </div>
+          )}
         </div>
       )}
 
@@ -3237,14 +3902,24 @@ export default function AdminDashboardPage() {
       {activeTab === 'watchlists' && (
         <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-5">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                <Layers className="w-4 h-4 text-purple-500" />
-                All Watch Lists Moderation ({watchlistPagination.total})
-              </h2>
-              <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-                Browse, search by user or list name, edit details, or delete watch lists created by all users across the platform.
-              </p>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => toggleSection('watchlists')}
+                className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer transition-colors"
+                title={collapsedSections.watchlists ? 'Expand Section' : 'Collapse Section'}
+              >
+                {collapsedSections.watchlists ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
+              </button>
+              <div>
+                <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2 cursor-pointer select-none" onClick={() => toggleSection('watchlists')}>
+                  <Layers className="w-4 h-4 text-purple-500" />
+                  All Watch Lists Moderation ({watchlistPagination.total})
+                </h2>
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                  Browse, search by user or list name, edit details, or delete watch lists created by all users across the platform.
+                </p>
+              </div>
             </div>
 
             <div className="flex items-center gap-2">
@@ -3336,7 +4011,8 @@ export default function AdminDashboardPage() {
             </div>
           </div>
 
-          <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+          {!collapsedSections.watchlists && (
+            <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-800">
             {/* Filter controls row */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               {/* Search Bar */}
@@ -3406,7 +4082,6 @@ export default function AdminDashboardPage() {
                 </select>
               </div>
             </div>
-          </div>
 
           {/* Batch Actions Toolbar */}
           {selectedWatchlistIds.length > 0 && (
@@ -3657,119 +4332,87 @@ export default function AdminDashboardPage() {
                         type="checkbox"
                         checked={watchlistList.length > 0 && watchlistList.every(l => selectedWatchlistIds.includes(l.id))}
                         onChange={handleToggleSelectAllWatchlists}
-                        className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
+                        className="w-3.5 h-3.5 rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
                         title="Select all watch lists on this page"
                       />
                     </th>
-                    <th className="py-3.5 px-4">Watch List &amp; Slug</th>
-                    <th className="py-3.5 px-4">Curator / Owner</th>
-                    <th className="py-3.5 px-4">Visibility &amp; Lineage</th>
-                    <th className="py-3.5 px-4">Monitored Metrics</th>
-                    <th className="py-3.5 px-4">Created Date</th>
-                    <th className="py-3.5 px-4 text-right">Actions</th>
+                    <th className="py-2.5 px-3.5">Watch List &amp; Slug</th>
+                    <th className="py-2.5 px-3.5">Curator / Owner</th>
+                    <th className="py-2.5 px-3.5">Visibility</th>
+                    <th className="py-2.5 px-3.5">Metrics</th>
+                    <th className="py-2.5 px-3.5">Created</th>
+                    <th className="py-2.5 px-3.5 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800/80">
                   {watchlistList.map((wl: any) => (
                     <tr key={wl.id} className={`hover:bg-slate-100/60 dark:hover:bg-slate-900/40 ${selectedWatchlistIds.includes(wl.id) ? 'bg-purple-500/5 dark:bg-purple-500/10' : ''}`}>
-                      <td className="py-3.5 px-4">
+                      <td className="py-2.5 px-3.5 text-center">
                         <input
                           type="checkbox"
                           checked={selectedWatchlistIds.includes(wl.id)}
                           onChange={() => handleToggleWatchlistSelect(wl.id)}
-                          className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
+                          className="w-3.5 h-3.5 rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
                         />
                       </td>
-                      <td className="py-3.5 px-4">
-                        <div className="space-y-1">
+                      <td className="py-2.5 px-3.5">
+                        <div className="flex items-center gap-1.5">
                           <Link
                             href={`/lists/${wl.slug}`}
                             target="_blank"
-                            className="font-bold text-slate-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 text-sm flex items-center gap-1.5 transition-colors"
+                            className="font-bold text-slate-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 text-xs flex items-center gap-1 transition-colors truncate max-w-[200px]"
                           >
                             {wl.name}
-                            <ExternalLink className="w-3 h-3 text-slate-400" />
+                            <ExternalLink className="w-3 h-3 text-slate-400 shrink-0" />
                           </Link>
-                          {wl.description && (
-                            <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1 max-w-xs">{wl.description}</p>
-                          )}
-                          <span className="inline-block text-[10px] font-mono text-purple-600 dark:text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-md border border-purple-500/20">
+                          <span className="text-[10px] font-mono text-purple-600 dark:text-purple-400 bg-purple-500/10 px-1.5 py-0.2 rounded border border-purple-500/20 shrink-0">
                             /{wl.slug}
                           </span>
                         </div>
                       </td>
 
-                      <td className="py-3.5 px-4">
-                        <div className="space-y-1">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (wl.userId) setSelectedUserId(wl.userId);
-                            }}
-                            className="flex items-center gap-1.5 font-semibold text-slate-800 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer text-left text-xs group/user"
-                            title="Click to view Curator Profile"
-                          >
-                            {wl.userAvatarUrl ? (
-                              <img src={wl.userAvatarUrl} alt={wl.userName || 'User'} className="w-4 h-4 rounded-full object-cover shrink-0" />
-                            ) : (
-                              <div className="w-4 h-4 rounded-full bg-blue-600 text-white font-bold text-[8px] flex items-center justify-center shrink-0">
-                                {(wl.userName?.[0] || 'U').toUpperCase()}
-                              </div>
-                            )}
-                            <span className="underline-offset-2 group-hover/user:underline">{wl.userName || 'User'}</span>
-                          </button>
-                          <span className="text-[11px] text-slate-500 dark:text-slate-400 block truncate max-w-[160px]">{wl.userEmail || wl.userId}</span>
-                          <button
-                            onClick={() => { setWatchlistUserIdFilter(wl.userId); setWatchlistPage(1); }}
-                            className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 hover:underline inline-block"
-                          >
-                            Filter user lists
-                          </button>
-                        </div>
+                      <td className="py-2.5 px-3.5">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (wl.userId) setSelectedUserId(wl.userId);
+                          }}
+                          className="flex items-center gap-1.5 font-semibold text-slate-800 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer text-xs group/user"
+                          title="Click to view Curator Profile"
+                        >
+                          <span className="font-semibold text-slate-900 dark:text-white text-xs underline-offset-2 group-hover/user:underline truncate max-w-[140px]">{wl.userName || 'User'}</span>
+                          <span className="text-[10px] text-slate-400 font-mono truncate max-w-[120px]">({wl.userEmail || wl.userId})</span>
+                        </button>
                       </td>
 
-                      <td className="py-3.5 px-4">
-                        <div className="flex flex-col gap-1 items-start">
-                          <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold uppercase flex items-center gap-1 ${
+                      <td className="py-2.5 px-3.5">
+                        <div className="flex items-center gap-1">
+                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase flex items-center gap-1 border ${
                             wl.visibility === 'public'
-                              ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30'
-                              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
+                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-300 dark:border-slate-700'
                           }`}>
-                            {wl.visibility === 'public' ? <Globe className="w-3 h-3 text-emerald-500" /> : <Lock className="w-3 h-3 text-slate-400" />}
+                            <span className={`w-1.5 h-1.5 rounded-full ${wl.visibility === 'public' ? 'bg-emerald-500' : 'bg-slate-400'}`} />
                             {wl.visibility}
                           </span>
-
                           {wl.isCanonical !== false && (
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-                              Verified Canonical
-                            </span>
-                          )}
-
-                          {wl.parentListId && (
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
-                              Forked List
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 uppercase">
+                              Canonical
                             </span>
                           )}
                         </div>
                       </td>
 
-                      <td className="py-3.5 px-4">
-                        <div className="space-y-1 text-xs">
-                          <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-medium text-slate-700 dark:text-slate-300 block w-fit">
-                            {pluralize(wl.companyCount || 0, 'Page')}
-                          </span>
-                          <span className="px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 text-[11px] font-medium block w-fit">
-                            {pluralize(wl.jobCount || 0, 'Job')}
-                          </span>
-                        </div>
+                      <td className="py-2.5 px-3.5 text-xs text-slate-600 dark:text-slate-400 font-mono">
+                        {wl.companyCount || 0} pages • {wl.jobCount || 0} jobs
                       </td>
 
-                      <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 text-xs">
-                        {new Date(wl.createdAt).toLocaleDateString()}
+                      <td className="py-2.5 px-3.5 text-slate-500 dark:text-slate-400 text-[11px] font-mono whitespace-nowrap">
+                        {new Date(wl.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
                       </td>
 
-                      <td className="py-3.5 px-4 text-right">
+                      <td className="py-2.5 px-3.5 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           {wl.deletedAt ? (
                             <>
@@ -3952,7 +4595,7 @@ export default function AdminDashboardPage() {
       )}
 
       {/* UNVERIFIED EMAILS VIEW TAB */}
-      {activeTab === 'unverified' && (
+      {(activeTab as string) === 'unverified' && (
         <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
@@ -4099,7 +4742,7 @@ export default function AdminDashboardPage() {
       )}
 
       {/* REPORTED ISSUES VIEW TAB */}
-      {activeTab === 'issues' && (
+      {(activeTab as string) === 'issues' && (
         <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-5">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
@@ -4300,6 +4943,8 @@ export default function AdminDashboardPage() {
               </div>
             </div>
           )}
+          </div>
+          )}
         </div>
       )}
 
@@ -4307,32 +4952,45 @@ export default function AdminDashboardPage() {
       {activeTab === 'audit' && (
         <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-5">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
-              <History className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-              Administrative Audit Trail ({auditLogs.length} loaded)
-            </h2>
-            <span className="text-xs text-slate-500 font-medium">Scroll down to automatically load more logs</span>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => toggleSection('audit')}
+                className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer transition-colors"
+                title={collapsedSections.audit ? 'Expand Section' : 'Collapse Section'}
+              >
+                {collapsedSections.audit ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
+              </button>
+              <div>
+                <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2 cursor-pointer select-none" onClick={() => toggleSection('audit')}>
+                  <History className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                  Administrative Audit Trail ({auditLogs.length} loaded)
+                </h2>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">Scroll down to automatically load more logs</p>
+              </div>
+            </div>
           </div>
 
-          <div className="overflow-x-auto max-h-[600px] overflow-y-auto rounded-2xl border border-slate-200 dark:border-slate-800/80">
-            <table className="w-full text-left text-xs sm:text-sm text-slate-800 dark:text-slate-200">
-              <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 uppercase font-semibold border-b border-slate-200 dark:border-slate-800 text-xs">
+          {!collapsedSections.audit && (
+            <div className="overflow-x-auto max-h-[600px] overflow-y-auto rounded-2xl border border-slate-200 dark:border-slate-800/80">
+            <table className="w-full text-left text-xs text-slate-800 dark:text-slate-200">
+              <thead className="sticky top-0 z-10 bg-slate-100/90 dark:bg-slate-900/90 text-slate-500 dark:text-slate-400 uppercase font-extrabold border-b border-slate-200 dark:border-slate-800 text-[11px] tracking-wider">
                 <tr>
-                  <th className="py-3.5 px-4">Timestamp</th>
-                  <th className="py-3.5 px-4">Admin</th>
-                  <th className="py-3.5 px-4">Action</th>
-                  <th className="py-3.5 px-4">Target Entity</th>
-                  <th className="py-3.5 px-4">Parameters</th>
+                  <th className="py-2.5 px-3.5">Timestamp</th>
+                  <th className="py-2.5 px-3.5">Admin</th>
+                  <th className="py-2.5 px-3.5">Action</th>
+                  <th className="py-2.5 px-3.5">Target Entity</th>
+                  <th className="py-2.5 px-3.5">Parameters</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800/80">
                 {auditLogs.map((log: any) => (
-                  <tr key={log.id} className="hover:bg-slate-100/60 dark:hover:bg-slate-900/40 font-mono text-xs">
-                    <td className="py-3.5 px-4 text-slate-500">{new Date(log.createdAt).toLocaleString()}</td>
-                    <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white font-sans">{log.adminName || log.adminEmail || 'Admin'}</td>
-                    <td className="py-3.5 px-4"><span className="bg-blue-500/10 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded text-xs font-bold">{log.action}</span></td>
-                    <td className="py-3.5 px-4 text-slate-500">{log.targetType}: {log.targetId}</td>
-                    <td className="py-3.5 px-4 text-slate-500">{JSON.stringify(log.metadata || {})}</td>
+                  <tr key={log.id} className="hover:bg-slate-100/60 dark:hover:bg-slate-900/40 font-mono text-[11px]">
+                    <td className="py-2.5 px-3.5 text-slate-500 whitespace-nowrap">{new Date(log.createdAt).toLocaleString()}</td>
+                    <td className="py-2.5 px-3.5 font-bold text-slate-900 dark:text-white font-sans whitespace-nowrap">{log.adminName || log.adminEmail || 'Admin'}</td>
+                    <td className="py-2.5 px-3.5"><span className="bg-purple-500/10 text-purple-600 dark:text-purple-400 px-2 py-0.5 rounded text-[10px] font-extrabold uppercase border border-purple-500/20">{log.action}</span></td>
+                    <td className="py-2.5 px-3.5 text-slate-600 dark:text-slate-400 max-w-[180px] truncate" title={`${log.targetType}: ${log.targetId}`}>{log.targetType}: <span className="text-slate-900 dark:text-white font-bold">{log.targetId}</span></td>
+                    <td className="py-2.5 px-3.5 text-slate-500 max-w-[250px] truncate" title={JSON.stringify(log.metadata || {})}>{JSON.stringify(log.metadata || {})}</td>
                   </tr>
                 ))}
               </tbody>
@@ -4356,72 +5014,158 @@ export default function AdminDashboardPage() {
               )}
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
+    )}
 
       {/* SENT EMAIL HISTORY LOGS TAB */}
       {activeTab === 'sent_emails' && (
         <div className="space-y-6">
-          {/* Automated System Email Delivery Counters (Count Only) */}
+          {/* Automated System Email Delivery Counters */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="bg-slate-100/80 dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => { setSentEmailLogsType('otp'); setSentEmailLogsPage(1); }}
+              className={`p-4 rounded-2xl border transition-all cursor-pointer text-left flex items-center justify-between ${
+                sentEmailLogsType === 'otp' ? 'bg-blue-500/10 border-blue-500/50 shadow-sm' : 'bg-slate-100/80 dark:bg-slate-900/80 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+              }`}
+            >
               <div>
-                <p className="text-[11px] font-extrabold uppercase text-slate-400 tracking-wider">🔑 OTP Codes</p>
+                <p className="text-[11px] font-extrabold uppercase text-slate-400 tracking-wider flex items-center gap-1.5"><KeyRound className="w-3.5 h-3.5 text-blue-500" /> OTP Codes</p>
                 <p className="text-xl font-black text-slate-900 dark:text-white mt-0.5">{sentEmailLogsTypeCounts.otp || 0}</p>
               </div>
-              <span className="px-2 py-0.5 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 font-extrabold text-[10px] uppercase border border-blue-500/20">COUNT ONLY</span>
-            </div>
+              <span className="px-2 py-0.5 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 font-extrabold text-[10px] uppercase border border-blue-500/20">FILTER</span>
+            </button>
 
-            <div className="bg-slate-100/80 dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => { setSentEmailLogsType('digest'); setSentEmailLogsPage(1); }}
+              className={`p-4 rounded-2xl border transition-all cursor-pointer text-left flex items-center justify-between ${
+                sentEmailLogsType === 'digest' ? 'bg-purple-500/10 border-purple-500/50 shadow-sm' : 'bg-slate-100/80 dark:bg-slate-900/80 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+              }`}
+            >
               <div>
-                <p className="text-[11px] font-extrabold uppercase text-slate-400 tracking-wider">📬 Job Digests</p>
+                <p className="text-[11px] font-extrabold uppercase text-slate-400 tracking-wider flex items-center gap-1.5"><Inbox className="w-3.5 h-3.5 text-purple-500" /> Job Digests</p>
                 <p className="text-xl font-black text-slate-900 dark:text-white mt-0.5">{sentEmailLogsTypeCounts.digest || 0}</p>
               </div>
-              <span className="px-2 py-0.5 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 font-extrabold text-[10px] uppercase border border-purple-500/20">COUNT ONLY</span>
-            </div>
+              <span className="px-2 py-0.5 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 font-extrabold text-[10px] uppercase border border-purple-500/20">FILTER</span>
+            </button>
 
-            <div className="bg-slate-100/80 dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => { setSentEmailLogsType('invite'); setSentEmailLogsPage(1); }}
+              className={`p-4 rounded-2xl border transition-all cursor-pointer text-left flex items-center justify-between ${
+                sentEmailLogsType === 'invite' ? 'bg-emerald-500/10 border-emerald-500/50 shadow-sm' : 'bg-slate-100/80 dark:bg-slate-900/80 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+              }`}
+            >
               <div>
-                <p className="text-[11px] font-extrabold uppercase text-slate-400 tracking-wider">👥 Invites</p>
+                <p className="text-[11px] font-extrabold uppercase text-slate-400 tracking-wider flex items-center gap-1.5"><Users className="w-3.5 h-3.5 text-emerald-500" /> Invites</p>
                 <p className="text-xl font-black text-slate-900 dark:text-white mt-0.5">{sentEmailLogsTypeCounts.invite || 0}</p>
               </div>
-              <span className="px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-extrabold text-[10px] uppercase border border-emerald-500/20">COUNT ONLY</span>
-            </div>
+              <span className="px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-extrabold text-[10px] uppercase border border-emerald-500/20">FILTER</span>
+            </button>
 
-            <div className="bg-slate-100/80 dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => { setSentEmailLogsType('reset'); setSentEmailLogsPage(1); }}
+              className={`p-4 rounded-2xl border transition-all cursor-pointer text-left flex items-center justify-between ${
+                sentEmailLogsType === 'reset' ? 'bg-amber-500/10 border-amber-500/50 shadow-sm' : 'bg-slate-100/80 dark:bg-slate-900/80 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+              }`}
+            >
               <div>
-                <p className="text-[11px] font-extrabold uppercase text-slate-400 tracking-wider">🔒 Resets</p>
+                <p className="text-[11px] font-extrabold uppercase text-slate-400 tracking-wider flex items-center gap-1.5"><Lock className="w-3.5 h-3.5 text-amber-500" /> Resets</p>
                 <p className="text-xl font-black text-slate-900 dark:text-white mt-0.5">{sentEmailLogsTypeCounts.reset || 0}</p>
               </div>
-              <span className="px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 font-extrabold text-[10px] uppercase border border-amber-500/20">COUNT ONLY</span>
-            </div>
+              <span className="px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 font-extrabold text-[10px] uppercase border border-amber-500/20">FILTER</span>
+            </button>
+            
+            <button
+              type="button"
+              onClick={() => { setSentEmailLogsType('broadcast'); setSentEmailLogsPage(1); }}
+              className={`p-4 rounded-2xl border transition-all cursor-pointer text-left flex items-center justify-between ${
+                sentEmailLogsType === 'broadcast' ? 'bg-purple-500/10 border-purple-500/50 shadow-sm' : 'bg-slate-100/80 dark:bg-slate-900/80 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+              }`}
+            >
+              <div>
+                <p className="text-[11px] font-extrabold uppercase text-slate-400 tracking-wider flex items-center gap-1.5"><Megaphone className="w-3.5 h-3.5 text-purple-500" /> Broadcasts</p>
+                <p className="text-xl font-black text-slate-900 dark:text-white mt-0.5">{sentEmailLogsTypeCounts.broadcast || 0}</p>
+              </div>
+              <span className="px-2 py-0.5 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 font-extrabold text-[10px] uppercase border border-purple-500/20">FILTER</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => { setSentEmailLogsType('test'); setSentEmailLogsPage(1); }}
+              className={`p-4 rounded-2xl border transition-all cursor-pointer text-left flex items-center justify-between ${
+                sentEmailLogsType === 'test' ? 'bg-amber-500/10 border-amber-500/50 shadow-sm' : 'bg-slate-100/80 dark:bg-slate-900/80 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+              }`}
+            >
+              <div>
+                <p className="text-[11px] font-extrabold uppercase text-slate-400 tracking-wider flex items-center gap-1.5"><FlaskConical className="w-3.5 h-3.5 text-amber-500" /> Admin Tests</p>
+                <p className="text-xl font-black text-slate-900 dark:text-white mt-0.5">{sentEmailLogsTypeCounts.test || 0}</p>
+              </div>
+              <span className="px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 font-extrabold text-[10px] uppercase border border-amber-500/20">FILTER</span>
+            </button>
           </div>
 
           <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <MailCheck className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-                  Admin Sent Email Audit History ({sentEmailLogsPagination.total})
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Detailed audit records, sender info, recipient logs, and HTML content previews for emails dispatched directly from the Admin Panel.
-                </p>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => toggleSection('sent_emails')}
+                  className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer transition-colors"
+                  title={collapsedSections.sent_emails ? 'Expand Section' : 'Collapse Section'}
+                >
+                  {collapsedSections.sent_emails ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
+                </button>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2 cursor-pointer select-none" onClick={() => toggleSection('sent_emails')}>
+                    <MailCheck className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                    Outbound Email Audit History ({sentEmailLogsPagination.total})
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    Comprehensive audit history, delivery logs, sender info, and HTML content previews for all emails sent from JobPingly (Admin &amp; Automated).
+                  </p>
+                </div>
               </div>
+              <button
+                type="button"
+                onClick={() => setShowPruneLogsModal(true)}
+                className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center gap-2 transition-colors cursor-pointer border border-slate-200 dark:border-slate-700 shrink-0"
+              >
+                <Database className="w-3.5 h-3.5 text-rose-500" /> Manage &amp; Prune DB Storage
+              </button>
             </div>
 
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              {/* Template Filter for Admin Panel Emails */}
-              <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-900 p-1.5 rounded-2xl overflow-x-auto">
-                <button
-                  onClick={() => { setSentEmailLogsType('all'); setSentEmailLogsPage(1); }}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
-                    sentEmailLogsType === 'all' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400'
-                  }`}
-                >
-                  All Admin Emails
+            {!collapsedSections.sent_emails && (
+              <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  {/* Category Filter Tabs */}
+                  <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-900 p-1.5 rounded-2xl overflow-x-auto">
+                    <button
+                      onClick={() => { setSentEmailLogsType('all'); setSentEmailLogsPage(1); }}
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+                        sentEmailLogsType === 'all' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                  All Emails
                   <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
                     sentEmailLogsType === 'all' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                  }`}>
+                    {sentEmailLogsTypeCounts.all || 0}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => { setSentEmailLogsType('admin_all'); setSentEmailLogsPage(1); }}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+                    sentEmailLogsType === 'admin_all' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  Admin Dispatched
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
+                    sentEmailLogsType === 'admin_all' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
                   }`}>
                     {sentEmailLogsTypeCounts.allAdmin || 0}
                   </span>
@@ -4430,10 +5174,10 @@ export default function AdminDashboardPage() {
                 <button
                   onClick={() => { setSentEmailLogsType('broadcast'); setSentEmailLogsPage(1); }}
                   className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
-                    sentEmailLogsType === 'broadcast' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400'
+                    sentEmailLogsType === 'broadcast' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
-                  📢 Broadcast Announcements
+                  <Megaphone className="w-3.5 h-3.5" /> Broadcasts
                   <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
                     sentEmailLogsType === 'broadcast' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
                   }`}>
@@ -4444,14 +5188,42 @@ export default function AdminDashboardPage() {
                 <button
                   onClick={() => { setSentEmailLogsType('test'); setSentEmailLogsPage(1); }}
                   className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
-                    sentEmailLogsType === 'test' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400'
+                    sentEmailLogsType === 'test' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
-                  🧪 Test Emails
+                  <FlaskConical className="w-3.5 h-3.5" /> Tests
                   <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
                     sentEmailLogsType === 'test' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
                   }`}>
                     {sentEmailLogsTypeCounts.test || 0}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => { setSentEmailLogsType('digest'); setSentEmailLogsPage(1); }}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+                    sentEmailLogsType === 'digest' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <Inbox className="w-3.5 h-3.5" /> Digests
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
+                    sentEmailLogsType === 'digest' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                  }`}>
+                    {sentEmailLogsTypeCounts.digest || 0}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => { setSentEmailLogsType('otp'); setSentEmailLogsPage(1); }}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+                    sentEmailLogsType === 'otp' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <KeyRound className="w-3.5 h-3.5" /> OTP
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
+                    sentEmailLogsType === 'otp' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                  }`}>
+                    {sentEmailLogsTypeCounts.otp || 0}
                   </span>
                 </button>
               </div>
@@ -4471,79 +5243,90 @@ export default function AdminDashboardPage() {
 
           <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
             <table className="w-full text-left border-collapse">
-              <thead className="bg-slate-100 dark:bg-slate-900/90 text-slate-600 dark:text-slate-400 uppercase font-semibold border-b border-slate-200 dark:border-slate-800 text-xs">
+              <thead className="bg-slate-100/90 dark:bg-slate-900/90 text-slate-500 dark:text-slate-400 uppercase font-extrabold border-b border-slate-200 dark:border-slate-800 text-[11px] tracking-wider">
                 <tr>
-                  <th className="py-3.5 px-4">Sent Time</th>
-                  <th className="py-3.5 px-4">Sender (From)</th>
-                  <th className="py-3.5 px-4">Recipient (To)</th>
-                  <th className="py-3.5 px-4">Template Type</th>
-                  <th className="py-3.5 px-4">Subject</th>
-                  <th className="py-3.5 px-4">Delivery Status</th>
-                  <th className="py-3.5 px-4 text-right">Actions</th>
+                  <th className="py-2.5 px-3.5">Sent Time</th>
+                  <th className="py-2.5 px-3.5">Sender (From)</th>
+                  <th className="py-2.5 px-3.5">Recipient (To)</th>
+                  <th className="py-2.5 px-3.5">Template</th>
+                  <th className="py-2.5 px-3.5">Subject</th>
+                  <th className="py-2.5 px-3.5">Status</th>
+                  <th className="py-2.5 px-3.5 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800/80 text-xs font-sans">
                 {loadingSentEmailLogs ? (
                   <tr>
-                    <td colSpan={7} className="py-8 text-center">
-                      <LoadingSpinner message="Loading sent email history logs..." fullPage={false} />
+                    <td colSpan={7} className="py-6 text-center">
+                      <LoadingSpinner message="Loading email logs..." fullPage={false} />
                     </td>
                   </tr>
                 ) : sentEmailLogsList.map(log => (
                   <tr key={log.id} className="hover:bg-slate-100/60 dark:hover:bg-slate-900/40 transition-colors">
-                    <td className="py-3.5 px-4 text-slate-500 font-mono whitespace-nowrap">
+                    <td className="py-2.5 px-3.5 text-slate-500 font-mono text-[11px] whitespace-nowrap">
                       {new Date(log.createdAt).toLocaleString()}
                     </td>
-                    <td className="py-3.5 px-4 whitespace-nowrap">
-                      {['broadcast', 'test', 'admin_custom'].includes(log.templateType) ? (
+                    <td className="py-2.5 px-3.5 whitespace-nowrap">
+                      {log.senderId || ['broadcast', 'test', 'admin_custom'].includes(log.templateType) ? (
                         <div className="flex items-center gap-1.5">
-                          <span className="font-mono font-bold text-purple-700 dark:text-purple-300 text-xs">{log.senderEmail || 'Admin'}</span>
-                          <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-500/30">ADMIN</span>
+                          <span className="font-mono font-bold text-purple-700 dark:text-purple-300 text-[11px] truncate max-w-[140px]">{log.senderEmail || 'Admin'}</span>
+                          <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold uppercase bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-500/30">ADMIN</span>
                         </div>
                       ) : (
                         <div className="flex items-center gap-1.5">
-                          <span className="font-mono text-slate-500 dark:text-slate-400 text-xs">{log.senderEmail || 'notifications@jobpingly.com'}</span>
-                          <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400">AUTOMATED</span>
+                          <span className="font-mono text-slate-500 dark:text-slate-400 text-[11px] truncate max-w-[140px]">{log.senderEmail || 'notifications@jobpingly.com'}</span>
+                          <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold uppercase bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400">AUTO</span>
                         </div>
                       )}
                     </td>
-                    <td className="py-3.5 px-4">
-                      <span className="font-bold text-slate-900 dark:text-white text-sm block">{log.recipientEmail}</span>
+                    <td className="py-2.5 px-3.5">
+                      <span className="font-mono font-semibold text-slate-900 dark:text-white text-xs block truncate max-w-[180px]">{log.recipientEmail}</span>
                     </td>
-                    <td className="py-3.5 px-4">
-                      <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
+                    <td className="py-2.5 px-3.5">
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
                         {log.templateType}
                       </span>
                     </td>
-                    <td className="py-3.5 px-4">
-                      <span className="font-semibold text-slate-800 dark:text-slate-200">{log.subject}</span>
+                    <td className="py-2.5 px-3.5">
+                      <span className="font-semibold text-slate-800 dark:text-slate-200 block truncate max-w-[220px]" title={log.subject}>{log.subject}</span>
                     </td>
-                    <td className="py-3.5 px-4">
-                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase border ${
+                    <td className="py-2.5 px-3.5">
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase border ${
                         log.status === 'sent'
                           ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
                           : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'
                       }`}>
-                        {log.status === 'sent' ? '✓ SENT' : 'FAILED'}
+                        <span className={`w-1.5 h-1.5 rounded-full ${log.status === 'sent' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                        {log.status === 'sent' ? 'SENT' : 'FAILED'}
                       </span>
                       {log.errorMessage && (
-                        <p className="text-[11px] text-rose-500 mt-1">{log.errorMessage}</p>
+                        <p className="text-[10px] text-rose-500 mt-0.5 truncate max-w-[150px]" title={log.errorMessage}>{log.errorMessage}</p>
                       )}
                     </td>
-                    <td className="py-3.5 px-4 text-right">
-                      {['broadcast', 'test', 'admin_custom'].includes(log.templateType) ? (
+                    <td className="py-2.5 px-3.5 text-right whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-1.5">
+                        {log.htmlContent ? (
+                          <button
+                            type="button"
+                            onClick={() => setInspectingEmailLog(log)}
+                            className="px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold text-[11px] flex items-center gap-1 shadow-sm cursor-pointer transition-colors whitespace-nowrap"
+                          >
+                            <Eye className="w-3 h-3" /> View
+                          </button>
+                        ) : (
+                          <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 italic block">
+                            Logged
+                          </span>
+                        )}
                         <button
                           type="button"
-                          onClick={() => setInspectingEmailLog(log)}
-                          className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs flex items-center gap-1.5 ml-auto shadow-sm cursor-pointer transition-colors whitespace-nowrap"
+                          onClick={() => handleDeleteSingleSentEmailLog(log.id)}
+                          title="Delete log entry"
+                          className="p-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 transition-colors cursor-pointer border border-rose-500/20"
                         >
-                          <Eye className="w-3.5 h-3.5" /> View Content
+                          <Trash2 className="w-3 h-3" />
                         </button>
-                      ) : (
-                        <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 italic block text-right">
-                          Count Tracked
-                        </span>
-                      )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -4584,6 +5367,8 @@ export default function AdminDashboardPage() {
                 </button>
               </div>
             </div>
+          )}
+          </div>
           )}
         </div>
       </div>
@@ -5554,6 +6339,131 @@ export default function AdminDashboardPage() {
                 className="px-5 py-2.5 rounded-xl bg-slate-900 text-white dark:bg-slate-800 dark:hover:bg-slate-700 font-bold text-xs cursor-pointer"
               >
                 Close Inspector
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Sent Email Storage & Cleanup Prune Modal */}
+      {showPruneLogsModal && mounted && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-xl w-full p-6 sm:p-8 space-y-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Database className="w-5 h-5 text-rose-500" />
+                  Manage Sent Email Storage &amp; Pruning
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Manage database storage size by purging heavy HTML bodies or deleting old audit logs.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPruneLogsModal(false)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Current Storage Stats Summary */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold text-slate-600 dark:text-slate-400">Total Email Logs:</span>
+                <span className="font-bold text-slate-900 dark:text-white font-mono">{sentEmailLogsPagination.total} logs</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold text-slate-600 dark:text-slate-400">Retention Strategy:</span>
+                <span className="font-bold text-emerald-600 dark:text-emerald-400">All HTML &amp; Metadata Tracked</span>
+              </div>
+            </div>
+
+            {/* Config Controls */}
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1.5 uppercase tracking-wider">
+                  Target Retention Window (Age Threshold)
+                </label>
+                <select
+                  value={pruneDays}
+                  onChange={e => setPruneDays(Number(e.target.value))}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-purple-600"
+                >
+                  <option value={7}>Older than 7 Days</option>
+                  <option value={14}>Older than 14 Days</option>
+                  <option value={30}>Older than 30 Days (Recommended)</option>
+                  <option value={60}>Older than 60 Days</option>
+                  <option value={90}>Older than 90 Days</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1.5 uppercase tracking-wider">
+                  Target Template Category
+                </label>
+                <select
+                  value={pruneTemplateType}
+                  onChange={e => setPruneTemplateType(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-purple-600"
+                >
+                  <option value="all">All Categories (Automated &amp; Admin)</option>
+                  <option value="digest">📬 Job Digests Only</option>
+                  <option value="otp">🔑 OTP Codes Only</option>
+                  <option value="invite">👥 Invites Only</option>
+                  <option value="reset">🔒 Password Resets Only</option>
+                  <option value="broadcast">📢 Broadcasts Only</option>
+                  <option value="test">🧪 Tests Only</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Prune Action Buttons */}
+            <div className="space-y-3 pt-2">
+              <button
+                type="button"
+                disabled={pruningLogs}
+                onClick={() => handlePruneLogsSubmit('purge_html')}
+                className="w-full p-3.5 rounded-2xl bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-between transition-all cursor-pointer shadow-sm"
+              >
+                <div className="text-left">
+                  <p className="font-extrabold flex items-center gap-1.5">
+                    <Trash2 className="w-4 h-4" /> Purge HTML Bodies Only (Keep Delivery History)
+                  </p>
+                  <p className="text-[11px] opacity-80 mt-0.5 font-normal">
+                    Frees heavy HTML text storage. Recipient, timestamp &amp; delivery status are kept forever.
+                  </p>
+                </div>
+                <span className="px-2.5 py-1 rounded-lg bg-white/20 text-white text-[10px] font-extrabold uppercase shrink-0">RECOMMENDED</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={pruningLogs}
+                onClick={() => handlePruneLogsSubmit('delete_logs')}
+                className="w-full p-3.5 rounded-2xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 disabled:opacity-50 text-rose-600 dark:text-rose-400 font-bold text-xs flex items-center justify-between transition-all cursor-pointer"
+              >
+                <div className="text-left">
+                  <p className="font-extrabold flex items-center gap-1.5">
+                    <Trash2 className="w-4 h-4" /> Delete Entire Log Records Permanently
+                  </p>
+                  <p className="text-[11px] opacity-80 mt-0.5 font-normal">
+                    Permanently removes both metadata and content for logs older than {pruneDays} days.
+                  </p>
+                </div>
+                <span className="px-2.5 py-1 rounded-lg bg-rose-500/20 text-rose-700 dark:text-rose-300 text-[10px] font-extrabold uppercase shrink-0">HARD DELETE</span>
+              </button>
+            </div>
+
+            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowPruneLogsModal(false)}
+                className="px-5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs cursor-pointer"
+              >
+                Cancel
               </button>
             </div>
           </div>

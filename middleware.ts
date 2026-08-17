@@ -84,17 +84,17 @@ export function middleware(req: NextRequest) {
   let windowMs = 60 * 1000;
 
   if (pathname.startsWith('/api/auth/')) {
-    limit = 20; // 20 requests per minute for auth endpoints
+    limit = 30; // 30 requests per minute for auth endpoints
     windowMs = 60 * 1000;
   } else if (pathname.startsWith('/api/admin/emails/test')) {
-    limit = 10; // 10 test emails per minute limit
+    limit = 100; // 100 test emails per minute limit for admin testing
     windowMs = 60 * 1000;
   } else if (pathname.startsWith('/api/admin/')) {
     limit = 300; // 300 requests per minute for admin actions & dashboard management
     windowMs = 60 * 1000;
   }
 
-  const rateKey = `${clientIp}:${pathname.split('/')[2] || 'api'}`;
+  const rateKey = `${clientIp}:${pathname}`;
   const rateLimit = checkRateLimit(rateKey, limit, windowMs);
 
   if (!rateLimit.allowed) {

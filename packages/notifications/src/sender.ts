@@ -1,8 +1,8 @@
-import { sendBrevoEmail } from '@/lib/email/brevo';
 import { isFeatureEnabled } from '@/lib/flags/check';
 import { db } from '@/lib/db/client';
 import { emailApprovals } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
+import { sendBrevoEmail, recordSentEmailLog } from '@/lib/email/brevo';
 
 export interface SendEmailDigestResult {
   success: boolean;
@@ -13,7 +13,7 @@ export interface SendEmailDigestResult {
   mocked?: boolean;
 }
 
-export async function sendEmailDigest(toEmail: string, userName: string, jobListings: { companyName: string; title: string; url?: string }[]): Promise<SendEmailDigestResult> {
+export async function sendEmailDigest(toEmail: string, userName: string, jobListings: { companyName: string; title: string; url?: string }[], options?: { senderId?: string; senderEmail?: string; isTest?: boolean }): Promise<SendEmailDigestResult> {
   // 1. Check feature flag
   const notificationsEnabled = await isFeatureEnabled('notifications.enabled', true);
   if (!notificationsEnabled) {
@@ -21,20 +21,32 @@ export async function sendEmailDigest(toEmail: string, userName: string, jobList
     return { success: false, disabled: true, error: 'Email notifications are currently disabled by administrator.' };
   }
 
-  // 2. Check admin approval status for target email
+  // 2. Check admin approval status for target email (Admin dispatches bypass approval check)
   const cleanEmail = toEmail.toLowerCase().trim();
-  const [approvalRecord] = await db.select().from(emailApprovals).where(eq(emailApprovals.email, cleanEmail));
+  const isAdminDispatch = Boolean(options?.senderId || options?.isTest);
 
-  if (!approvalRecord || approvalRecord.status !== 'approved') {
-    const statusStr = approvalRecord ? approvalRecord.status : 'not_requested';
-    console.log(`[Email Notifier] Email '${toEmail}' is not approved by admin (status: ${statusStr}). Skipping email delivery.`);
-    return { success: false, unapproved: true, error: `Email address is ${statusStr} for admin approval.` };
+  if (!isAdminDispatch) {
+    const [approvalRecord] = await db.select().from(emailApprovals).where(eq(emailApprovals.email, cleanEmail));
+
+    if (!approvalRecord || approvalRecord.status !== 'approved') {
+      const statusStr = approvalRecord ? approvalRecord.status : 'not_requested';
+      console.log(`[Email Notifier] Email '${toEmail}' is not approved by admin (status: ${statusStr}). Skipping email delivery.`);
+      
+      await recordSentEmailLog({
+        recipientEmail: cleanEmail,
+        subject: `[JobPingly] ${jobListings.length} New Job Openings Found Today`,
+        templateType: 'digest',
+        status: 'failed',
+        errorMessage: `Email address is ${statusStr} for admin approval`,
+        senderId: options?.senderId,
+        senderEmail: options?.senderEmail,
+      });
+
+      return { success: false, unapproved: true, error: `Email address is ${statusStr} for admin approval.` };
+    }
   }
 
-  if (!process.env.BREVO_API_KEY) {
-    console.log(`[Brevo Dev Fallback] Sending Digest to ${toEmail} with ${jobListings.length} jobs (BREVO_API_KEY is missing).`);
-    return { success: true, mocked: true };
-  }
+  // Process HTML digest payload
 
   const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://jobpingly.onrender.com').replace(/\/$/, '');
 
@@ -132,5 +144,7 @@ export async function sendEmailDigest(toEmail: string, userName: string, jobList
     htmlContent: html,
     textContent,
     templateType: 'digest',
+    senderId: options?.senderId,
+    senderEmail: options?.senderEmail,
   });
 }

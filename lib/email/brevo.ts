@@ -32,10 +32,8 @@ async function ensureSentEmailLogsTable() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
     `;
-    await client`
-      ALTER TABLE sent_email_logs ADD COLUMN IF NOT EXISTS html_content TEXT;
-      ALTER TABLE sent_email_logs ADD COLUMN IF NOT EXISTS sender_email TEXT;
-    `;
+    await client`ALTER TABLE sent_email_logs ADD COLUMN IF NOT EXISTS html_content TEXT;`;
+    await client`ALTER TABLE sent_email_logs ADD COLUMN IF NOT EXISTS sender_email TEXT;`;
     tableChecked = true;
   } catch (err: any) {
     console.error('[EnsureSentEmailLogsTable Error]', err.message);
@@ -58,7 +56,7 @@ export async function recordSentEmailLog(log: {
     const template = log.templateType || 'general';
     // Admin-dispatched emails ('broadcast', 'test', 'admin_custom') store full HTML body & Admin sender.
     // Automated system emails ('otp', 'digest', 'invite', 'reset') track count & status without storing heavy HTML body.
-    const isAdminDispatched = ['broadcast', 'test', 'admin_custom'].includes(template);
+    const isAdminDispatched = Boolean(log.senderId) || ['broadcast', 'test', 'admin_custom'].includes(template);
     const fromEmail = log.senderEmail || (isAdminDispatched ? 'admin@jobpingly.com' : (process.env.SENDER_EMAIL || process.env.EMAIL_FROM || 'notifications@jobpingly.com'));
 
     // Validate UUID format for senderId to prevent Postgres UUID syntax errors
@@ -74,7 +72,7 @@ export async function recordSentEmailLog(log: {
       templateType: template,
       status: log.status,
       errorMessage: log.errorMessage || null,
-      htmlContent: isAdminDispatched ? (log.htmlContent || null) : null,
+      htmlContent: log.htmlContent || null,
       senderId: validSenderId,
       metadata: log.metadata || {},
       createdAt: new Date(),
@@ -197,7 +195,7 @@ export async function sendBrevoEmail(options: SendEmailOptions): Promise<{ succe
 /**
  * Sends a 6-digit OTP verification email via Brevo.
  */
-export async function sendOtpVerificationEmail(toEmail: string, otpCode: string): Promise<{ success: boolean; error?: string }> {
+export async function sendOtpVerificationEmail(toEmail: string, otpCode: string, options?: { senderId?: string; senderEmail?: string }): Promise<{ success: boolean; error?: string }> {
   const htmlContent = `
 <!DOCTYPE html>
 <html>
@@ -267,6 +265,8 @@ export async function sendOtpVerificationEmail(toEmail: string, otpCode: string)
     htmlContent,
     textContent,
     templateType: 'otp',
+    senderId: options?.senderId,
+    senderEmail: options?.senderEmail,
   });
 }
 

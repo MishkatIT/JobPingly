@@ -16,6 +16,7 @@ export const users = pgTable('users', {
   blockedAt: timestamp('blocked_at', { withTimezone: true }),
   emailNotificationsEnabled: boolean('email_notifications_enabled').default(true).notNull(),
   notificationPreference: text('notification_preference').default('daily').notNull(), // 'instant' | 'daily' | 'weekly'
+  frequencyEnforcementExempt: boolean('frequency_enforcement_exempt').default(false).notNull(),
   socials: jsonb('socials'), // { github?: string, linkedin?: string, twitter?: string, website?: string }
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });

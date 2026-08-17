@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     if (template === 'otp') {
       // 1. Send OTP Verification Code Email
       const testOtp = Math.floor(100000 + Math.random() * 900000).toString();
-      result = await sendOtpVerificationEmail(cleanEmail, testOtp);
+      result = await sendOtpVerificationEmail(cleanEmail, testOtp, { senderId: adminUser.userId, senderEmail: adminUser.email });
     } else if (template === 'digest') {
       // 2. Send Sample Job Digest Email
       const mockJobs = [
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
         { companyName: 'Stripe', title: 'Staff Systems Architect', url: 'https://stripe.com/jobs' },
         { companyName: 'Vercel', title: 'Principal Platform Engineer', url: 'https://vercel.com/careers' },
       ];
-      result = await sendEmailDigest(cleanEmail, cleanEmail.split('@')[0], mockJobs);
+      result = await sendEmailDigest(cleanEmail, cleanEmail.split('@')[0], mockJobs, { senderId: adminUser.userId, senderEmail: adminUser.email, isTest: true });
     } else if (template === 'custom') {
       // 3. Send Custom Test Email
       const subject = customSubject?.trim() || 'JobPingly Admin Test Email';

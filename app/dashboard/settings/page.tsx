@@ -1,9 +1,12 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Settings, Bell, User, CheckCircle2, Clock, AlertTriangle, Trash2, Camera, Check, Globe } from 'lucide-react';
+import { Settings, Bell, User, CheckCircle2, Clock, AlertTriangle, Trash2, Camera, Check, Globe, Lock } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import LoadingSpinner from '@/components/LoadingSpinner';
+import { Badge } from '@/components/Badge';
+import { pluralize } from '@/lib/utils/pluralize';
+import { FREQUENCY_OPTIONS, formatFrequencyLabel } from '@/lib/utils/frequency';
 
 export default function SettingsPage() {
   const toast = useToast();
@@ -15,6 +18,7 @@ export default function SettingsPage() {
   const [emailNotificationsEnabled, setEmailNotificationsEnabled] = useState(true);
   const [notificationPreference, setNotificationPreference] = useState('daily');
   const [approvalStatus, setApprovalStatus] = useState('pending');
+  const [frequencyEnforcement, setFrequencyEnforcement] = useState<{ isEnforced: boolean; enforcedFrequency: string; isExempt: boolean } | null>(null);
   const [savingField, setSavingField] = useState<string | null>(null);
 
   // Social Links State
@@ -34,6 +38,9 @@ export default function SettingsPage() {
           setEmailNotificationsEnabled(data.user.emailNotificationsEnabled ?? true);
           setNotificationPreference(data.user.notificationPreference || 'daily');
           setApprovalStatus(data.user.emailApprovalStatus || 'pending');
+          if (data.user.frequencyEnforcement) {
+            setFrequencyEnforcement(data.user.frequencyEnforcement);
+          }
 
           const soc = data.user.socials || {};
           setGithub(soc.github || '');
@@ -458,8 +465,13 @@ export default function SettingsPage() {
 
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 flex items-center gap-2">
                   Notification Frequency
+                  {frequencyEnforcement?.isEnforced && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-500/30 text-[10px] font-extrabold uppercase">
+                      <Lock className="w-3 h-3" /> Enforced by Admin
+                    </span>
+                  )}
                 </label>
                 {savingField === 'frequency' && (
                   <span className="text-[10px] text-blue-500 font-semibold animate-pulse">Saving...</span>
@@ -468,13 +480,25 @@ export default function SettingsPage() {
               <select
                 value={notificationPreference}
                 onChange={handleFrequencyChange}
-                disabled={savingField === 'frequency'}
-                className="w-full px-4 py-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-blue-600 font-medium transition-colors disabled:opacity-50"
+                disabled={frequencyEnforcement?.isEnforced || savingField === 'frequency'}
+                className="w-full px-4 py-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-blue-600 font-medium transition-colors disabled:opacity-60 disabled:bg-slate-100 dark:disabled:bg-slate-950/50 cursor-pointer disabled:cursor-not-allowed"
               >
-                <option value="daily">Daily Digest (Recommended - 8:00 AM summary)</option>
-                <option value="instant">Instant Notification (Sends alert immediately upon update match)</option>
-                <option value="weekly">Weekly Digest (Summary every Monday)</option>
+                {FREQUENCY_OPTIONS.filter(o => o.value !== 'custom').map(opt => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+                {(!FREQUENCY_OPTIONS.some(o => o.value === notificationPreference && o.value !== 'custom') || notificationPreference.startsWith('custom_')) && (
+                  <option value={notificationPreference}>
+                    {formatFrequencyLabel(notificationPreference)}
+                  </option>
+                )}
               </select>
+              {frequencyEnforcement?.isEnforced && (
+                <p className="text-xs text-purple-600 dark:text-purple-400 mt-2 font-medium flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 shrink-0" /> Digest frequency is enforced by system administrator and bound to this choice.
+                </p>
+              )}
             </div>
           </div>
         </div>
