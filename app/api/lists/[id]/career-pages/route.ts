@@ -6,6 +6,7 @@ import { isUrlSafe } from '@/lib/security/ssrf';
 import { isFeatureEnabled } from '@/lib/flags/check';
 import { eq, and } from 'drizzle-orm';
 import { runScraperPipeline } from '@/packages/scraper/src/pipeline';
+import { ADMIN_MASTER_LIST_SLUG, excludePageFromAdminMasterList } from '@/lib/lists/admin-master';
 
 async function canModifyList(userId: string, userRole: string, listId: string) {
   if (userRole === 'admin') return true;
@@ -98,6 +99,19 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     careerPageId: page.id,
   }).onConflictDoNothing();
 
+  // Auto-link new career page to Admin Master Watchlists
+  const adminMasterLists = await db.select({ id: lists.id })
+    .from(lists)
+    .where(eq(lists.slug, ADMIN_MASTER_LIST_SLUG));
+
+  for (const mList of adminMasterLists) {
+    await db.insert(listCareerPages).values({
+      listId: mList.id,
+      careerPageId: page.id,
+      isPaused: false,
+    }).onConflictDoNothing().catch(() => null);
+  }
+
   // 4. Create User Subscription with Keywords
   const kwList = Array.isArray(positiveKeywords)
     ? positiveKeywords
@@ -144,6 +158,9 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   if (!allowed) {
     return NextResponse.json({ error: 'Watch list not found or unauthorized' }, { status: 404 });
   }
+
+  // Register explicit exclusion if deleting from an Admin Master List
+  await excludePageFromAdminMasterList(listId, careerPageId);
 
   // Remove career page from watch list junction table
   await db.delete(listCareerPages).where(and(

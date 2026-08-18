@@ -5,6 +5,8 @@ import { lists, listCareerPages, jobs, listSubscriptions, listCollaborators } fr
 import { isFeatureEnabled } from '@/lib/flags/check';
 import { eq, inArray, and, count, countDistinct, isNull } from 'drizzle-orm';
 
+import { ensureAdminMasterWatchlist, ADMIN_MASTER_LIST_SLUG } from '@/lib/lists/admin-master';
+
 // GET user lists with backend pagination + search
 export async function GET(req: NextRequest) {
   const tTotalStart = performance.now();
@@ -15,6 +17,11 @@ export async function GET(req: NextRequest) {
 
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // If user is admin, auto-sync and ensure Admin Master Watchlist
+  if (user.role === 'admin') {
+    await ensureAdminMasterWatchlist(user.userId);
   }
 
   const { searchParams } = new URL(req.url);
@@ -53,6 +60,13 @@ export async function GET(req: NextRequest) {
 
   // Combined owned + collaborator watch lists
   const combinedLists = [...userListsEnriched, ...collabListsEnriched];
+
+  // Pin Admin Master Watchlist at the very top for admin users
+  combinedLists.sort((a, b) => {
+    if (a.slug === ADMIN_MASTER_LIST_SLUG) return -1;
+    if (b.slug === ADMIN_MASTER_LIST_SLUG) return 1;
+    return 0;
+  });
 
   let filtered = combinedLists;
   if (search.trim()) {

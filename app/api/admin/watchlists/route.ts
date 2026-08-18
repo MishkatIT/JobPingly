@@ -4,12 +4,17 @@ import { db } from '@/lib/db/client';
 import { lists, users, listCareerPages, jobs } from '@/lib/db/schema';
 import { eq, desc, inArray, count } from 'drizzle-orm';
 
+import { ensureAdminMasterWatchlist } from '@/lib/lists/admin-master';
+
 // GET paginated watch lists for admin moderation
 export async function GET(req: NextRequest) {
   const adminUser = await requireAdmin(req);
   if (!adminUser) {
     return NextResponse.json({ error: 'Forbidden: Admin access required.' }, { status: 403 });
   }
+
+  // Ensure Admin Private Master Watchlist exists and is auto-synced
+  await ensureAdminMasterWatchlist(adminUser.userId);
 
   const { searchParams } = new URL(req.url);
   const search = searchParams.get('search');
