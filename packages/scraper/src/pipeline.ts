@@ -353,12 +353,34 @@ export async function runScraperPipeline(careerPageId: string, options?: { force
             );
 
             if (matched.isMatch && !isExcluded) {
-              await db.insert(notificationQueue).values({
-                userId: sub.userId,
-                jobId: insertedJob.id,
-                eventType: 'new',
-                keywordMatched: matched.matchedKeywords,
-              }).onConflictDoNothing().catch(() => null);
+              const existingPending = await db.select({ id: notificationQueue.id })
+                .from(notificationQueue)
+                .where(
+                  and(
+                    eq(notificationQueue.userId, sub.userId),
+                    eq(notificationQueue.jobId, insertedJob.id),
+                    isNull(notificationQueue.sentAt)
+                  )
+                )
+                .limit(1);
+
+              if (existingPending.length > 0) {
+                // Replace existing pending item with newest timestamp & matched keywords
+                await db.update(notificationQueue)
+                  .set({
+                    createdAt: new Date(),
+                    keywordMatched: matched.matchedKeywords,
+                  })
+                  .where(eq(notificationQueue.id, existingPending[0].id));
+              } else {
+                // Insert new pending notification queue item
+                await db.insert(notificationQueue).values({
+                  userId: sub.userId,
+                  jobId: insertedJob.id,
+                  eventType: 'new',
+                  keywordMatched: matched.matchedKeywords,
+                }).onConflictDoNothing().catch(() => null);
+              }
             }
           }
         }

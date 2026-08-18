@@ -4,7 +4,7 @@ import { users, passwordResets } from '@/lib/db/schema';
 import { generateRandomToken, hashToken } from '@/lib/auth/jwt';
 import { sendPasswordResetEmail } from '@/lib/email/brevo';
 import { checkRateLimit, getClientIp } from '@/lib/security/rateLimit';
-import { eq } from 'drizzle-orm';
+import { eq, desc } from 'drizzle-orm';
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,16 +18,30 @@ export async function POST(req: NextRequest) {
 
     const cleanEmail = email.toLowerCase().trim();
 
-    // Rate limiting: 5 password reset requests per email/IP in 15 mins
-    const rateLimit = checkRateLimit({
+    // 1. Short-term rate limit: max 5 requests per 15 minutes
+    const shortRateLimit = checkRateLimit({
       key: `forgot-password:${cleanEmail}:${clientIp}`,
       limit: 5,
       windowMs: 15 * 60 * 1000,
     });
 
-    if (!rateLimit.success) {
+    if (!shortRateLimit.success) {
       return NextResponse.json(
-        { error: `Too many password reset requests. Please try again in ${rateLimit.resetInSeconds} seconds.` },
+        { error: `Too many password reset requests. Please try again in ${shortRateLimit.resetInSeconds} seconds.` },
+        { status: 429 }
+      );
+    }
+
+    // 2. Daily hard limit: max 10 requests per 24 hours per email/IP
+    const dailyRateLimit = checkRateLimit({
+      key: `forgot-password-daily:${cleanEmail}:${clientIp}`,
+      limit: 10,
+      windowMs: 24 * 60 * 60 * 1000,
+    });
+
+    if (!dailyRateLimit.success) {
+      return NextResponse.json(
+        { error: 'Daily password reset limit reached (max 10 per day). Please try again tomorrow.' },
         { status: 429 }
       );
     }
@@ -35,7 +49,7 @@ export async function POST(req: NextRequest) {
     // Lookup user by email
     const [user] = await db.select().from(users).where(eq(users.email, cleanEmail));
 
-    // Always return clean success message
+    // Always return clean success message for invalid/blocked users to prevent email enumeration
     const genericSuccessResponse = NextResponse.json({
       success: true,
       message: 'Password reset instructions have been sent to your email address.',
@@ -43,6 +57,26 @@ export async function POST(req: NextRequest) {
 
     if (!user || user.isBlocked) {
       return genericSuccessResponse;
+    }
+
+    // 3. 60-Second Cooldown Check
+    const [latestReset] = await db.select()
+      .from(passwordResets)
+      .where(eq(passwordResets.userId, user.id))
+      .orderBy(desc(passwordResets.createdAt))
+      .limit(1);
+
+    if (latestReset && latestReset.createdAt) {
+      const timeSinceLastResetMs = Date.now() - new Date(latestReset.createdAt).getTime();
+      const COOLDOWN_MS = 60 * 1000;
+
+      if (timeSinceLastResetMs < COOLDOWN_MS) {
+        const remainingSeconds = Math.ceil((COOLDOWN_MS - timeSinceLastResetMs) / 1000);
+        return NextResponse.json(
+          { error: `Please wait ${remainingSeconds} seconds before requesting another password reset email.` },
+          { status: 429 }
+        );
+      }
     }
 
     // Generate secure random reset token

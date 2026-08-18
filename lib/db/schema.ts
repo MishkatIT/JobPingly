@@ -17,6 +17,8 @@ export const users = pgTable('users', {
   emailNotificationsEnabled: boolean('email_notifications_enabled').default(true).notNull(),
   notificationPreference: text('notification_preference').default('daily').notNull(), // 'instant' | 'daily' | 'weekly'
   frequencyEnforcementExempt: boolean('frequency_enforcement_exempt').default(false).notNull(),
+  quotaExempt: boolean('quota_exempt').default(false).notNull(),
+  dispatchGroup: integer('dispatch_group').default(1).notNull(),
   socials: jsonb('socials'), // { github?: string, linkedin?: string, twitter?: string, website?: string }
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
@@ -69,6 +71,7 @@ export const passwordResets = pgTable('password_resets', {
   tokenHash: text('token_hash').notNull().unique(),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   usedAt: timestamp('used_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
 // 6. Lists

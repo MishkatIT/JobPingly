@@ -14,7 +14,7 @@ export interface SendEmailOptions {
 }
 
 let tableChecked = false;
-async function ensureSentEmailLogsTable() {
+export async function ensureSentEmailLogsTable() {
   if (tableChecked) return;
   try {
     await client`
@@ -34,9 +34,38 @@ async function ensureSentEmailLogsTable() {
     `;
     await client`ALTER TABLE sent_email_logs ADD COLUMN IF NOT EXISTS html_content TEXT;`;
     await client`ALTER TABLE sent_email_logs ADD COLUMN IF NOT EXISTS sender_email TEXT;`;
+    await client`ALTER TABLE users ADD COLUMN IF NOT EXISTS quota_exempt BOOLEAN DEFAULT FALSE NOT NULL;`;
+    await client`ALTER TABLE users ADD COLUMN IF NOT EXISTS dispatch_group INTEGER DEFAULT 1 NOT NULL;`;
+    await client`ALTER TABLE password_resets ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL;`;
     tableChecked = true;
   } catch (err: any) {
     console.error('[EnsureSentEmailLogsTable Error]', err.message);
+  }
+}
+
+export async function getTodaySentEmailCount(): Promise<{ totalToday: number; sentToday: number; failedToday: number }> {
+  await ensureSentEmailLogsTable();
+  try {
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+
+    const [result] = await client`
+      SELECT 
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE status = 'sent')::int AS sent,
+        COUNT(*) FILTER (WHERE status = 'failed')::int AS failed
+      FROM sent_email_logs
+      WHERE created_at >= ${todayStart.toISOString()}
+    `;
+
+    return {
+      totalToday: result?.total || 0,
+      sentToday: result?.sent || 0,
+      failedToday: result?.failed || 0,
+    };
+  } catch (err: any) {
+    console.error('[getTodaySentEmailCount Error]', err.message);
+    return { totalToday: 0, sentToday: 0, failedToday: 0 };
   }
 }
 

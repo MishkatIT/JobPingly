@@ -60,3 +60,5 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+hidden.md

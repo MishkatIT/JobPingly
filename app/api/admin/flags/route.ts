@@ -8,6 +8,11 @@ const DEFAULT_FLAGS = [
   { key: 'auth.login_enabled', value: true, description: 'Enable user login' },
   { key: 'auth.signup_enabled', value: true, description: 'Enable new user registration' },
   { key: 'email.auto_approve_enabled', value: false, description: 'Auto approve new email addresses' },
+  { key: 'email.brevo_daily_limit', value: 300, description: 'Brevo REST API daily sending quota limit' },
+  { key: 'email.transactional_safety_buffer', value: 50, description: 'Safety reserve emails/day strictly kept for OTPs & password resets' },
+  { key: 'email.cohort_cycle_days', value: 3, description: 'Number of staggered daily cohorts ($K$ Days rotation)' },
+  { key: 'email.cohort_grouping_enabled', value: true, description: 'Stagger non-VIP notification digests across daily cohort groups to respect Brevo daily limit' },
+  { key: 'email.enforce_frequency_policy', value: false, description: 'Strictly enforce global daily digest frequency policy' },
   { key: 'limits.max_keywords_per_sub', value: 20, description: 'Max keywords per subscription filter' },
   { key: 'limits.max_lists_per_user', value: 10, description: 'Max watch lists per user account' },
   { key: 'limits.max_urls_per_list', value: 25, description: 'Max monitored career page URLs per watch list' },
@@ -19,15 +24,12 @@ const DEFAULT_FLAGS = [
 ];
 
 export async function GET(req: NextRequest) {
-  let flags = await db.select().from(featureFlags).orderBy(asc(featureFlags.key));
-  if (flags.length === 0) {
-    // Seed default flags if empty
-    for (const f of DEFAULT_FLAGS) {
-      await db.insert(featureFlags).values(f).onConflictDoNothing();
-    }
-    flags = await db.select().from(featureFlags).orderBy(asc(featureFlags.key));
+  // Ensure all default flags exist
+  for (const f of DEFAULT_FLAGS) {
+    await db.insert(featureFlags).values(f).onConflictDoNothing();
   }
 
+  const flags = await db.select().from(featureFlags).orderBy(asc(featureFlags.key));
   return NextResponse.json({ flags });
 }
 

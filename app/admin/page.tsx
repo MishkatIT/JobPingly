@@ -17,11 +17,12 @@ import { PublicUserProfileModal } from '@/components/PublicUserProfileModal';
 import { Badge } from '@/components/Badge';
 import { pluralize } from '@/lib/utils/pluralize';
 import { FREQUENCY_OPTIONS, formatFrequencyLabel, parseCustomFrequency, buildCustomFrequency, normalizeFrequencyValue } from '@/lib/utils/frequency';
+import SubscribersBrevoTab from '@/components/admin/SubscribersBrevoTab';
 
 export default function AdminDashboardPage() {
   const toast = useToast();
   const [mounted, setMounted] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'emails' | 'users' | 'watchlists' | 'unverified' | 'issues' | 'audit' | 'sent_emails' | 'companies'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'emails' | 'users' | 'watchlists' | 'unverified' | 'issues' | 'audit' | 'sent_emails' | 'companies' | 'subscribers'>('overview');
   const [data, setData] = useState<any>(null);
   const [flags, setFlags] = useState<any[]>([]);
   const [userList, setUserList] = useState<any[]>([]);
@@ -880,7 +881,7 @@ export default function AdminDashboardPage() {
     }
   };
 
-  const handleTabChange = (tab: 'overview' | 'emails' | 'users' | 'watchlists' | 'unverified' | 'issues' | 'audit' | 'sent_emails' | 'companies') => {
+  const handleTabChange = (tab: 'overview' | 'emails' | 'users' | 'watchlists' | 'unverified' | 'issues' | 'audit' | 'sent_emails' | 'companies' | 'subscribers') => {
     setActiveTab(tab);
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
@@ -897,7 +898,7 @@ export default function AdminDashboardPage() {
       const params = new URLSearchParams(window.location.search);
       const urlTab = params.get('tab') as any;
       const savedTab = localStorage.getItem('admin_active_tab') as any;
-      const validTabs = ['overview', 'emails', 'users', 'watchlists', 'unverified', 'issues', 'audit', 'sent_emails', 'companies'];
+      const validTabs = ['overview', 'emails', 'users', 'watchlists', 'unverified', 'issues', 'audit', 'sent_emails', 'companies', 'subscribers'];
       const initialTab = validTabs.includes(urlTab) ? urlTab : validTabs.includes(savedTab) ? savedTab : 'overview';
       if (initialTab !== activeTab) {
         setActiveTab(initialTab);
@@ -2005,20 +2006,20 @@ export default function AdminDashboardPage() {
             {/* Category 4: Emails, Issues & Audit */}
             <button
               type="button"
-              onClick={() => handleTabChange(['emails', 'sent_emails', 'issues', 'audit'].includes(activeTab) ? activeTab : 'emails')}
+              onClick={() => handleTabChange(['emails', 'sent_emails', 'subscribers', 'issues', 'audit'].includes(activeTab) ? activeTab : 'emails')}
               className={`p-3.5 rounded-2xl text-left border transition-all cursor-pointer flex items-center justify-between ${
-                ['emails', 'sent_emails', 'issues', 'audit'].includes(activeTab)
+                ['emails', 'sent_emails', 'subscribers', 'issues', 'audit'].includes(activeTab)
                   ? 'bg-amber-600 text-white border-amber-600 shadow-md ring-2 ring-amber-500/30'
                   : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50'
               }`}
             >
               <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-xl ${['emails', 'sent_emails', 'issues', 'audit'].includes(activeTab) ? 'bg-white/20 text-white' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'}`}>
+                <div className={`p-2 rounded-xl ${['emails', 'sent_emails', 'subscribers', 'issues', 'audit'].includes(activeTab) ? 'bg-white/20 text-white' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'}`}>
                   <Mail className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="font-extrabold text-xs">4. Emails &amp; Audit Logs</div>
-                  <div className={`text-[11px] font-medium ${['emails', 'sent_emails', 'issues', 'audit'].includes(activeTab) ? 'text-amber-100' : 'text-slate-500 dark:text-slate-400'}`}>Approvals &amp; Logs</div>
+                  <div className={`text-[11px] font-medium ${['emails', 'sent_emails', 'subscribers', 'issues', 'audit'].includes(activeTab) ? 'text-amber-100' : 'text-slate-500 dark:text-slate-400'}`}>Approvals &amp; Quotas</div>
                 </div>
               </div>
               {(pendingEmailCount > 0 || openIssuesCount > 0) && (
@@ -2080,7 +2081,7 @@ export default function AdminDashboardPage() {
             </div>
           )}
 
-          {['emails', 'sent_emails', 'issues', 'audit'].includes(activeTab) && (
+          {['emails', 'sent_emails', 'subscribers', 'issues', 'audit'].includes(activeTab) && (
             <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-900/90 p-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 animate-in fade-in duration-150 overflow-x-auto">
               <button
                 onClick={() => handleTabChange('emails')}
@@ -2091,6 +2092,17 @@ export default function AdminDashboardPage() {
                 }`}
               >
                 <Mail className="w-3.5 h-3.5" /> Email Approvals Queue ({pendingEmailCount})
+              </button>
+
+              <button
+                onClick={() => handleTabChange('subscribers')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+                  activeTab === 'subscribers'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <MailCheck className="w-3.5 h-3.5" /> Subscribers &amp; Brevo Quota
               </button>
 
               <button
@@ -2516,7 +2528,12 @@ export default function AdminDashboardPage() {
             </div>
           )}
           </div>
+        </div>
+      )}
 
+      {/* MONITORED CAREER PAGES & MASTER SCRAPE TIMER (CONTENT & PAGES TAB) */}
+      {activeTab === 'companies' && (
+        <div className="space-y-6">
           {/* Master Scrape Timer Control Bar (Placed directly above Monitored Career Pages) */}
           <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-4 shadow-sm">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -3905,6 +3922,11 @@ export default function AdminDashboardPage() {
           </div>
           )}
         </div>
+      )}
+
+      {/* SUBSCRIBERS & BREVO QUOTA SUITE */}
+      {activeTab === 'subscribers' && (
+        <SubscribersBrevoTab onInspectSubscriptions={handleInspectSubscriptions} />
       )}
 
       {/* ALL WATCH LISTS MODERATION TAB WITH SERVER PAGINATION & SEARCH */}

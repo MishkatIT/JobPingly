@@ -6,7 +6,7 @@ import { generateOtp, hashOtp } from '@/lib/auth/otp';
 import { sendOtpVerificationEmail } from '@/lib/email/brevo';
 import { isFeatureEnabled } from '@/lib/flags/check';
 import { checkRateLimit, getClientIp } from '@/lib/security/rateLimit';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 
 export async function POST(req: NextRequest) {
   try {
@@ -95,6 +95,10 @@ export async function POST(req: NextRequest) {
     const isAdminBootstrap = process.env.ADMIN_BOOTSTRAP_EMAIL && cleanEmail === process.env.ADMIN_BOOTSTRAP_EMAIL.toLowerCase().trim();
     const role = isAdminBootstrap ? 'admin' : 'user';
 
+    // Calculate round-robin cohort group assignment (Group 1, 2, or 3)
+    const [userCountRecord] = await db.select({ count: sql<number>`count(*)` }).from(users);
+    const assignedCohort = (Number(userCountRecord?.count || 0) % 3) + 1;
+
     const hashedPassword = await hashPassword(password);
     const [newUser] = await db.insert(users).values({
       email: cleanEmail,
@@ -103,6 +107,7 @@ export async function POST(req: NextRequest) {
       emailVerified: false, // Must verify OTP first
       role,
       emailNotificationsEnabled: true,
+      dispatchGroup: assignedCohort,
     }).returning();
 
     // Note: emailApprovals entry is created after the user verifies their OTP email address

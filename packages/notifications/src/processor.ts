@@ -1,7 +1,9 @@
 import { db } from '@/lib/db/client';
 import { notificationQueue, users, jobs, careerPages } from '@/lib/db/schema';
-import { eq, isNull, inArray } from 'drizzle-orm';
+import { eq, isNull, inArray, asc } from 'drizzle-orm';
 import { sendEmailDigest } from './sender';
+import { getTodaySentEmailCount } from '@/lib/email/brevo';
+import { isFeatureEnabled } from '@/lib/flags/check';
 
 export interface ProcessNotificationResult {
   processedCount: number;
@@ -11,8 +13,8 @@ export interface ProcessNotificationResult {
 
 /**
  * Drains and processes unsent items in notification_queue.
- * Groups pending alerts by user, checks user preferences & admin email approval,
- * dispatches digest emails via sendEmailDigest(), and marks items as sent.
+ * Enforces Brevo daily quota checks, transactional safety buffer, user exemptions,
+ * and staggered cohort rotations.
  */
 export async function processNotificationQueue(): Promise<ProcessNotificationResult> {
   console.log('[Notification Processor] Checking notification_queue for unsent job alerts...');
@@ -20,7 +22,29 @@ export async function processNotificationQueue(): Promise<ProcessNotificationRes
   const errors: string[] = [];
 
   try {
-    // 1. Fetch unsent notifications with user, job, and career page details
+    // Read persisted Brevo Quota, Safety Reserve & Cohort Cycle Configuration from PostgreSQL feature_flags
+    const envLimit = Number(process.env.BREVO_DAILY_LIMIT) || 300;
+    const envBuffer = Number(process.env.BREVO_SAFETY_BUFFER) || 50;
+
+    const brevoLimit = await isFeatureEnabled('email.brevo_daily_limit', envLimit);
+    const safetyBuffer = await isFeatureEnabled('email.transactional_safety_buffer', envBuffer);
+    const cycleDays = await isFeatureEnabled('email.cohort_cycle_days', 3);
+    const effectiveDigestLimit = Math.max(1, brevoLimit - safetyBuffer);
+
+    // Check if Admin Panel strict global frequency policy is enabled
+    const globalPolicyEnforced = await isFeatureEnabled('email.enforce_frequency_policy', false);
+
+    // Check if Cohort Grouping feature toggle is ON (default: true)
+    const cohortGroupingEnabled = await isFeatureEnabled('email.cohort_grouping_enabled', true);
+
+    // Compute today's active cohort group dynamically based on cycleDays ($K$ Days rotation)
+    const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 1000 / 60 / 60 / 24);
+    const todayCohort = (dayOfYear % Math.max(1, cycleDays)) + 1;
+
+    // 1. Fetch today's sent email status
+    let todayStats = await getTodaySentEmailCount();
+
+    // 2. Fetch unsent notifications with user, job, and career page details
     const pendingItems = await db.select({
       queueId: notificationQueue.id,
       userId: notificationQueue.userId,
@@ -30,6 +54,10 @@ export async function processNotificationQueue(): Promise<ProcessNotificationRes
       userName: users.name,
       emailNotificationsEnabled: users.emailNotificationsEnabled,
       isBlocked: users.isBlocked,
+      notificationPreference: users.notificationPreference,
+      frequencyEnforcementExempt: users.frequencyEnforcementExempt,
+      quotaExempt: users.quotaExempt,
+      dispatchGroup: users.dispatchGroup,
       jobTitle: jobs.title,
       jobUrl: jobs.url,
       companyName: careerPages.companyName,
@@ -38,16 +66,17 @@ export async function processNotificationQueue(): Promise<ProcessNotificationRes
     .innerJoin(users, eq(notificationQueue.userId, users.id))
     .innerJoin(jobs, eq(notificationQueue.jobId, jobs.id))
     .innerJoin(careerPages, eq(jobs.careerPageId, careerPages.id))
-    .where(isNull(notificationQueue.sentAt));
+    .where(isNull(notificationQueue.sentAt))
+    .orderBy(asc(notificationQueue.createdAt));
 
     if (pendingItems.length === 0) {
       console.log('[Notification Processor] No pending notifications to process.');
       return { processedCount: 0, emailsSent: 0, errors: [] };
     }
 
-    console.log(`[Notification Processor] Found ${pendingItems.length} pending notification item(s). Processing...`);
+    console.log(`[Notification Processor] Found ${pendingItems.length} pending notification item(s). Processing FIFO with quota limit ${effectiveDigestLimit}/day (Today sent: ${todayStats.sentToday}, Cohort Grouping: ${cohortGroupingEnabled ? 'ON' : 'OFF'})...`);
 
-    // 2. Group pending items by user ID
+    // 3. Group pending items by user ID preserving strict FIFO arrival order
     const userMap = new Map<string, typeof pendingItems>();
     for (const item of pendingItems) {
       const list = userMap.get(item.userId) || [];
@@ -58,7 +87,7 @@ export async function processNotificationQueue(): Promise<ProcessNotificationRes
     let totalEmailsSent = 0;
     let totalProcessed = 0;
 
-    // 3. Process notifications per user
+    // 4. Process notifications per user in strict FIFO order
     for (const [userId, items] of userMap.entries()) {
       const queueIds = items.map(i => i.queueId);
       const firstItem = items[0];
@@ -73,18 +102,53 @@ export async function processNotificationQueue(): Promise<ProcessNotificationRes
         continue;
       }
 
-      // Deduplicate job listings by jobId for this user
-      const jobMap = new Map<string, { companyName: string; title: string; url?: string }>();
-      for (const item of items) {
-        if (!jobMap.has(item.jobId)) {
-          jobMap.set(item.jobId, {
-            companyName: item.companyName || 'Unknown Company',
-            title: item.jobTitle,
-            url: item.jobUrl || undefined,
-          });
+      const isVipExempt = firstItem.quotaExempt;
+
+      // 1. Quota Guard Check:
+      // VIP users (quotaExempt = true) bypass the 300 Brevo daily limit completely!
+      // Regular non-VIP users check today's sent count against Brevo daily quota limit.
+      if (!isVipExempt && todayStats.sentToday >= effectiveDigestLimit) {
+        console.log(`[Notification Processor] Brevo daily quota limit reached (${todayStats.sentToday}/${effectiveDigestLimit}). Deferring delivery for non-VIP user ${firstItem.userEmail} to next cycle.`);
+        continue;
+      }
+
+      // 2. Cohort Grouping Rule (When turned ON):
+      // Applies universally to ALL non-VIP emails regardless of user preference (instant/daily/weekly) or admin settings.
+      // Designed specifically to budget daily quota and prevent crossing Brevo 300 limit.
+      if (cohortGroupingEnabled && !isVipExempt) {
+        if (firstItem.dispatchGroup !== todayCohort) {
+          console.log(`[Notification Processor] Cohort Grouping Active: User ${firstItem.userEmail} is in Group ${firstItem.dispatchGroup} (Today is Group ${todayCohort}). Deferring for scheduled cohort day.`);
+          continue;
         }
       }
-      const jobListings = Array.from(jobMap.values());
+
+      // Replace & prune older duplicate pending queue items for the same job for this user
+      const latestJobMap = new Map<string, typeof items[0]>();
+      const staleQueueIds: string[] = [];
+
+      for (const item of items) {
+        if (!latestJobMap.has(item.jobId)) {
+          latestJobMap.set(item.jobId, item);
+        } else {
+          // Found an older pending queue item for the same job - mark as replaced/pruned
+          staleQueueIds.push(item.queueId);
+        }
+      }
+
+      if (staleQueueIds.length > 0) {
+        console.log(`[Notification Processor] Replaced/pruned ${staleQueueIds.length} older duplicate pending queue item(s) for user ${firstItem.userEmail}.`);
+        await db.update(notificationQueue)
+          .set({ sentAt: new Date() })
+          .where(inArray(notificationQueue.id, staleQueueIds));
+      }
+
+      // Deduplicate job listings by jobId for this user
+      const freshItems = Array.from(latestJobMap.values());
+      const jobListings = freshItems.map(item => ({
+        companyName: item.companyName || 'Unknown Company',
+        title: item.jobTitle,
+        url: item.jobUrl || undefined,
+      }));
 
       try {
         const result = await sendEmailDigest(
@@ -103,6 +167,7 @@ export async function processNotificationQueue(): Promise<ProcessNotificationRes
 
           if (result.success || result.mocked) {
             totalEmailsSent++;
+            todayStats.sentToday++; // increment in-memory today sent count for loop
             console.log(`[Notification Processor] Sent digest email with ${jobListings.length} job(s) to ${firstItem.userEmail}.`);
           }
         } else if (result.error) {

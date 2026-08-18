@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
 
     const cleanEmail = email.toLowerCase().trim();
 
-    // Rate limit check: max 5 resends per email/IP in 15 mins
+    // 1. Short-term rate limit: max 5 resends per email/IP in 15 mins
     const rateLimit = checkRateLimit({
       key: `resend:${cleanEmail}:${clientIp}`,
       limit: 5,
@@ -28,6 +28,20 @@ export async function POST(req: NextRequest) {
     if (!rateLimit.success) {
       return NextResponse.json(
         { error: `Too many resend requests. Please try again in ${rateLimit.resetInSeconds} seconds.` },
+        { status: 429 }
+      );
+    }
+
+    // 2. Daily hard limit: max 10 OTP resend requests per 24 hours per email/IP
+    const dailyRateLimit = checkRateLimit({
+      key: `resend-daily:${cleanEmail}:${clientIp}`,
+      limit: 10,
+      windowMs: 24 * 60 * 60 * 1000,
+    });
+
+    if (!dailyRateLimit.success) {
+      return NextResponse.json(
+        { error: 'Daily verification code limit reached (max 10 per day). Please try again tomorrow.' },
         { status: 429 }
       );
     }
