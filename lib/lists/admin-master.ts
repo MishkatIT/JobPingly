@@ -52,15 +52,29 @@ export async function ensureAdminMasterWatchlist(adminUserId: string) {
     const allPages = await db.select({ id: careerPages.id }).from(careerPages);
     if (allPages.length === 0) return masterList;
 
-    // 3. Auto-sync missing career page links EXCEPT explicitly excluded ones
-    for (const page of allPages) {
-      if (excludedSet.has(page.id)) continue; // Skip explicitly removed items!
+    // 3. Fetch existing linked page IDs for this master list
+    const existingLinks = await db
+      .select({ careerPageId: listCareerPages.careerPageId })
+      .from(listCareerPages)
+      .where(eq(listCareerPages.listId, masterList.id));
+    const existingSet = new Set(existingLinks.map(l => l.careerPageId));
 
-      await db.insert(listCareerPages).values({
+    // 4. Find pages that are missing and not explicitly excluded
+    const missingPages = allPages.filter(p => !existingSet.has(p.id) && !excludedSet.has(p.id));
+
+    // 5. Batch insert missing career page links
+    if (missingPages.length > 0) {
+      const recordsToInsert = missingPages.map(p => ({
         listId: masterList.id,
-        careerPageId: page.id,
+        careerPageId: p.id,
         isPaused: false,
-      }).onConflictDoNothing().catch(() => null);
+      }));
+
+      const BATCH_SIZE = 500;
+      for (let i = 0; i < recordsToInsert.length; i += BATCH_SIZE) {
+        const batch = recordsToInsert.slice(i, i + BATCH_SIZE);
+        await db.insert(listCareerPages).values(batch).onConflictDoNothing().catch(() => null);
+      }
     }
 
     return masterList;

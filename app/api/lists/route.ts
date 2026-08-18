@@ -77,48 +77,42 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // Bulk fetch company counts & active job counts across all user watch lists
+  // Bulk fetch company counts & active job counts across all user watch lists directly in SQL
   const allListIds = filtered.map(l => l.id);
-  const allListPages = allListIds.length > 0
-    ? await db
-        .select({ listId: listCareerPages.listId, careerPageId: listCareerPages.careerPageId })
+  const companyCountByListId = new Map<string, number>();
+  const jobCountByListId = new Map<string, number>();
+
+  if (allListIds.length > 0) {
+    const [companyCounts, jobCounts] = await Promise.all([
+      db
+        .select({
+          listId: listCareerPages.listId,
+          companyCount: countDistinct(listCareerPages.careerPageId),
+        })
         .from(listCareerPages)
         .where(inArray(listCareerPages.listId, allListIds))
-    : [];
+        .groupBy(listCareerPages.listId),
+      db
+        .select({
+          listId: listCareerPages.listId,
+          jobCount: count(jobs.id),
+        })
+        .from(listCareerPages)
+        .innerJoin(jobs, and(eq(jobs.careerPageId, listCareerPages.careerPageId), eq(jobs.status, 'active')))
+        .where(inArray(listCareerPages.listId, allListIds))
+        .groupBy(listCareerPages.listId),
+    ]);
 
-  const pagesByListId = new Map<string, string[]>();
-  allListPages.forEach(lp => {
-    const arr = pagesByListId.get(lp.listId) || [];
-    arr.push(lp.careerPageId);
-    pagesByListId.set(lp.listId, arr);
-  });
-
-  const uniqueCareerPageIds = Array.from(new Set(allListPages.map(lp => lp.careerPageId)));
-  const jobCountByPageId = new Map<string, number>();
-
-  if (uniqueCareerPageIds.length > 0) {
-    const groupedJobs = await db
-      .select({
-        careerPageId: jobs.careerPageId,
-        jobCount: count(),
-      })
-      .from(jobs)
-      .where(and(inArray(jobs.careerPageId, uniqueCareerPageIds), eq(jobs.status, 'active')))
-      .groupBy(jobs.careerPageId);
-
-    groupedJobs.forEach(g => {
-      jobCountByPageId.set(g.careerPageId, Number(g.jobCount));
-    });
+    companyCounts.forEach(c => companyCountByListId.set(c.listId, Number(c.companyCount)));
+    jobCounts.forEach(j => jobCountByListId.set(j.listId, Number(j.jobCount)));
   }
 
   const enrichedAll = filtered.map(l => {
-    const cPageIds = pagesByListId.get(l.id) || [];
-    const jobCount = cPageIds.reduce((sum, cpId) => sum + (jobCountByPageId.get(cpId) || 0), 0);
     return {
       ...l,
       followerCount: l.followerCount || 0,
-      companyCount: cPageIds.length,
-      jobCount,
+      companyCount: companyCountByListId.get(l.id) || 0,
+      jobCount: jobCountByListId.get(l.id) || 0,
     };
   });
 
@@ -153,37 +147,27 @@ export async function GET(req: NextRequest) {
   const startIndex = (page - 1) * limit;
   const paginated = enrichedAll.slice(startIndex, startIndex + limit);
 
-  // OPTIMIZED: Calculate unique stats using SQL COUNT DISTINCT and COUNT aggregates
+  // OPTIMIZED: Calculate unique stats using SQL COUNT DISTINCT and JOIN aggregates in parallel
   const tStatsStart = performance.now();
   const allUserListIds = combinedLists.map(l => l.id);
   let totalUniqueCompanies = 0;
   let totalActiveJobs = 0;
 
   if (allUserListIds.length > 0) {
-    const [compRes] = await db
-      .select({ uniqueCompanies: countDistinct(listCareerPages.careerPageId) })
-      .from(listCareerPages)
-      .where(inArray(listCareerPages.listId, allUserListIds));
-
-    totalUniqueCompanies = Number(compRes?.uniqueCompanies || 0);
-
-    if (totalUniqueCompanies > 0) {
-      const userListPages = await db
-        .select({ careerPageId: listCareerPages.careerPageId })
+    const [compRes, jobsRes] = await Promise.all([
+      db
+        .select({ uniqueCompanies: countDistinct(listCareerPages.careerPageId) })
         .from(listCareerPages)
-        .where(inArray(listCareerPages.listId, allUserListIds));
+        .where(inArray(listCareerPages.listId, allUserListIds)),
+      db
+        .select({ totalJobs: countDistinct(jobs.id) })
+        .from(listCareerPages)
+        .innerJoin(jobs, and(eq(jobs.careerPageId, listCareerPages.careerPageId), eq(jobs.status, 'active')))
+        .where(inArray(listCareerPages.listId, allUserListIds)),
+    ]);
 
-      const uniquePageIds = Array.from(new Set(userListPages.map(p => p.careerPageId)));
-
-      if (uniquePageIds.length > 0) {
-        const [jobsRes] = await db
-          .select({ totalJobs: count() })
-          .from(jobs)
-          .where(and(inArray(jobs.careerPageId, uniquePageIds), eq(jobs.status, 'active')));
-        
-        totalActiveJobs = Number(jobsRes?.totalJobs || 0);
-      }
-    }
+    totalUniqueCompanies = Number(compRes[0]?.uniqueCompanies || 0);
+    totalActiveJobs = Number(jobsRes[0]?.totalJobs || 0);
   }
   const tStatsEnd = performance.now();
 
