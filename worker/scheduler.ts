@@ -5,7 +5,7 @@ import { runScraperPipeline, autoRemoveExpiredJobsFromDb } from '@/packages/scra
 import { processNotificationQueue } from '@/packages/notifications/src/processor';
 import { isFeatureEnabled } from '@/lib/flags/check';
 
-const POLL_INTERVAL_MS = Number(process.env.WORKER_POLL_INTERVAL_MS) || 10000;
+const POLL_INTERVAL_MS = Number(process.env.WORKER_POLL_INTERVAL_MS) || 60000;
 let isRunning = false;
 let lastDailyCleanupAt = 0;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -15,7 +15,7 @@ export async function processDuePages() {
   isRunning = true;
 
   try {
-    // Check feature flag
+    // Check feature flag (cached in-memory)
     const scraperEnabled = await isFeatureEnabled('scraper.enabled', true);
     if (!scraperEnabled) {
       console.log('[JobPingly Worker] Scraper execution is disabled via feature flag.');
@@ -32,8 +32,15 @@ export async function processDuePages() {
 
     const now = new Date();
 
-    // Find all career pages due for check (excluding manually paused pages)
-    const duePages = await db.select()
+    // Find all career pages due for check (excluding manually paused pages) - select specific columns only
+    const duePages = await db.select({
+      id: careerPages.id,
+      url: careerPages.url,
+      companyName: careerPages.companyName,
+      status: careerPages.status,
+      nextCheckAt: careerPages.nextCheckAt,
+      lastScrapedAt: careerPages.lastScrapedAt,
+    })
       .from(careerPages)
       .where(and(
         ne(careerPages.status, 'paused'),
