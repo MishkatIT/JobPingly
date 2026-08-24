@@ -6,7 +6,7 @@ import Link from 'next/link';
 import {
   ShieldAlert, Cpu, Zap, RefreshCw, Flag, Layers, Users, Activity, History, UserCheck,
   ExternalLink, Play, Search, ArrowLeft, Mail, CheckCircle2, Clock, XCircle, Plus, CheckCheck, CheckSquare, Square, PauseCircle, PlayCircle, Timer, Sliders, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Lock, Trash2, Ban, MailCheck, UserX, Edit3, Globe, Eye, X,
-  LayoutGrid, Grid2X2, List, Crown, GitFork, Send, Database, KeyRound, Megaphone, FlaskConical, Inbox
+  LayoutGrid, Grid2X2, List, Crown, GitFork, Send, Database, KeyRound, Megaphone, FlaskConical, Inbox, Server
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import { useAuth } from '@/components/auth/AuthContext';
@@ -18,15 +18,21 @@ import { Badge } from '@/components/Badge';
 import { pluralize } from '@/lib/utils/pluralize';
 import { FREQUENCY_OPTIONS, formatFrequencyLabel, parseCustomFrequency, buildCustomFrequency, normalizeFrequencyValue } from '@/lib/utils/frequency';
 import SubscribersBrevoTab from '@/components/admin/SubscribersBrevoTab';
+import SystemStatusView from '@/components/admin/SystemStatusView';
 
 export default function AdminDashboardPage() {
   const toast = useToast();
   const [mounted, setMounted] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'emails' | 'users' | 'watchlists' | 'unverified' | 'issues' | 'audit' | 'sent_emails' | 'companies' | 'subscribers'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'emails' | 'users' | 'watchlists' | 'unverified' | 'issues' | 'audit' | 'sent_emails' | 'companies' | 'subscribers' | 'system_status'>('overview');
   const [data, setData] = useState<any>(null);
   const [flags, setFlags] = useState<any[]>([]);
   const [userList, setUserList] = useState<any[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [systemHealthSummary, setSystemHealthSummary] = useState<{
+    overallStatus: 'operational' | 'degraded' | 'outage';
+    offlineCount: number;
+    degradedCount: number;
+  } | null>(null);
 
   // Watch Lists Paginated State (Admin Moderation)
   const [watchlistList, setWatchlistList] = useState<any[]>([]);
@@ -888,7 +894,7 @@ export default function AdminDashboardPage() {
     }
   };
 
-  const handleTabChange = (tab: 'overview' | 'emails' | 'users' | 'watchlists' | 'unverified' | 'issues' | 'audit' | 'sent_emails' | 'companies' | 'subscribers') => {
+  const handleTabChange = (tab: 'overview' | 'emails' | 'users' | 'watchlists' | 'unverified' | 'issues' | 'audit' | 'sent_emails' | 'companies' | 'subscribers' | 'system_status') => {
     setActiveTab(tab);
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
@@ -905,7 +911,7 @@ export default function AdminDashboardPage() {
       const params = new URLSearchParams(window.location.search);
       const urlTab = params.get('tab') as any;
       const savedTab = localStorage.getItem('admin_active_tab') as any;
-      const validTabs = ['overview', 'emails', 'users', 'watchlists', 'unverified', 'issues', 'audit', 'sent_emails', 'companies', 'subscribers'];
+      const validTabs = ['overview', 'emails', 'users', 'watchlists', 'unverified', 'issues', 'audit', 'sent_emails', 'companies', 'subscribers', 'system_status'];
       const initialTab = validTabs.includes(urlTab) ? urlTab : validTabs.includes(savedTab) ? savedTab : 'overview';
       if (initialTab !== activeTab) {
         setActiveTab(initialTab);
@@ -916,6 +922,20 @@ export default function AdminDashboardPage() {
     fetchPaginatedUsers(1, '', 10, 'all');
     fetchUnverifiedUsers(1, '', 10);
     fetchPaginatedIssues(1, '', 10, 'open', 'all');
+
+    // Background health summary fetch for status badges
+    fetch('/api/admin/system-status')
+      .then(res => res.json())
+      .then(resData => {
+        if (resData && resData.summary) {
+          setSystemHealthSummary({
+            overallStatus: resData.overallStatus,
+            offlineCount: resData.summary.offlineCount || 0,
+            degradedCount: resData.summary.degradedCount || 0,
+          });
+        }
+      })
+      .catch(() => null);
 
     // Periodic background auto-sync runner for due links (every 60s)
     const autoSyncInterval = setInterval(() => {
@@ -1941,25 +1961,36 @@ export default function AdminDashboardPage() {
         <div className="border-t border-slate-200 dark:border-slate-800/80 pt-5 space-y-4">
           {/* Tier 1: Main Category Cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            {/* Category 1: Overview */}
+            {/* Category 1: Overview & System Status */}
             <button
               type="button"
-              onClick={() => handleTabChange('overview')}
+              onClick={() => handleTabChange(['overview', 'system_status'].includes(activeTab) ? activeTab : 'overview')}
               className={`p-3.5 rounded-2xl text-left border transition-all cursor-pointer flex items-center justify-between ${
-                activeTab === 'overview'
+                ['overview', 'system_status'].includes(activeTab)
                   ? 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-500/30'
                   : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50'
               }`}
             >
               <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-xl ${activeTab === 'overview' ? 'bg-white/20 text-white' : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'}`}>
+                <div className={`p-2 rounded-xl ${['overview', 'system_status'].includes(activeTab) ? 'bg-white/20 text-white' : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'}`}>
                   <Activity className="w-5 h-5" />
                 </div>
                 <div>
-                  <div className="font-extrabold text-xs">1. Overview</div>
-                  <div className={`text-[11px] font-medium ${activeTab === 'overview' ? 'text-blue-100' : 'text-slate-500 dark:text-slate-400'}`}>System &amp; Scrapers</div>
+                  <div className="font-extrabold text-xs">1. System & Health</div>
+                  <div className={`text-[11px] font-medium ${['overview', 'system_status'].includes(activeTab) ? 'text-blue-100' : 'text-slate-500 dark:text-slate-400'}`}>Overview &amp; Service Status</div>
                 </div>
               </div>
+
+              {systemHealthSummary && systemHealthSummary.offlineCount > 0 ? (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500 text-white animate-pulse flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                  {systemHealthSummary.offlineCount} Offline
+                </span>
+              ) : systemHealthSummary && systemHealthSummary.degradedCount > 0 ? (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500 text-white">
+                  {systemHealthSummary.degradedCount} Degraded
+                </span>
+              ) : null}
             </button>
 
             {/* Category 2: Content & Scraping */}
@@ -2038,6 +2069,44 @@ export default function AdminDashboardPage() {
           </div>
 
           {/* Tier 2: Sub-Tab Pills Bar */}
+          {['overview', 'system_status'].includes(activeTab) && (
+            <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-900/90 p-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 animate-in fade-in duration-150 overflow-x-auto">
+              <button
+                type="button"
+                onClick={() => handleTabChange('overview')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+                  activeTab === 'overview'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Activity className="w-3.5 h-3.5" /> System &amp; Scrapers Overview
+              </button>
+              <button
+                type="button"
+                onClick={() => handleTabChange('system_status')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+                  activeTab === 'system_status'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Server className="w-3.5 h-3.5" /> Services &amp; Health Status
+                {systemHealthSummary && systemHealthSummary.offlineCount > 0 && (
+                  <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500 text-white animate-pulse flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                    {systemHealthSummary.offlineCount} Offline
+                  </span>
+                )}
+                {systemHealthSummary && systemHealthSummary.offlineCount === 0 && systemHealthSummary.degradedCount > 0 && (
+                  <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500 text-white">
+                    {systemHealthSummary.degradedCount} Degraded
+                  </span>
+                )}
+              </button>
+            </div>
+          )}
+
           {['companies', 'watchlists'].includes(activeTab) && (
             <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-900/90 p-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 animate-in fade-in duration-150 overflow-x-auto">
               <button
@@ -2151,6 +2220,11 @@ export default function AdminDashboardPage() {
 
       {/* ACTIVE TAB CONTENT AREA WITH FIXED MIN-HEIGHT TO PREVENT STRUCTURE MOVEMENT */}
       <div className="min-h-[600px] transition-all duration-150">
+        {/* SYSTEM & SERVICE HEALTH STATUS TAB */}
+        {activeTab === 'system_status' && (
+          <SystemStatusView />
+        )}
+
         {/* OVERVIEW TAB */}
         {activeTab === 'overview' && (
         <div className="space-y-6">
