@@ -58,3 +58,36 @@ export function buildCustomFrequency(num: number, unit: 'hours' | 'days' | 'week
   const safeNum = Math.max(1, Math.floor(num));
   return `custom_${safeNum}_${unit}`;
 }
+
+export function getFrequencyIntervalMs(frequency: string): number {
+  if (!frequency) return 24 * 60 * 60 * 1000;
+  const norm = normalizeFrequencyValue(frequency);
+  switch (norm) {
+    case 'realtime':
+    case 'instant':
+      return 0;
+    case 'every_6_hours':
+      return 6 * 60 * 60 * 1000;
+    case 'every_12_hours':
+      return 12 * 60 * 60 * 1000;
+    case 'daily':
+      return 24 * 60 * 60 * 1000;
+    case 'twice_weekly':
+      return 3.5 * 24 * 60 * 60 * 1000;
+    case 'weekly':
+      return 7 * 24 * 60 * 60 * 1000;
+    case 'biweekly':
+      return 14 * 24 * 60 * 60 * 1000;
+    case 'monthly':
+      return 30 * 24 * 60 * 60 * 1000;
+    default:
+      if (frequency.startsWith('custom_')) {
+        const { num, unit } = parseCustomFrequency(frequency);
+        if (unit === 'hours') return num * 60 * 60 * 1000;
+        if (unit === 'days') return num * 24 * 60 * 60 * 1000;
+        if (unit === 'weeks') return num * 7 * 24 * 60 * 60 * 1000;
+      }
+      return 24 * 60 * 60 * 1000;
+  }
+}
+

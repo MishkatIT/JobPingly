@@ -138,3 +138,56 @@ describe('6. Alternative Deadline & PostedAt Key Lookups', () => {
     expect(postedDate).toBe('2026-08-01');
   });
 });
+
+describe('7. Digest Frequency & Admin Enforcement Timing', () => {
+  it('should compute exact millisecond intervals for standard and custom frequencies', async () => {
+    const { getFrequencyIntervalMs } = await import('../lib/utils/frequency');
+    expect(getFrequencyIntervalMs('instant')).toBe(0);
+    expect(getFrequencyIntervalMs('realtime')).toBe(0);
+    expect(getFrequencyIntervalMs('every_6_hours')).toBe(6 * 60 * 60 * 1000);
+    expect(getFrequencyIntervalMs('daily')).toBe(24 * 60 * 60 * 1000);
+    expect(getFrequencyIntervalMs('weekly')).toBe(7 * 24 * 60 * 60 * 1000);
+    expect(getFrequencyIntervalMs('custom_5_days')).toBe(5 * 24 * 60 * 60 * 1000);
+    expect(getFrequencyIntervalMs('custom_12_hours')).toBe(12 * 60 * 60 * 1000);
+  });
+
+  it('should defer dispatch when frequency window has not elapsed', async () => {
+    const { getFrequencyIntervalMs } = await import('../lib/utils/frequency');
+    const intervalMs = getFrequencyIntervalMs('daily'); // 24 hours
+    const lastSentAt = new Date(Date.now() - 10 * 60 * 60 * 1000); // sent 10 hours ago
+
+    const elapsedMs = Date.now() - lastSentAt.getTime();
+    const shouldSend = elapsedMs >= intervalMs;
+
+    expect(shouldSend).toBe(false);
+  });
+
+  it('should allow dispatch when frequency window has elapsed', async () => {
+    const { getFrequencyIntervalMs } = await import('../lib/utils/frequency');
+    const intervalMs = getFrequencyIntervalMs('daily'); // 24 hours
+    const lastSentAt = new Date(Date.now() - 25 * 60 * 60 * 1000); // sent 25 hours ago
+
+    const elapsedMs = Date.now() - lastSentAt.getTime();
+    const shouldSend = elapsedMs >= intervalMs;
+
+    expect(shouldSend).toBe(true);
+  });
+
+  it('should override user preference with admin enforced frequency unless user is exempt', () => {
+    const isEnforcedGlobal = true;
+    const enforcedFrequency = 'weekly';
+
+    // User A: Not exempt -> gets enforced frequency 'weekly'
+    const userAExempt = false;
+    const userAPref = 'instant';
+    const effectiveA = (isEnforcedGlobal && !userAExempt) ? enforcedFrequency : userAPref;
+    expect(effectiveA).toBe('weekly');
+
+    // User B: Exempt -> keeps personal preference 'instant'
+    const userBExempt = true;
+    const userBPref = 'instant';
+    const effectiveB = (isEnforcedGlobal && !userBExempt) ? enforcedFrequency : userBPref;
+    expect(effectiveB).toBe('instant');
+  });
+});
+

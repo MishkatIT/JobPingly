@@ -17,6 +17,8 @@ const DEFAULT_FLAGS = [
   { key: 'limits.max_lists_per_user', value: 10, description: 'Max watch lists per user account' },
   { key: 'limits.max_urls_per_list', value: 25, description: 'Max monitored career page URLs per watch list' },
   { key: 'notifications.enabled', value: true, description: 'Enable email digest sending' },
+  { key: 'notifications.enforce_frequency', value: false, description: 'Enforce admin set notification digest frequency globally' },
+  { key: 'notifications.enforced_frequency_value', value: 'daily', description: 'The global enforced notification digest frequency' },
   { key: 'public_lists.enabled', value: true, description: 'Enable public list directory' },
   { key: 'scraper.enabled', value: true, description: 'Enable background scraper execution' },
   { key: 'scraper.global_check_interval_minutes', value: 180, description: 'Global master scrape check interval in minutes' },

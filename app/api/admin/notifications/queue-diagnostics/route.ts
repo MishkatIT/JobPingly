@@ -23,6 +23,12 @@ export async function GET(req: NextRequest) {
   // Check global notifications flag
   const notificationsEnabled = await isFeatureEnabled('notifications.enabled', true);
 
+  // Check admin frequency enforcement status
+  const isEnforcedGlobal1 = await isFeatureEnabled('notifications.enforce_frequency', false);
+  const isEnforcedGlobal2 = await isFeatureEnabled('email.enforce_frequency_policy', false);
+  const globalPolicyEnforced = Boolean(isEnforcedGlobal1 || isEnforcedGlobal2);
+  const enforcedFrequencyValue = await isFeatureEnabled('notifications.enforced_frequency_value', 'daily');
+
   // Fetch today's sent email count
   const todayStats = await getTodaySentEmailCount();
   const effectiveLimit = Math.max(1, brevoLimit - safetyBuffer);
@@ -72,6 +78,9 @@ export async function GET(req: NextRequest) {
     let reasonKey = 'ready_to_send';
     let reasonLabel = 'Ready to Send';
 
+    const isEnforced = globalPolicyEnforced && !item.frequencyEnforcementExempt;
+    const effectivePref = isEnforced ? String(enforcedFrequencyValue) : (item.notificationPreference || 'daily');
+
     if (!notificationsEnabled) {
       reasonKey = 'feature_flag_disabled';
       reasonLabel = 'Notifications Feature Flag Disabled';
@@ -81,15 +90,15 @@ export async function GET(req: NextRequest) {
     } else if (appStatus && appStatus !== 'approved') {
       reasonKey = 'pending_admin_approval';
       reasonLabel = `Admin Approval Pending (${appStatus})`;
-    } else if (quotaReached && !item.quotaExempt && item.notificationPreference !== 'instant') {
+    } else if (quotaReached && !item.quotaExempt) {
       reasonKey = 'brevo_daily_quota_reached';
       reasonLabel = `Brevo Quota Reached (${todayStats.sentToday}/${effectiveLimit})`;
-    } else if (!item.quotaExempt && item.dispatchGroup !== todayCohort && item.notificationPreference === 'daily') {
+    } else if (!item.quotaExempt && item.dispatchGroup !== todayCohort) {
       reasonKey = 'staggered_cohort_waiting';
       reasonLabel = `Waiting Cohort Day (Group ${item.dispatchGroup}, Today is Group ${todayCohort})`;
-    } else if (item.notificationPreference === 'weekly' && !item.frequencyEnforcementExempt) {
+    } else if (effectivePref === 'weekly' && !item.quotaExempt) {
       reasonKey = 'frequency_digest_window';
-      reasonLabel = 'Waiting for Weekly Digest Window';
+      reasonLabel = isEnforced ? `Waiting for Enforced Digest Window (${effectivePref})` : 'Waiting for Weekly Digest Window';
     }
 
     return {

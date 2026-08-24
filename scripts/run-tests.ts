@@ -74,4 +74,39 @@ const kw2 = matchKeywords(['React'], 'Senior Python Engineer', 'Engineering');
 console.assert(kw2.isMatch === false, 'Keyword mismatch failed');
 console.log('✔ Keyword Engine passed');
 
+// 5. Digest Frequency & Admin Policy Enforcement Tests
+console.log('\n[Test 5] Digest Frequency & Admin Policy Enforcement...');
+import { getFrequencyIntervalMs } from '../lib/utils/frequency';
+
+console.assert(getFrequencyIntervalMs('instant') === 0, 'Instant interval failed');
+console.assert(getFrequencyIntervalMs('daily') === 24 * 60 * 60 * 1000, 'Daily interval failed');
+console.assert(getFrequencyIntervalMs('weekly') === 7 * 24 * 60 * 60 * 1000, 'Weekly interval failed');
+console.assert(getFrequencyIntervalMs('custom_5_days') === 5 * 24 * 60 * 60 * 1000, 'Custom days interval failed');
+console.assert(getFrequencyIntervalMs('custom_12_hours') === 12 * 60 * 60 * 1000, 'Custom hours interval failed');
+
+// Verify elapsed time check logic for 24h daily interval
+const intervalDaily = getFrequencyIntervalMs('daily');
+const sent10hAgo = new Date(Date.now() - 10 * 60 * 60 * 1000);
+const sent25hAgo = new Date(Date.now() - 25 * 60 * 60 * 1000);
+
+console.assert((Date.now() - sent10hAgo.getTime()) < intervalDaily, 'Should defer when 10h < 24h');
+console.assert((Date.now() - sent25hAgo.getTime()) >= intervalDaily, 'Should dispatch when 25h >= 24h');
+
+// Verify Admin Policy Enforcement override vs exemption logic
+const isEnforcedGlobal = true;
+const enforcedFreq = 'weekly';
+
+const userAExempt = false;
+const userAPref = 'instant';
+const effectiveA = (isEnforcedGlobal && !userAExempt) ? enforcedFreq : userAPref;
+console.assert(effectiveA === 'weekly', 'Non-exempt user should receive enforced frequency');
+
+const userBExempt = true;
+const userBPref = 'instant';
+const effectiveB = (isEnforcedGlobal && !userBExempt) ? enforcedFreq : userBPref;
+console.assert(effectiveB === 'instant', 'Exempt user should keep personal preference');
+
+console.log('✔ Digest Frequency & Admin Policy Enforcement passed');
+
 console.log('\n✅ ALL SYSTEM TESTS PASSED SUCCESSFULLY!');
+

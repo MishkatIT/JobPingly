@@ -1,9 +1,10 @@
 import { db } from '@/lib/db/client';
 import { notificationQueue, users, jobs, careerPages } from '@/lib/db/schema';
-import { eq, isNull, inArray, asc } from 'drizzle-orm';
+import { eq, isNull, isNotNull, inArray, asc, desc, and } from 'drizzle-orm';
 import { sendEmailDigest } from './sender';
 import { getTodaySentEmailCount } from '@/lib/email/brevo';
 import { isFeatureEnabled } from '@/lib/flags/check';
+import { getFrequencyIntervalMs } from '@/lib/utils/frequency';
 
 export interface ProcessNotificationResult {
   processedCount: number;
@@ -14,7 +15,7 @@ export interface ProcessNotificationResult {
 /**
  * Drains and processes unsent items in notification_queue.
  * Enforces Brevo daily quota checks, transactional safety buffer, user exemptions,
- * and staggered cohort rotations.
+ * user digest frequency settings, admin frequency policies, and staggered cohort rotations.
  */
 export async function processNotificationQueue(): Promise<ProcessNotificationResult> {
   console.log('[Notification Processor] Checking notification_queue for unsent job alerts...');
@@ -32,7 +33,10 @@ export async function processNotificationQueue(): Promise<ProcessNotificationRes
     const effectiveDigestLimit = Math.max(1, brevoLimit - safetyBuffer);
 
     // Check if Admin Panel strict global frequency policy is enabled
-    const globalPolicyEnforced = await isFeatureEnabled('email.enforce_frequency_policy', false);
+    const isEnforcedGlobal1 = await isFeatureEnabled('notifications.enforce_frequency', false);
+    const isEnforcedGlobal2 = await isFeatureEnabled('email.enforce_frequency_policy', false);
+    const globalPolicyEnforced = Boolean(isEnforcedGlobal1 || isEnforcedGlobal2);
+    const enforcedFrequencyValue = await isFeatureEnabled('notifications.enforced_frequency_value', 'daily');
 
     // Check if Cohort Grouping feature toggle is ON (default: true)
     const cohortGroupingEnabled = await isFeatureEnabled('email.cohort_grouping_enabled', true);
@@ -74,7 +78,7 @@ export async function processNotificationQueue(): Promise<ProcessNotificationRes
       return { processedCount: 0, emailsSent: 0, errors: [] };
     }
 
-    console.log(`[Notification Processor] Found ${pendingItems.length} pending notification item(s). Processing FIFO with quota limit ${effectiveDigestLimit}/day (Today sent: ${todayStats.sentToday}, Cohort Grouping: ${cohortGroupingEnabled ? 'ON' : 'OFF'})...`);
+    console.log(`[Notification Processor] Found ${pendingItems.length} pending notification item(s). Processing FIFO with quota limit ${effectiveDigestLimit}/day (Today sent: ${todayStats.sentToday}, Cohort Grouping: ${cohortGroupingEnabled ? 'ON' : 'OFF'}, Frequency Policy Enforced: ${globalPolicyEnforced ? 'YES' : 'NO'})...`);
 
     // 3. Group pending items by user ID preserving strict FIFO arrival order
     const userMap = new Map<string, typeof pendingItems>();
@@ -104,7 +108,35 @@ export async function processNotificationQueue(): Promise<ProcessNotificationRes
 
       const isVipExempt = firstItem.quotaExempt;
 
-      // 1. Quota Guard Check:
+      // 1. Effective Digest Frequency & Frequency Elapsed Window Check:
+      // VIP users (quotaExempt = true) bypass timing window delays.
+      const isEnforced = globalPolicyEnforced && !firstItem.frequencyEnforcementExempt;
+      const effectiveFrequency = isEnforced ? String(enforcedFrequencyValue) : (firstItem.notificationPreference || 'daily');
+      const frequencyIntervalMs = getFrequencyIntervalMs(effectiveFrequency);
+
+      if (!isVipExempt && frequencyIntervalMs > 0) {
+        const [lastSentRecord] = await db.select({ sentAt: notificationQueue.sentAt })
+          .from(notificationQueue)
+          .where(and(
+            eq(notificationQueue.userId, userId),
+            isNotNull(notificationQueue.sentAt)
+          ))
+          .orderBy(desc(notificationQueue.sentAt))
+          .limit(1);
+
+        if (lastSentRecord?.sentAt) {
+          const lastSentMs = new Date(lastSentRecord.sentAt).getTime();
+          const elapsedMs = Date.now() - lastSentMs;
+          if (elapsedMs < frequencyIntervalMs) {
+            const elapsedHours = (elapsedMs / (1000 * 60 * 60)).toFixed(1);
+            const requiredHours = (frequencyIntervalMs / (1000 * 60 * 60)).toFixed(1);
+            console.log(`[Notification Processor] Digest frequency window not elapsed for ${firstItem.userEmail} (Effective Frequency: '${effectiveFrequency}', Elapsed: ${elapsedHours}h < ${requiredHours}h required). Deferring delivery.`);
+            continue;
+          }
+        }
+      }
+
+      // 2. Quota Guard Check:
       // VIP users (quotaExempt = true) bypass the 300 Brevo daily limit completely!
       // Regular non-VIP users check today's sent count against Brevo daily quota limit.
       if (!isVipExempt && todayStats.sentToday >= effectiveDigestLimit) {
@@ -112,8 +144,8 @@ export async function processNotificationQueue(): Promise<ProcessNotificationRes
         continue;
       }
 
-      // 2. Cohort Grouping Rule (When turned ON):
-      // Applies universally to ALL non-VIP emails regardless of user preference (instant/daily/weekly) or admin settings.
+      // 3. Cohort Grouping Rule (When turned ON):
+      // Applies universally to ALL non-VIP emails regardless of user preference or admin settings.
       // Designed specifically to budget daily quota and prevent crossing Brevo 300 limit.
       if (cohortGroupingEnabled && !isVipExempt) {
         if (firstItem.dispatchGroup !== todayCohort) {
@@ -121,6 +153,7 @@ export async function processNotificationQueue(): Promise<ProcessNotificationRes
           continue;
         }
       }
+
 
       // Replace & prune older duplicate pending queue items for the same job for this user
       const latestJobMap = new Map<string, typeof items[0]>();
