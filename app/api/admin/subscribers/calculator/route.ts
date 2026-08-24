@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
 import { users, listSubscriptions } from '@/lib/db/schema';
-import { eq, gte, count, sql } from 'drizzle-orm';
-import { getTodaySentEmailCount, ensureSentEmailLogsTable } from '@/lib/email/brevo';
-
+import { eq, and, sql, gte, inArray } from 'drizzle-orm';
+import { getTodaySentEmailCount } from '@/lib/email/brevo';
 import { isFeatureEnabled } from '@/lib/flags/check';
 
 export async function GET(req: NextRequest) {
@@ -12,8 +11,6 @@ export async function GET(req: NextRequest) {
   if (!adminUser) {
     return NextResponse.json({ error: 'Forbidden: Admin access required.' }, { status: 403 });
   }
-
-  await ensureSentEmailLogsTable();
 
   const persistedLimit = await isFeatureEnabled('email.brevo_daily_limit', 300);
   const persistedBuffer = await isFeatureEnabled('email.transactional_safety_buffer', 50);
@@ -26,36 +23,30 @@ export async function GET(req: NextRequest) {
   const bestCasePct = Math.max(1, Math.min(100, Number(searchParams.get('bestCasePct')) || 20));
   const customPct = Math.max(1, Math.min(100, Number(searchParams.get('customPct')) || 75));
 
-  // 1. Fetch total subscribers & active subscriptions count per user
-  const allUsers = await db.select({
-    id: users.id,
-    isBlocked: users.isBlocked,
-    emailNotificationsEnabled: users.emailNotificationsEnabled,
-    quotaExempt: users.quotaExempt,
-    createdAt: users.createdAt,
-  }).from(users);
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-  const subCounts = await db.select({
-    userId: listSubscriptions.userId,
-    watchedCount: count(listSubscriptions.id),
-  })
-  .from(listSubscriptions)
-  .groupBy(listSubscriptions.userId);
+  // Fast SQL aggregate query instead of pulling all user records over wire
+  const [userStatsRes, activeWatcherRes] = await Promise.all([
+    db.select({
+      total: sql<number>`COUNT(*)::int`,
+      last30Days: sql<number>`COUNT(*) FILTER (WHERE ${users.createdAt} >= ${thirtyDaysAgo.toISOString()})::int`,
+    }).from(users),
 
-  const subCountMap = new Map<string, number>();
-  for (const sc of subCounts) {
-    subCountMap.set(sc.userId, Number(sc.watchedCount));
-  }
+    db.select({
+      activeWatchersCount: sql<number>`COUNT(DISTINCT ${users.id})::int`,
+      exemptWatchersCount: sql<number>`COUNT(DISTINCT ${users.id}) FILTER (WHERE ${users.quotaExempt} = true)::int`,
+    })
+    .from(users)
+    .innerJoin(listSubscriptions, eq(users.id, listSubscriptions.userId))
+    .where(and(eq(users.isBlocked, false), eq(users.emailNotificationsEnabled, true))),
+  ]);
 
-  const totalSubscribers = allUsers.length;
-  // Active subscribers are strictly users with notifications enabled, not blocked, and watching AT LEAST 1 list!
-  const activeSubscribersList = allUsers.filter(u =>
-    !u.isBlocked &&
-    u.emailNotificationsEnabled &&
-    (subCountMap.get(u.id) || 0) > 0
-  );
-  const activeSubscribers = activeSubscribersList.length;
-  const exemptSubscribers = activeSubscribersList.filter(u => u.quotaExempt).length;
+  const totalSubscribers = Number(userStatsRes[0]?.total || 0);
+  const newUsersLast30Days = Number(userStatsRes[0]?.last30Days || 0);
+
+  const activeSubscribers = Number(activeWatcherRes[0]?.activeWatchersCount || 0);
+  const exemptSubscribers = Number(activeWatcherRes[0]?.exemptWatchersCount || 0);
   const regularActiveSubscribers = Math.max(0, activeSubscribers - exemptSubscribers);
 
   // Effective daily limit for digest emails
@@ -92,11 +83,6 @@ export async function GET(req: NextRequest) {
   // Recommended Cohort Cycle Days K
   const recommendedCohortCount = Math.max(1, Math.ceil(activeSubscribers / effectiveDigestLimit));
 
-  // 2. Growth Rate & Quota Exhaustion Forecasting
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-  const newUsersLast30Days = allUsers.filter(u => u.createdAt && new Date(u.createdAt) >= thirtyDaysAgo).length;
   const weeklyGrowthRate = Math.round((newUsersLast30Days / 30) * 7 * 10) / 10; // new users per week
 
   let daysUntilLimitExceeded: number | null = null;

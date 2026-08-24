@@ -78,7 +78,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const isRecentlyChecked = (now - lastCheckMs) < 5 * 60 * 1000;
 
     if (!forceParam && isRecentlyChecked) {
-      const activeJobs = await db.select()
+      const activeJobs = await db.select({ id: jobs.id })
         .from(jobs)
         .where(and(eq(jobs.careerPageId, pageId), eq(jobs.status, 'active')));
 

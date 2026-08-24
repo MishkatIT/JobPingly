@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth/guard';
+import { requireAdmin, invalidateUserSessionCache } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
 import { users, listSubscriptions, emailApprovals, sentEmailLogs } from '@/lib/db/schema';
-import { eq, inArray, desc, sql, count } from 'drizzle-orm';
-import { getTodaySentEmailCount, ensureSentEmailLogsTable } from '@/lib/email/brevo';
+import { eq, inArray, desc, sql, count, and } from 'drizzle-orm';
+import { getTodaySentEmailCount } from '@/lib/email/brevo';
+import { redisGet, redisSet, redisDel } from '@/lib/redis/client';
+
+const METRICS_CACHE_KEY = 'admin:subscribers:summary_metrics';
 
 export async function GET(req: NextRequest) {
   const adminUser = await requireAdmin(req);
@@ -11,70 +14,91 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden: Admin access required.' }, { status: 403 });
   }
 
-  await ensureSentEmailLogsTable();
-
   const { searchParams } = new URL(req.url);
-  const search = searchParams.get('search')?.trim().toLowerCase();
+  const search = searchParams.get('search')?.trim();
   const frequencyFilter = searchParams.get('frequency');
   const groupFilter = searchParams.get('group');
   const exemptFilter = searchParams.get('exempt');
-  const subscriptionFilter = searchParams.get('subscription'); // 'active_subscribed' | 'zero_watched' | 'all'
   const page = Math.max(1, Number(searchParams.get('page')) || 1);
   const limit = Math.max(1, Math.min(100, Number(searchParams.get('limit')) || 10));
 
-  // 1. Fetch all users with email notifications enabled
-  const allSubscribers = await db.select({
-    id: users.id,
-    name: users.name,
-    email: users.email,
-    emailVerified: users.emailVerified,
-    role: users.role,
-    isBlocked: users.isBlocked,
-    emailNotificationsEnabled: users.emailNotificationsEnabled,
-    notificationPreference: users.notificationPreference,
-    frequencyEnforcementExempt: users.frequencyEnforcementExempt,
-    quotaExempt: users.quotaExempt,
-    dispatchGroup: users.dispatchGroup,
-    createdAt: users.createdAt,
-  })
-  .from(users)
-  .orderBy(desc(users.createdAt));
+  const conditions = [];
 
-  // 2. Fetch email approvals map
-  const approvalsList = await db.select().from(emailApprovals);
-  const approvalMap = new Map<string, string>();
-  for (const app of approvalsList) {
-    approvalMap.set(app.email.toLowerCase(), app.status);
+  if (search) {
+    const s = `%${search}%`;
+    conditions.push(
+      sql`(${users.email} ILIKE ${s} OR ${users.name} ILIKE ${s})`
+    );
   }
 
-  // 3. Fetch list subscriptions counts per user
-  const subCounts = await db.select({
-    userId: listSubscriptions.userId,
-    watchedCount: count(listSubscriptions.id),
-  })
-  .from(listSubscriptions)
-  .groupBy(listSubscriptions.userId);
-
-  const subCountMap = new Map<string, number>();
-  for (const sc of subCounts) {
-    subCountMap.set(sc.userId, Number(sc.watchedCount));
+  if (frequencyFilter && frequencyFilter !== 'all') {
+    conditions.push(eq(users.notificationPreference, frequencyFilter));
   }
 
-  // 4. Fetch latest sent email log per user recipient
-  const latestLogs = await db.select({
-    recipientEmail: sentEmailLogs.recipientEmail,
-    lastSentAt: sql<string>`MAX(${sentEmailLogs.createdAt})`,
-  })
-  .from(sentEmailLogs)
-  .groupBy(sentEmailLogs.recipientEmail);
-
-  const lastSentMap = new Map<string, string>();
-  for (const l of latestLogs) {
-    lastSentMap.set(l.recipientEmail.toLowerCase(), l.lastSentAt);
+  if (groupFilter && groupFilter !== 'all') {
+    const gNum = Number(groupFilter);
+    if (!isNaN(gNum)) {
+      conditions.push(eq(users.dispatchGroup, gNum));
+    }
   }
 
-  // Format recipient roster
-  const fullRoster = allSubscribers.map(u => {
+  if (exemptFilter && exemptFilter !== 'all') {
+    if (exemptFilter === 'quota_exempt') conditions.push(eq(users.quotaExempt, true));
+    if (exemptFilter === 'freq_exempt') conditions.push(eq(users.frequencyEnforcementExempt, true));
+    if (exemptFilter === 'regular') {
+      conditions.push(and(eq(users.quotaExempt, false), eq(users.frequencyEnforcementExempt, false)));
+    }
+  }
+
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const [totalRes, paginatedUsers] = await Promise.all([
+    db.select({ count: sql<number>`count(*)::int` }).from(users).where(whereClause),
+    db.select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      emailVerified: users.emailVerified,
+      role: users.role,
+      isBlocked: users.isBlocked,
+      emailNotificationsEnabled: users.emailNotificationsEnabled,
+      notificationPreference: users.notificationPreference,
+      frequencyEnforcementExempt: users.frequencyEnforcementExempt,
+      quotaExempt: users.quotaExempt,
+      dispatchGroup: users.dispatchGroup,
+      createdAt: users.createdAt,
+    })
+    .from(users)
+    .where(whereClause)
+    .orderBy(desc(users.createdAt))
+    .limit(limit)
+    .offset((page - 1) * limit),
+  ]);
+
+  const total = Number(totalRes[0]?.count || 0);
+  const totalPages = Math.ceil(total / limit) || 1;
+
+  // Enrich ONLY the paginated user slice
+  const userIds = paginatedUsers.map(u => u.id);
+  const userEmails = paginatedUsers.map(u => u.email.toLowerCase());
+
+  const [approvalsList, subCounts, latestLogs] = await Promise.all([
+    userEmails.length > 0
+      ? db.select({ email: emailApprovals.email, status: emailApprovals.status }).from(emailApprovals).where(inArray(emailApprovals.email, userEmails))
+      : Promise.resolve([]),
+    userIds.length > 0
+      ? db.select({ userId: listSubscriptions.userId, watchedCount: count(listSubscriptions.id) }).from(listSubscriptions).where(inArray(listSubscriptions.userId, userIds)).groupBy(listSubscriptions.userId)
+      : Promise.resolve([]),
+    userEmails.length > 0
+      ? db.select({ recipientEmail: sentEmailLogs.recipientEmail, lastSentAt: sql<string>`MAX(${sentEmailLogs.createdAt})` }).from(sentEmailLogs).where(inArray(sentEmailLogs.recipientEmail, userEmails)).groupBy(sentEmailLogs.recipientEmail)
+      : Promise.resolve([]),
+  ]);
+
+  const approvalMap = new Map(approvalsList.map(a => [a.email.toLowerCase(), a.status]));
+  const subCountMap = new Map(subCounts.map(sc => [sc.userId, Number(sc.watchedCount)]));
+  const lastSentMap = new Map(latestLogs.map(l => [l.recipientEmail.toLowerCase(), l.lastSentAt]));
+
+  const paginated = paginatedUsers.map(u => {
     const e = u.email.toLowerCase();
     const appStatus = approvalMap.get(e) || (u.emailVerified ? 'approved' : 'pending');
     return {
@@ -85,90 +109,59 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  // Apply filters
-  let filtered = fullRoster;
+  // Summary Metrics (Consolidated Single SQL Query + Redis Cache)
+  let cachedMetrics = await redisGet<any>(METRICS_CACHE_KEY);
 
-  if (search) {
-    filtered = filtered.filter(u =>
-      u.email.toLowerCase().includes(search) ||
-      (u.name && u.name.toLowerCase().includes(search))
-    );
-  }
+  if (!cachedMetrics) {
+    const [summaryRes, todayStats] = await Promise.all([
+      db.select({
+        totalSubscribers: sql<number>`COUNT(*)::int`,
+        quotaExemptCount: sql<number>`COUNT(*) FILTER (WHERE ${users.quotaExempt} = true)::int`,
+        freqExemptCount: sql<number>`COUNT(*) FILTER (WHERE ${users.frequencyEnforcementExempt} = true)::int`,
+        instantCount: sql<number>`COUNT(*) FILTER (WHERE ${users.notificationPreference} = 'instant')::int`,
+        dailyCount: sql<number>`COUNT(*) FILTER (WHERE ${users.notificationPreference} = 'daily')::int`,
+        weeklyCount: sql<number>`COUNT(*) FILTER (WHERE ${users.notificationPreference} = 'weekly')::int`,
+      }).from(users),
+      getTodaySentEmailCount(),
+    ]);
 
-  if (frequencyFilter && frequencyFilter !== 'all') {
-    filtered = filtered.filter(u => u.notificationPreference === frequencyFilter);
-  }
-
-  if (groupFilter && groupFilter !== 'all') {
-    const gNum = Number(groupFilter);
-    if (!isNaN(gNum)) {
-      filtered = filtered.filter(u => u.dispatchGroup === gNum);
-    }
-  }
-
-  if (exemptFilter && exemptFilter !== 'all') {
-    if (exemptFilter === 'quota_exempt') filtered = filtered.filter(u => u.quotaExempt);
-    if (exemptFilter === 'freq_exempt') filtered = filtered.filter(u => u.frequencyEnforcementExempt);
-    if (exemptFilter === 'regular') filtered = filtered.filter(u => !u.quotaExempt && !u.frequencyEnforcementExempt);
-  }
-
-  if (subscriptionFilter && subscriptionFilter !== 'all') {
-    if (subscriptionFilter === 'active_subscribed') {
-      filtered = filtered.filter(u => u.watchedListsCount > 0 && u.emailNotificationsEnabled && !u.isBlocked);
-    } else if (subscriptionFilter === 'zero_watched') {
-      filtered = filtered.filter(u => u.watchedListsCount === 0);
-    }
-  }
-
-  // Summary Metrics: Active Subscribers strictly require watchedListsCount > 0, notifications enabled, and not blocked!
-  const totalSubscribers = fullRoster.length;
-  const activeSubscribersList = fullRoster.filter(u => !u.isBlocked && u.emailNotificationsEnabled && u.watchedListsCount > 0);
-  const activeSubscribers = activeSubscribersList.length;
-  const zeroWatchedCount = fullRoster.filter(u => u.watchedListsCount === 0).length;
-  const quotaExemptCount = fullRoster.filter(u => u.quotaExempt).length;
-  const freqExemptCount = fullRoster.filter(u => u.frequencyEnforcementExempt).length;
-
-  const instantCount = fullRoster.filter(u => u.notificationPreference === 'instant').length;
-  const dailyCount = fullRoster.filter(u => u.notificationPreference === 'daily').length;
-  const weeklyCount = fullRoster.filter(u => u.notificationPreference === 'weekly').length;
-
-  // Cohort breakdown map (only for active subscribers watching at least 1 list)
-  const cohortMap: Record<number, number> = {};
-  activeSubscribersList.forEach(u => {
-    cohortMap[u.dispatchGroup] = (cohortMap[u.dispatchGroup] || 0) + 1;
-  });
-
-  // Pagination
-  const total = filtered.length;
-  const totalPages = Math.ceil(total / limit) || 1;
-  const startIndex = (page - 1) * limit;
-  const paginated = filtered.slice(startIndex, startIndex + limit);
-
-  const todayStats = await getTodaySentEmailCount();
-
-  return NextResponse.json({
-    subscribers: paginated,
-    pagination: {
-      total,
-      page,
-      limit,
-      totalPages,
-      hasMore: page < totalPages,
-    },
-    metrics: {
-      totalSubscribers,
-      activeSubscribers,
-      quotaExemptCount,
-      freqExemptCount,
+    const row = summaryRes[0] || {};
+    cachedMetrics = {
+      totalSubscribers: Number(row.totalSubscribers || 0),
+      quotaExemptCount: Number(row.quotaExemptCount || 0),
+      freqExemptCount: Number(row.freqExemptCount || 0),
       frequencies: {
-        instant: instantCount,
-        daily: dailyCount,
-        weekly: weeklyCount,
+        instant: Number(row.instantCount || 0),
+        daily: Number(row.dailyCount || 0),
+        weekly: Number(row.weeklyCount || 0),
       },
-      cohortDistribution: cohortMap,
       todaySentStats: todayStats,
+    };
+
+    redisSet(METRICS_CACHE_KEY, cachedMetrics, 15).catch(() => {});
+  }
+
+  return NextResponse.json(
+    {
+      subscribers: paginated,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasMore: page < totalPages,
+      },
+      metrics: {
+        ...cachedMetrics,
+        activeSubscribers: total,
+      },
     },
-  });
+    {
+      headers: {
+        'Cache-Control': 's-maxage=10, stale-while-revalidate=29',
+      },
+    }
+  );
 }
 
 export async function PATCH(req: NextRequest) {
@@ -196,6 +189,10 @@ export async function PATCH(req: NextRequest) {
   await db.update(users)
     .set(updateFields)
     .where(inArray(users.id, userIds));
+
+  // Invalidate Redis caches
+  redisDel(METRICS_CACHE_KEY).catch(() => {});
+  Promise.all(userIds.map(id => invalidateUserSessionCache(id))).catch(() => {});
 
   return NextResponse.json({
     success: true,

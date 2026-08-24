@@ -3,7 +3,7 @@ import { db } from '@/lib/db/client';
 import { lists, listCareerPages, users, jobs } from '@/lib/db/schema';
 import { isFeatureEnabled } from '@/lib/flags/check';
 import { computeListQualityScore } from '@/lib/lists/anti-redundancy';
-import { eq, inArray, and, count, countDistinct, isNull } from 'drizzle-orm';
+import { eq, inArray, and, count, countDistinct, isNull, or, ilike, desc, asc, sql } from 'drizzle-orm';
 
 export async function GET(req: NextRequest) {
   const publicEnabled = await isFeatureEnabled('public_lists.enabled', true);
@@ -14,167 +14,133 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const page = Math.max(1, Number(searchParams.get('page')) || 1);
   const limit = Math.max(1, Math.min(100, Number(searchParams.get('limit')) || 9));
-  const search = searchParams.get('search') || '';
+  const search = searchParams.get('search')?.trim() || '';
   const sort = searchParams.get('sort') || 'followers';
 
-  const rawPublicLists = await db
-    .select({
-      id: lists.id,
-      name: lists.name,
-      slug: lists.slug,
-      description: lists.description,
-      isCanonical: lists.isCanonical,
-      parentListId: lists.parentListId,
-      followerCount: lists.followerCount,
-      contributionCount: lists.contributionCount,
-      createdAt: lists.createdAt,
-      updatedAt: lists.updatedAt,
-      userId: lists.userId,
-      userName: users.name,
-      userAvatarUrl: users.avatarUrl,
-    })
-    .from(lists)
-    .leftJoin(users, eq(lists.userId, users.id))
-    .where(and(eq(lists.visibility, 'public'), isNull(lists.deletedAt)));
+  const conditions = [
+    eq(lists.visibility, 'public'),
+    isNull(lists.deletedAt)
+  ];
 
-  let filtered = rawPublicLists;
-  if (search.trim()) {
-    const q = search.toLowerCase();
-    filtered = filtered.filter(l =>
-      l.name.toLowerCase().includes(q) ||
-      (l.description && l.description.toLowerCase().includes(q))
+  if (search) {
+    const q = `%${search}%`;
+    conditions.push(
+      sql`(${lists.name} ILIKE ${q} OR ${lists.description} ILIKE ${q})`
     );
   }
 
-  // Bulk fetch company counts & active job counts across all matching public lists
-  const publicListIds = filtered.map(l => l.id);
-  const allListPages = publicListIds.length > 0
-    ? await db
-        .select({ listId: listCareerPages.listId, careerPageId: listCareerPages.careerPageId })
-        .from(listCareerPages)
-        .where(inArray(listCareerPages.listId, publicListIds))
-    : [];
+  const whereClause = and(...conditions)!;
 
-  const pagesByListId = new Map<string, string[]>();
-  allListPages.forEach(lp => {
-    const arr = pagesByListId.get(lp.listId) || [];
-    arr.push(lp.careerPageId);
-    pagesByListId.set(lp.listId, arr);
-  });
+  // Sorting
+  let orderByClause = desc(lists.followerCount);
+  if (sort === 'newest') {
+    orderByClause = desc(lists.createdAt);
+  } else if (sort === 'oldest') {
+    orderByClause = asc(lists.createdAt);
+  } else if (sort === 'name_asc' || sort === 'alphabetical') {
+    orderByClause = asc(lists.name);
+  }
 
-  const uniqueCareerPageIds = Array.from(new Set(allListPages.map(lp => lp.careerPageId)));
-  const jobCountByPageId = new Map<string, number>();
-
-  if (uniqueCareerPageIds.length > 0) {
-    const groupedJobs = await db
-      .select({
-        careerPageId: jobs.careerPageId,
-        jobCount: count(),
+  const [totalRes, paginatedLists] = await Promise.all([
+    db.select({ count: sql<number>`count(*)::int` })
+      .from(lists)
+      .leftJoin(users, eq(lists.userId, users.id))
+      .where(whereClause),
+    db.select({
+        id: lists.id,
+        name: lists.name,
+        slug: lists.slug,
+        description: lists.description,
+        isCanonical: lists.isCanonical,
+        parentListId: lists.parentListId,
+        followerCount: lists.followerCount,
+        contributionCount: lists.contributionCount,
+        createdAt: lists.createdAt,
+        updatedAt: lists.updatedAt,
+        userId: lists.userId,
+        userName: users.name,
+        userAvatarUrl: users.avatarUrl,
       })
-      .from(jobs)
-      .where(and(inArray(jobs.careerPageId, uniqueCareerPageIds), eq(jobs.status, 'active')))
-      .groupBy(jobs.careerPageId);
+      .from(lists)
+      .leftJoin(users, eq(lists.userId, users.id))
+      .where(whereClause)
+      .orderBy(orderByClause)
+      .limit(limit)
+      .offset((page - 1) * limit),
+  ]);
 
-    groupedJobs.forEach(g => {
-      jobCountByPageId.set(g.careerPageId, Number(g.jobCount));
-    });
-  }
-
-  // Enrich all items with company & job counts
-  const enrichedAll = filtered.map(l => {
-    const cPageIds = pagesByListId.get(l.id) || [];
-    const jobCount = cPageIds.reduce((sum, cpId) => sum + (jobCountByPageId.get(cpId) || 0), 0);
-    return {
-      ...l,
-      followerCount: l.followerCount || 0,
-      companyCount: cPageIds.length,
-      jobCount,
-    };
-  });
-
-  // Sorting logic (Default: Followers DESC -> Companies DESC -> Jobs DESC -> Newest DESC)
-  enrichedAll.sort((a, b) => {
-    if (sort === 'newest') {
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    }
-    if (sort === 'oldest') {
-      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-    }
-    if (sort === 'companies') {
-      return (b.companyCount - a.companyCount) || (b.followerCount - a.followerCount) || (b.jobCount - a.jobCount);
-    }
-    if (sort === 'jobs') {
-      return (b.jobCount - a.jobCount) || (b.followerCount - a.followerCount) || (b.companyCount - a.companyCount);
-    }
-    if (sort === 'name_asc' || sort === 'alphabetical') {
-      return a.name.localeCompare(b.name);
-    }
-    // Default ('followers' / 'default'): Most Followers -> More Companies -> More Jobs
-    return (
-      (b.followerCount - a.followerCount) ||
-      (b.companyCount - a.companyCount) ||
-      (b.jobCount - a.jobCount) ||
-      (new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    );
-  });
-
-  const total = enrichedAll.length;
+  const total = Number(totalRes[0]?.count || 0);
   const totalPages = Math.ceil(total / limit) || 1;
-  const startIndex = (page - 1) * limit;
-  const paginated = enrichedAll.slice(startIndex, startIndex + limit);
+
+  // Bulk fetch company & active job counts ONLY for the paginated slice
+  const paginatedListIds = paginatedLists.map(l => l.id);
+  const companyCountByListId = new Map<string, number>();
+  const jobCountByListId = new Map<string, number>();
+
+  if (paginatedListIds.length > 0) {
+    const [companyCounts, jobCounts] = await Promise.all([
+      db
+        .select({
+          listId: listCareerPages.listId,
+          companyCount: countDistinct(listCareerPages.careerPageId),
+        })
+        .from(listCareerPages)
+        .where(inArray(listCareerPages.listId, paginatedListIds))
+        .groupBy(listCareerPages.listId),
+      db
+        .select({
+          listId: listCareerPages.listId,
+          jobCount: count(jobs.id),
+        })
+        .from(listCareerPages)
+        .innerJoin(jobs, and(eq(jobs.careerPageId, listCareerPages.careerPageId), eq(jobs.status, 'active')))
+        .where(inArray(listCareerPages.listId, paginatedListIds))
+        .groupBy(listCareerPages.listId),
+    ]);
+
+    companyCounts.forEach(c => companyCountByListId.set(c.listId, Number(c.companyCount)));
+    jobCounts.forEach(j => jobCountByListId.set(j.listId, Number(j.jobCount)));
+  }
 
   // Parent list details enrichment for paginated items
-  const parentListIds = paginated.map(l => l.parentListId).filter(Boolean) as string[];
+  const parentListIds = paginatedLists.map(l => l.parentListId).filter(Boolean) as string[];
   const parentListsResult = parentListIds.length > 0
     ? await db.select({ id: lists.id, name: lists.name, slug: lists.slug }).from(lists).where(and(inArray(lists.id, parentListIds), isNull(lists.deletedAt)))
     : [];
   const parentMap = new Map(parentListsResult.map(p => [p.id, p]));
 
-  const enriched = paginated.map(l => {
+  const enriched = paginatedLists.map(l => {
     const parent = l.parentListId ? parentMap.get(l.parentListId) : null;
     return {
       ...l,
+      followerCount: l.followerCount || 0,
+      companyCount: companyCountByListId.get(l.id) || 0,
+      jobCount: jobCountByListId.get(l.id) || 0,
       parentListName: parent?.name || null,
       parentListSlug: parent?.slug || null,
     };
   });
 
   // Summary Stats for Public Directory (SQL Aggregates)
-  const allPublicListIds = rawPublicLists.map(l => l.id);
-  let totalUniqueCompanies = 0;
-  let totalActiveJobs = 0;
-
-  if (allPublicListIds.length > 0) {
-    const [compRes] = await db
+  const [compRes, jobsRes] = await Promise.all([
+    db
       .select({ uniqueCompanies: countDistinct(listCareerPages.careerPageId) })
       .from(listCareerPages)
-      .where(inArray(listCareerPages.listId, allPublicListIds));
+      .innerJoin(lists, and(eq(listCareerPages.listId, lists.id), eq(lists.visibility, 'public'), isNull(lists.deletedAt))),
+    db
+      .select({ totalJobs: countDistinct(jobs.id) })
+      .from(listCareerPages)
+      .innerJoin(lists, and(eq(listCareerPages.listId, lists.id), eq(lists.visibility, 'public'), isNull(lists.deletedAt)))
+      .innerJoin(jobs, and(eq(jobs.careerPageId, listCareerPages.careerPageId), eq(jobs.status, 'active'))),
+  ]);
 
-    totalUniqueCompanies = Number(compRes?.uniqueCompanies || 0);
-
-    if (totalUniqueCompanies > 0) {
-      const publicListPages = await db
-        .select({ careerPageId: listCareerPages.careerPageId })
-        .from(listCareerPages)
-        .where(inArray(listCareerPages.listId, allPublicListIds));
-
-      const uniquePageIds = Array.from(new Set(publicListPages.map(p => p.careerPageId)));
-
-      if (uniquePageIds.length > 0) {
-        const [jobsRes] = await db
-          .select({ totalJobs: count() })
-          .from(jobs)
-          .where(and(inArray(jobs.careerPageId, uniquePageIds), eq(jobs.status, 'active')));
-        
-        totalActiveJobs = Number(jobsRes?.totalJobs || 0);
-      }
-    }
-  }
+  const totalUniqueCompanies = Number(compRes[0]?.uniqueCompanies || 0);
+  const totalActiveJobs = Number(jobsRes[0]?.totalJobs || 0);
 
   return NextResponse.json({
     lists: enriched,
     stats: {
-      totalLists: rawPublicLists.length,
+      totalLists: total,
       totalUniqueCompanies,
       totalActiveJobs,
     },

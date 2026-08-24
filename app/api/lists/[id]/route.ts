@@ -82,7 +82,20 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
   // Fetch active jobs ONLY for unpaused pages on this list
   const activeJobs = activePageIdsForList.length > 0
-    ? await db.select().from(jobs).where(and(inArray(jobs.careerPageId, activePageIdsForList), eq(jobs.status, 'active'))).orderBy(desc(jobs.firstSeenAt))
+    ? await db.select({
+        id: jobs.id,
+        careerPageId: jobs.careerPageId,
+        fingerprint: jobs.fingerprint,
+        externalId: jobs.externalId,
+        title: jobs.title,
+        url: jobs.url,
+        location: jobs.location,
+        jobType: jobs.jobType,
+        department: jobs.department,
+        status: jobs.status,
+        firstSeenAt: jobs.firstSeenAt,
+        lastSeenAt: jobs.lastSeenAt,
+      }).from(jobs).where(and(inArray(jobs.careerPageId, activePageIdsForList), eq(jobs.status, 'active'))).orderBy(desc(jobs.firstSeenAt))
     : [];
 
   const pageMap = new Map(pagesWithListStatus.map(p => [p.id, p]));
@@ -90,7 +103,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const parentPage = pageMap.get(j.careerPageId);
     return {
       ...j,
-      companyName: parentPage?.companyName || (j.rawData as any)?.company || null,
+      companyName: parentPage?.companyName || null,
     };
   });
 

@@ -205,6 +205,7 @@ export default function AdminDashboardPage() {
 
   const handleSaveFrequencyPolicy = async (isEnforced: boolean, enforcedFrequency: string) => {
     setSavingFreqPolicy(true);
+    setFreqEnforceGlobal(isEnforced);
     try {
       const res = await fetch('/api/admin/frequency-enforcement', {
         method: 'POST',
@@ -212,13 +213,19 @@ export default function AdminDashboardPage() {
         body: JSON.stringify({ isEnforced, enforcedFrequency }),
       });
       if (res.ok) {
+        const json = await res.json();
+        if (typeof json.isEnforced === 'boolean') {
+          setFreqEnforceGlobal(json.isEnforced);
+        }
         toast.success(`Frequency enforcement policy ${isEnforced ? 'enabled' : 'disabled'}`);
         fetchFrequencyEnforcementPolicy();
         fetchFrequencyUsers(freqUserPage, debouncedFreqUserSearch, freqUserLimit, freqUserFilter);
       } else {
+        setFreqEnforceGlobal(!isEnforced);
         toast.error('Failed to update policy');
       }
     } catch (e: any) {
+      setFreqEnforceGlobal(!isEnforced);
       toast.error(e.message || 'Error updating policy');
     } finally {
       setSavingFreqPolicy(false);

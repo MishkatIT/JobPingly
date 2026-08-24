@@ -11,12 +11,30 @@ export async function GET(req: NextRequest) {
   }
 
   const [allUsers, allLists, allPages, activeJobs, recentLogs, pendingNotifications, pendingApprovals] = await Promise.all([
-    db.select().from(users),
-    db.select().from(lists),
-    db.select().from(careerPages),
-    db.select().from(jobs).where(eq(jobs.status, 'active')),
-    db.select().from(scrapeLogs).limit(50),
-    db.select().from(notificationQueue).where(isNull(notificationQueue.sentAt)),
+    db.select({ emailVerified: users.emailVerified }).from(users),
+    db.select({ visibility: lists.visibility }).from(lists),
+    db.select({
+      id: careerPages.id,
+      url: careerPages.url,
+      companyName: careerPages.companyName,
+      status: careerPages.status,
+      checkIntervalMinutes: careerPages.checkIntervalMinutes,
+      lastScrapedAt: careerPages.lastScrapedAt,
+      nextCheckAt: careerPages.nextCheckAt,
+    }).from(careerPages),
+    db.select({ id: jobs.id }).from(jobs).where(eq(jobs.status, 'active')),
+    db.select({
+      id: scrapeLogs.id,
+      careerPageId: scrapeLogs.careerPageId,
+      scrapedAt: scrapeLogs.scrapedAt,
+      success: scrapeLogs.success,
+      jobsFound: scrapeLogs.jobsFound,
+      jobsAdded: scrapeLogs.jobsAdded,
+      jobsRemoved: scrapeLogs.jobsRemoved,
+      durationMs: scrapeLogs.durationMs,
+      errorMessage: scrapeLogs.errorMessage,
+    }).from(scrapeLogs).limit(50),
+    db.select({ id: notificationQueue.id }).from(notificationQueue).where(isNull(notificationQueue.sentAt)),
     db.select({
       id: emailApprovals.id,
       email: emailApprovals.email,

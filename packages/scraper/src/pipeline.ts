@@ -41,7 +41,11 @@ function isDeadlineExpired(deadlineStr?: string | null): boolean {
  */
 export async function autoRemoveExpiredJobsFromDb() {
   try {
-    const allJobs = await db.select().from(jobs);
+    const allJobs = await db.select({
+      id: jobs.id,
+      status: jobs.status,
+      rawData: jobs.rawData,
+    }).from(jobs);
     let removedCount = 0;
 
     for (const j of allJobs) {
@@ -77,9 +81,6 @@ export async function autoRemoveExpiredJobsFromDb() {
  */
 export async function runScraperPipeline(careerPageId: string, options?: { force?: boolean }) {
   const startTime = Date.now();
-
-  // Run routine expired job cleanup
-  await autoRemoveExpiredJobsFromDb();
 
   // 1. Fetch career page details
   const [page] = await db.select().from(careerPages).where(eq(careerPages.id, careerPageId));
@@ -245,7 +246,14 @@ export async function runScraperPipeline(careerPageId: string, options?: { force
     // ----------------------------------------------------
     // DEDUPLICATION & DATABASE PERSISTENCE
     // ----------------------------------------------------
-    const existingJobs = await db.select().from(jobs).where(eq(jobs.careerPageId, careerPageId));
+    const existingJobs = await db.select({
+      id: jobs.id,
+      fingerprint: jobs.fingerprint,
+      externalId: jobs.externalId,
+      title: jobs.title,
+      status: jobs.status,
+      missedScrapes: jobs.missedScrapes,
+    }).from(jobs).where(eq(jobs.careerPageId, careerPageId));
     const diff = diffJobs(extractedJobs, existingJobs, page.url);
     const durationMs = Date.now() - startTime;
 
@@ -307,7 +315,12 @@ export async function runScraperPipeline(careerPageId: string, options?: { force
           jobType: job.jobType || null,
           department: job.department || null,
         },
-      }).returning();
+      }).returning({
+        id: jobs.id,
+        title: jobs.title,
+        department: jobs.department,
+        location: jobs.location,
+      });
 
       if (!expired) {
         jobsAdded++;

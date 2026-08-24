@@ -13,38 +13,13 @@ export interface SendEmailOptions {
   metadata?: any;
 }
 
-let tableChecked = false;
 export async function ensureSentEmailLogsTable() {
-  if (tableChecked) return;
-  try {
-    await client`
-      CREATE TABLE IF NOT EXISTS sent_email_logs (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        recipient_email TEXT NOT NULL,
-        sender_email TEXT,
-        subject TEXT NOT NULL,
-        template_type TEXT NOT NULL DEFAULT 'general',
-        status TEXT NOT NULL DEFAULT 'sent',
-        error_message TEXT,
-        html_content TEXT,
-        sender_id UUID,
-        metadata JSONB,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      );
-    `;
-    await client`ALTER TABLE sent_email_logs ADD COLUMN IF NOT EXISTS html_content TEXT;`;
-    await client`ALTER TABLE sent_email_logs ADD COLUMN IF NOT EXISTS sender_email TEXT;`;
-    await client`ALTER TABLE users ADD COLUMN IF NOT EXISTS quota_exempt BOOLEAN DEFAULT FALSE NOT NULL;`;
-    await client`ALTER TABLE users ADD COLUMN IF NOT EXISTS dispatch_group INTEGER DEFAULT 1 NOT NULL;`;
-    await client`ALTER TABLE password_resets ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL;`;
-    tableChecked = true;
-  } catch (err: any) {
-    console.error('[EnsureSentEmailLogsTable Error]', err.message);
-  }
+  // Schema migrations are handled via Drizzle schema / push, no runtime DDL execution required.
+  return;
 }
 
 export async function getTodaySentEmailCount(): Promise<{ totalToday: number; sentToday: number; failedToday: number }> {
-  await ensureSentEmailLogsTable();
+
   try {
     const todayStart = new Date();
     todayStart.setUTCHours(0, 0, 0, 0);

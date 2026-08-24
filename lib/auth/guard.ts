@@ -3,12 +3,19 @@ import { verifyAccessToken, TokenPayload, hashToken } from './jwt';
 import { db } from '@/lib/db/client';
 import { users, refreshTokens } from '@/lib/db/schema';
 import { eq, and, isNull, gte } from 'drizzle-orm';
+import { redisGet, redisSet, redisDel } from '@/lib/redis/client';
+
+const USER_SESSION_TTL_SECONDS = 300; // 5 minutes Redis cache TTL
+
+export async function invalidateUserSessionCache(userId: string): Promise<boolean> {
+  return redisDel(`user:session:${userId}`);
+}
 
 async function autoRefreshSessionFromCookie(rawRefreshToken: string): Promise<TokenPayload | null> {
   try {
     const tokenHash = hashToken(rawRefreshToken);
     const [existingSession] = await db
-      .select()
+      .select({ userId: refreshTokens.userId })
       .from(refreshTokens)
       .where(and(
         eq(refreshTokens.tokenHash, tokenHash),
@@ -18,7 +25,12 @@ async function autoRefreshSessionFromCookie(rawRefreshToken: string): Promise<To
 
     if (!existingSession) return null;
 
-    const [dbUser] = await db.select().from(users).where(eq(users.id, existingSession.userId));
+    const [dbUser] = await db.select({
+      id: users.id,
+      email: users.email,
+      role: users.role,
+      isBlocked: users.isBlocked,
+    }).from(users).where(eq(users.id, existingSession.userId));
     if (!dbUser || dbUser.isBlocked) return null;
 
     return {
@@ -59,7 +71,17 @@ export async function getAuthUser(req: NextRequest): Promise<TokenPayload | null
 
   if (!tokenPayload) return null;
 
-  // Check if user is blocked or role synced in DB
+  const cacheKey = `user:session:${tokenPayload.userId}`;
+  const cachedUser = await redisGet<any>(cacheKey);
+
+  if (cachedUser) {
+    if (cachedUser.isBlocked) return null;
+    tokenPayload.role = cachedUser.role;
+    tokenPayload.userRecord = cachedUser;
+    return tokenPayload;
+  }
+
+  // Cache miss: query database once
   const [dbUser] = await db.select({
     id: users.id,
     email: users.email,
@@ -75,20 +97,28 @@ export async function getAuthUser(req: NextRequest): Promise<TokenPayload | null
   }).from(users).where(eq(users.id, tokenPayload.userId));
 
   if (!dbUser || dbUser.isBlocked) {
-    return null; // Blocked users cannot perform actions
+    if (dbUser?.isBlocked) {
+      // Cache blocked status for 1 minute to reject fast
+      await redisSet(cacheKey, { isBlocked: true }, 60);
+    }
+    return null;
   }
 
-  tokenPayload.role = dbUser.role; // Always use live DB role
-  tokenPayload.userRecord = dbUser; // Attach live user record
+  tokenPayload.role = dbUser.role;
+  tokenPayload.userRecord = dbUser;
 
   // Check if email matches ADMIN_BOOTSTRAP_EMAIL
   const bootstrapEmail = process.env.ADMIN_BOOTSTRAP_EMAIL?.toLowerCase().trim();
   if (bootstrapEmail && tokenPayload.email.toLowerCase().trim() === bootstrapEmail) {
     if (tokenPayload.role !== 'admin') {
       tokenPayload.role = 'admin';
+      dbUser.role = 'admin';
       db.update(users).set({ role: 'admin' }).where(eq(users.id, tokenPayload.userId)).catch(() => {});
     }
   }
+
+  // Populate Redis cache asynchronously
+  redisSet(cacheKey, dbUser, USER_SESSION_TTL_SECONDS).catch(() => {});
 
   return tokenPayload;
 }

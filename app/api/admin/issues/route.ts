@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
 import { reportedIssues } from '@/lib/db/schema';
-import { desc, eq, and, or, ilike } from 'drizzle-orm';
+import { desc, eq, and, or, ilike, sql } from 'drizzle-orm';
 
-// GET list of reported issues with filters and pagination
+// GET list of reported issues with filters and pagination pushed to PostgreSQL
 export async function GET(req: NextRequest) {
   const adminUser = await requireAdmin(req);
   if (!adminUser) {
@@ -18,35 +18,44 @@ export async function GET(req: NextRequest) {
   const page = Math.max(1, Number(searchParams.get('page')) || 1);
   const limit = Math.max(1, Math.min(100, Number(searchParams.get('limit')) || 10));
 
-  let allIssues = await db.select()
-    .from(reportedIssues)
-    .orderBy(desc(reportedIssues.createdAt));
-
-  let filtered = allIssues;
+  const conditions = [];
 
   if (statusFilter && statusFilter !== 'all') {
-    filtered = filtered.filter(i => i.status === statusFilter);
+    conditions.push(eq(reportedIssues.status, statusFilter));
   }
 
   if (categoryFilter && categoryFilter !== 'all') {
-    filtered = filtered.filter(i => i.category === categoryFilter);
+    conditions.push(eq(reportedIssues.category, categoryFilter));
   }
 
   if (search) {
-    const s = search.toLowerCase();
-    filtered = filtered.filter(i =>
-      i.subject.toLowerCase().includes(s) ||
-      i.description.toLowerCase().includes(s) ||
-      i.reporterEmail.toLowerCase().includes(s) ||
-      (i.targetUrl && i.targetUrl.toLowerCase().includes(s))
+    const s = `%${search}%`;
+    conditions.push(
+      or(
+        ilike(reportedIssues.subject, s),
+        ilike(reportedIssues.description, s),
+        ilike(reportedIssues.reporterEmail, s),
+        ilike(reportedIssues.targetUrl, s)
+      )
     );
   }
 
-  const total = filtered.length;
-  const openCount = allIssues.filter(i => i.status === 'open').length;
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const [totalRes, openCountRes, paginatedIssues] = await Promise.all([
+    db.select({ count: sql<number>`count(*)::int` }).from(reportedIssues).where(whereClause),
+    db.select({ count: sql<number>`count(*)::int` }).from(reportedIssues).where(eq(reportedIssues.status, 'open')),
+    db.select()
+      .from(reportedIssues)
+      .where(whereClause)
+      .orderBy(desc(reportedIssues.createdAt))
+      .limit(limit)
+      .offset((page - 1) * limit),
+  ]);
+
+  const total = Number(totalRes[0]?.count || 0);
+  const openCount = Number(openCountRes[0]?.count || 0);
   const totalPages = Math.ceil(total / limit) || 1;
-  const startIndex = (page - 1) * limit;
-  const paginatedIssues = filtered.slice(startIndex, startIndex + limit);
 
   return NextResponse.json({
     issues: paginatedIssues,
@@ -60,3 +69,4 @@ export async function GET(req: NextRequest) {
     },
   });
 }
+

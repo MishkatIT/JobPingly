@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
 import { careerPages, adminAuditLog, listCareerPages, subscriptions, jobs } from '@/lib/db/schema';
-import { desc, ilike, or, sql, eq } from 'drizzle-orm';
+import { desc, ilike, or, sql, eq, inArray } from 'drizzle-orm';
 import { isUrlSafe, normalizeCompanyUrl } from '@/lib/security/ssrf';
 
 async function consolidateDuplicates() {
@@ -38,9 +38,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden: Admin access required.' }, { status: 403 });
   }
 
-  // Consolidate legacy duplicates in database
-  await consolidateDuplicates();
-
   const { searchParams } = new URL(req.url);
   const page = Math.max(1, Number(searchParams.get('page')) || 1);
   const limit = Math.max(1, Math.min(100, Number(searchParams.get('limit')) || 10));
@@ -54,42 +51,41 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // Fetch items to deduplicate strictly by normalized URL
-  const rawItems = await db.select()
-    .from(careerPages)
-    .where(whereCondition)
-    .orderBy(desc(careerPages.createdAt));
+  const [totalRes, paginatedItems] = await Promise.all([
+    db.select({ count: sql<number>`count(*)::int` }).from(careerPages).where(whereCondition),
+    db.select()
+      .from(careerPages)
+      .where(whereCondition)
+      .orderBy(desc(careerPages.createdAt))
+      .limit(limit)
+      .offset((page - 1) * limit),
+  ]);
 
-  // Guarantee uniqueness: one company per unique formatted URL
-  const uniqueMap = new Map<string, typeof rawItems[0]>();
-  for (const item of rawItems) {
-    const formattedUrl = normalizeCompanyUrl(item.url);
-    if (!uniqueMap.has(formattedUrl)) {
-      uniqueMap.set(formattedUrl, {
-        ...item,
-        url: formattedUrl,
-      });
-    }
-  }
+  const total = Number(totalRes[0]?.count || 0);
+  const totalPages = Math.ceil(total / limit) || 1;
 
-  const deduplicated = Array.from(uniqueMap.values());
-
-  // Count watch list attachments for each career page
-  const allListCareerPages = await db.select({ careerPageId: listCareerPages.careerPageId }).from(listCareerPages);
+  // Format URLs and fetch watch list counts for only the paginated slice
+  const pageIds = paginatedItems.map(p => p.id);
   const countMap = new Map<string, number>();
-  for (const lcp of allListCareerPages) {
-    countMap.set(lcp.careerPageId, (countMap.get(lcp.careerPageId) || 0) + 1);
+
+  if (pageIds.length > 0) {
+    const pageCounts = await db
+      .select({
+        careerPageId: listCareerPages.careerPageId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(listCareerPages)
+      .where(inArray(listCareerPages.careerPageId, pageIds))
+      .groupBy(listCareerPages.careerPageId);
+
+    pageCounts.forEach(pc => countMap.set(pc.careerPageId, Number(pc.count)));
   }
 
-  const itemsWithCounts = deduplicated.map(item => ({
+  const items = paginatedItems.map(item => ({
     ...item,
+    url: normalizeCompanyUrl(item.url),
     watchListCount: countMap.get(item.id) || 0,
   }));
-
-  const total = itemsWithCounts.length;
-  const totalPages = Math.ceil(total / limit) || 1;
-  const offset = (page - 1) * limit;
-  const items = itemsWithCounts.slice(offset, offset + limit);
 
   return NextResponse.json({
     careerPages: items,

@@ -3,6 +3,7 @@ import { requireAdmin } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
 import { featureFlags, adminAuditLog } from '@/lib/db/schema';
 import { eq, asc } from 'drizzle-orm';
+import { invalidateFlagCache } from '@/lib/flags/check';
 
 const DEFAULT_FLAGS = [
   { key: 'auth.login_enabled', value: true, description: 'Enable user login' },
@@ -57,6 +58,8 @@ export async function POST(req: NextRequest) {
       updatedBy: adminUser.userId,
     },
   }).returning();
+
+  invalidateFlagCache(key);
 
   // Record audit log
   await db.insert(adminAuditLog).values({

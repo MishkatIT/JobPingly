@@ -31,8 +31,23 @@ export async function GET(req: NextRequest) {
 
   // Fetch owned lists & accepted collaborator invitations in parallel
   const tListsCollabStart = performance.now();
+  const listColumns = {
+    id: lists.id,
+    userId: lists.userId,
+    name: lists.name,
+    slug: lists.slug,
+    description: lists.description,
+    visibility: lists.visibility,
+    parentListId: lists.parentListId,
+    isCanonical: lists.isCanonical,
+    followerCount: lists.followerCount,
+    contributionCount: lists.contributionCount,
+    createdAt: lists.createdAt,
+    updatedAt: lists.updatedAt,
+  };
+
   const [rawUserLists, collabRecords] = await Promise.all([
-    db.select().from(lists).where(and(eq(lists.userId, user.userId), isNull(lists.deletedAt))),
+    db.select(listColumns).from(lists).where(and(eq(lists.userId, user.userId), isNull(lists.deletedAt))),
     db
       .select({
         listId: listCollaborators.listId,
@@ -49,7 +64,7 @@ export async function GET(req: NextRequest) {
   const tCollabFetchStart = performance.now();
   let collabLists: any[] = [];
   if (collabListIds.length > 0) {
-    collabLists = await db.select().from(lists).where(and(inArray(lists.id, collabListIds), isNull(lists.deletedAt)));
+    collabLists = await db.select(listColumns).from(lists).where(and(inArray(lists.id, collabListIds), isNull(lists.deletedAt)));
   }
   const tCollabFetchEnd = performance.now();
 

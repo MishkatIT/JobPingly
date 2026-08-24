@@ -47,3 +47,15 @@ export async function isFeatureEnabled<T extends boolean | number | string>(key:
   }
 }
 
+/**
+ * Invalidates cached feature flags so immediate UI updates reflect in real-time.
+ */
+export function invalidateFlagCache(key?: string) {
+  if (key) {
+    flagCache.delete(key);
+  } else {
+    flagCache.clear();
+  }
+}
+
+

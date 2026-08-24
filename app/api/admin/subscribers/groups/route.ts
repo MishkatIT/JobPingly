@@ -1,17 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth/guard';
+import { requireAdmin, invalidateUserSessionCache } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
 import { users, listSubscriptions } from '@/lib/db/schema';
 import { eq, asc, inArray, count, and } from 'drizzle-orm';
-import { ensureSentEmailLogsTable } from '@/lib/email/brevo';
+import { redisDel } from '@/lib/redis/client';
 
 export async function POST(req: NextRequest) {
   const adminUser = await requireAdmin(req);
   if (!adminUser) {
     return NextResponse.json({ error: 'Forbidden: Admin access required.' }, { status: 403 });
   }
-
-  await ensureSentEmailLogsTable();
 
   const body = await req.json();
   const cycleDays = Math.max(1, Math.min(30, Number(body.cycleDays) || 3));
@@ -52,19 +50,34 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No subscribers available to rebalance.' }, { status: 400 });
   }
 
-  const groupDistribution: Record<number, number> = {};
-
-  // Rebalance round-robin modulo cycleDays
+  // Group user IDs by assigned dispatch group (1..cycleDays) to perform bulk batch UPDATE queries
+  const groupToUserIdsMap = new Map<number, string[]>();
   for (let i = 0; i < targetUsers.length; i++) {
     const assignedGroup = (i % cycleDays) + 1;
     const uId = targetUsers[i].id;
-
-    await db.update(users)
-      .set({ dispatchGroup: assignedGroup })
-      .where(eq(users.id, uId));
-
-    groupDistribution[assignedGroup] = (groupDistribution[assignedGroup] || 0) + 1;
+    if (!groupToUserIdsMap.has(assignedGroup)) {
+      groupToUserIdsMap.set(assignedGroup, []);
+    }
+    groupToUserIdsMap.get(assignedGroup)!.push(uId);
   }
+
+  const groupDistribution: Record<number, number> = {};
+  const updatePromises: Promise<any>[] = [];
+
+  for (const [groupNum, ids] of groupToUserIdsMap.entries()) {
+    groupDistribution[groupNum] = ids.length;
+    updatePromises.push(
+      db.update(users)
+        .set({ dispatchGroup: groupNum })
+        .where(inArray(users.id, ids))
+    );
+  }
+
+  await Promise.all(updatePromises);
+
+  // Invalidate Redis caches
+  redisDel('admin:subscribers:summary_metrics').catch(() => {});
+  Promise.all(targetUsers.map(u => invalidateUserSessionCache(u.id))).catch(() => {});
 
   return NextResponse.json({
     success: true,

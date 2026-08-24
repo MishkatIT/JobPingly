@@ -8,7 +8,6 @@ export interface StoredJob {
   title: string;
   status: string;
   missedScrapes: number;
-  rawData?: any;
 }
 
 export function diffJobs(
@@ -36,9 +35,9 @@ export function diffJobs(
       const existing = storedByFingerprint.get(fp)!;
       unchangedJobs.push({
         fingerprint: fp,
-        externalId: existing.externalId || undefined,
-        title: existing.title,
-        rawData: existing.rawData,
+        externalId: job.externalId || existing.externalId || undefined,
+        title: job.title,
+        rawData: job.rawData,
       });
     } else {
       newJobs.push(job);

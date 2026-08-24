@@ -4,7 +4,7 @@ import { db } from '@/lib/db/client';
 import { notificationQueue, users, jobs, careerPages, emailApprovals } from '@/lib/db/schema';
 import { eq, isNull, inArray, desc } from 'drizzle-orm';
 import { isFeatureEnabled } from '@/lib/flags/check';
-import { getTodaySentEmailCount, ensureSentEmailLogsTable } from '@/lib/email/brevo';
+import { getTodaySentEmailCount } from '@/lib/email/brevo';
 import { sendEmailDigest } from '@/packages/notifications/src/sender';
 
 export async function GET(req: NextRequest) {
@@ -13,7 +13,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden: Admin access required.' }, { status: 403 });
   }
 
-  await ensureSentEmailLogsTable();
 
   const { searchParams } = new URL(req.url);
   const brevoLimit = Number(searchParams.get('brevoLimit')) || 300;

@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
 import { users, adminAuditLog } from '@/lib/db/schema';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and, or, ilike, sql } from 'drizzle-orm';
 
 const getBootstrapEmail = () => {
   return (process.env.ADMIN_BOOTSTRAP_EMAIL || process.env.ADMIN_EMAIL || 'admin@jobpingly.com').toLowerCase();
 };
 
-// GET list of users with backend pagination + search + role filter
+// GET list of users with backend pagination + search + role filter pushed to PostgreSQL
 export async function GET(req: NextRequest) {
   const adminUser = await requireAdmin(req);
   if (!adminUser) {
@@ -17,50 +17,56 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const roleFilter = searchParams.get('role');
-  const search = searchParams.get('search');
+  const search = searchParams.get('search')?.trim() || '';
   const page = Math.max(1, Number(searchParams.get('page')) || 1);
   const limit = Math.max(1, Math.min(100, Number(searchParams.get('limit')) || 10));
 
   const bootstrapEmail = getBootstrapEmail();
 
-  const rawUsers = await db.select({
-    id: users.id,
-    email: users.email,
-    name: users.name,
-    role: users.role,
-    emailVerified: users.emailVerified,
-    isBlocked: users.isBlocked,
-    blockedReason: users.blockedReason,
-    blockedAt: users.blockedAt,
-    notificationPreference: users.notificationPreference,
-    frequencyEnforcementExempt: users.frequencyEnforcementExempt,
-    createdAt: users.createdAt,
-  })
-  .from(users)
-  .where(eq(users.emailVerified, true))
-  .orderBy(desc(users.createdAt));
-
-  let results = rawUsers.map(u => ({
-    ...u,
-    isEnvAdmin: u.email.toLowerCase() === bootstrapEmail,
-  }));
+  const conditions = [eq(users.emailVerified, true)];
 
   if (roleFilter && roleFilter !== 'all') {
-    results = results.filter(u => u.role === roleFilter);
+    conditions.push(eq(users.role, roleFilter));
   }
 
   if (search) {
-    const s = search.toLowerCase();
-    results = results.filter(u =>
-      u.email.toLowerCase().includes(s) ||
-      (u.name && u.name.toLowerCase().includes(s))
+    const s = `%${search}%`;
+    conditions.push(
+      sql`(${users.email} ILIKE ${s} OR ${users.name} ILIKE ${s})`
     );
   }
 
-  const total = results.length;
+  const whereClause = and(...conditions)!;
+
+  const [totalRes, rawUsers] = await Promise.all([
+    db.select({ count: sql<number>`count(*)::int` }).from(users).where(whereClause),
+    db.select({
+      id: users.id,
+      email: users.email,
+      name: users.name,
+      role: users.role,
+      emailVerified: users.emailVerified,
+      isBlocked: users.isBlocked,
+      blockedReason: users.blockedReason,
+      blockedAt: users.blockedAt,
+      notificationPreference: users.notificationPreference,
+      frequencyEnforcementExempt: users.frequencyEnforcementExempt,
+      createdAt: users.createdAt,
+    })
+    .from(users)
+    .where(whereClause)
+    .orderBy(desc(users.createdAt))
+    .limit(limit)
+    .offset((page - 1) * limit),
+  ]);
+
+  const total = Number(totalRes[0]?.count || 0);
   const totalPages = Math.ceil(total / limit) || 1;
-  const startIndex = (page - 1) * limit;
-  const paginatedUsers = results.slice(startIndex, startIndex + limit);
+
+  const paginatedUsers = rawUsers.map(u => ({
+    ...u,
+    isEnvAdmin: u.email.toLowerCase() === bootstrapEmail,
+  }));
 
   return NextResponse.json({
     users: paginatedUsers,

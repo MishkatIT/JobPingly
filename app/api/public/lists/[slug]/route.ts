@@ -73,7 +73,20 @@ export async function GET(req: NextRequest, { params }: { params: { slug: string
     : Promise.resolve([]);
 
   const jobsPromise = activePageIdsForList.length > 0
-    ? db.select().from(jobs).where(and(inArray(jobs.careerPageId, activePageIdsForList), eq(jobs.status, 'active'))).orderBy(desc(jobs.firstSeenAt))
+    ? db.select({
+        id: jobs.id,
+        careerPageId: jobs.careerPageId,
+        fingerprint: jobs.fingerprint,
+        externalId: jobs.externalId,
+        title: jobs.title,
+        url: jobs.url,
+        location: jobs.location,
+        jobType: jobs.jobType,
+        department: jobs.department,
+        status: jobs.status,
+        firstSeenAt: jobs.firstSeenAt,
+        lastSeenAt: jobs.lastSeenAt,
+      }).from(jobs).where(and(inArray(jobs.careerPageId, activePageIdsForList), eq(jobs.status, 'active'))).orderBy(desc(jobs.firstSeenAt))
     : Promise.resolve([]);
 
   const [pages, activeJobs] = await Promise.all([pagesPromise, jobsPromise]);
@@ -88,7 +101,7 @@ export async function GET(req: NextRequest, { params }: { params: { slug: string
     const parentPage = pageMap.get(j.careerPageId);
     return {
       ...j,
-      companyName: parentPage?.companyName || (j.rawData as any)?.company || null,
+      companyName: parentPage?.companyName || null,
     };
   });
 
