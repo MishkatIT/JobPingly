@@ -230,6 +230,14 @@ export const scrapeLogs = pgTable('scrape_logs', {
   pageTimeIdx: index('idx_scrape_logs_page_time').on(table.careerPageId, table.scrapedAt),
 }));
 
+// Background worker liveness, updated on every scheduler poll.
+export const workerHeartbeat = pgTable('worker_heartbeat', {
+  id: text('id').primaryKey(),
+  heartbeatAt: timestamp('heartbeat_at', { withTimezone: true }).defaultNow().notNull(),
+  cycleStartedAt: timestamp('cycle_started_at', { withTimezone: true }).defaultNow().notNull(),
+  lastError: text('last_error'),
+});
+
 // 12. Notification Queue
 export const notificationQueue = pgTable('notification_queue', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -315,5 +323,3 @@ export const sentEmailLogs = pgTable('sent_email_logs', {
   templateIdx: index('idx_sent_email_template').on(table.templateType),
   createdIdx: index('idx_sent_email_created').on(table.createdAt),
 }));
-
-

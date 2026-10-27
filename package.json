@@ -5,11 +5,12 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "node scripts/start.js",
+    "start:web": "next start",
     "lint": "next lint",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
-    "worker": "tsx worker/scheduler.ts",
+    "worker": "tsx worker/bootstrap.ts",
     "jobs:check": "tsx --env-file=.env scripts/jobs-check.ts",
     "jobs:test": "tsx --env-file=.env scripts/jobs-test.ts",
     "test": "tsx scripts/run-tests.ts"

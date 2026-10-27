@@ -1,5 +1,5 @@
 import { db } from '@/lib/db/client';
-import { careerPages, listCareerPages, lists } from '@/lib/db/schema';
+import { careerPages, listCareerPages, lists, workerHeartbeat } from '@/lib/db/schema';
 import { lte, ne, and, isNull, or, eq } from 'drizzle-orm';
 import { runScraperPipeline, autoRemoveExpiredJobsFromDb } from '@/packages/scraper/src/pipeline';
 import { processNotificationQueue } from '@/packages/notifications/src/processor';
@@ -9,12 +9,27 @@ const POLL_INTERVAL_MS = Number(process.env.WORKER_POLL_INTERVAL_MS) || 60000;
 let isRunning = false;
 let lastDailyCleanupAt = 0;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const WORKER_ID = process.env.WORKER_ID || 'default';
+
+async function updateHeartbeat(lastError: string | null = null) {
+  const now = new Date();
+  await db.insert(workerHeartbeat).values({
+    id: WORKER_ID,
+    heartbeatAt: now,
+    cycleStartedAt: now,
+    lastError,
+  }).onConflictDoUpdate({
+    target: workerHeartbeat.id,
+    set: { heartbeatAt: now, cycleStartedAt: now, lastError },
+  });
+}
 
 export async function processDuePages() {
   if (isRunning) return;
   isRunning = true;
 
   try {
+    await updateHeartbeat();
     // Check feature flag (cached in-memory)
     const scraperEnabled = await isFeatureEnabled('scraper.enabled', true);
     if (!scraperEnabled) {
@@ -88,12 +103,18 @@ export async function processDuePages() {
     });
   } catch (err: any) {
     console.error('[JobPingly Worker] Scheduler error:', err.message);
+    await updateHeartbeat(err.message || 'Scheduler cycle failed').catch(() => null);
   } finally {
     isRunning = false;
   }
 }
 
-if (require.main === module) {
+export function startScheduler() {
   console.log('[JobPingly Worker] Background Scheduler Started. Polling every', POLL_INTERVAL_MS, 'ms...');
-  setInterval(processDuePages, POLL_INTERVAL_MS);
+  processDuePages().catch(err => console.error('[JobPingly Worker] Initial cycle failed:', err));
+  setInterval(() => {
+    // Refresh liveness even while a long scrape cycle is still running.
+    updateHeartbeat().catch(err => console.error('[JobPingly Worker] Heartbeat update failed:', err));
+    processDuePages().catch(err => console.error('[JobPingly Worker] Poll failed:', err));
+  }, POLL_INTERVAL_MS);
 }

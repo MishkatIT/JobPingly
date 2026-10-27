@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
-import { users, scrapeLogs, sentEmailLogs } from '@/lib/db/schema';
+import { users, scrapeLogs, sentEmailLogs, workerHeartbeat } from '@/lib/db/schema';
 import { isFeatureEnabled } from '@/lib/flags/check';
 import { redisGet, redisSet, redisDel, getRedisClient } from '@/lib/redis/client';
 import { count, desc, sql } from 'drizzle-orm';
@@ -277,26 +277,28 @@ async function checkWorker(): Promise<ServiceHealthResult> {
   try {
     const isEnabled = await isFeatureEnabled('scraper.enabled', true);
     const latestLog = await db.select().from(scrapeLogs).orderBy(desc(scrapeLogs.scrapedAt)).limit(1);
+    const [heartbeat] = await db.select({ heartbeatAt: workerHeartbeat.heartbeatAt, lastError: workerHeartbeat.lastError })
+      .from(workerHeartbeat).limit(1);
 
-    const pollInterval = process.env.WORKER_POLL_INTERVAL_MS ? `${parseInt(process.env.WORKER_POLL_INTERVAL_MS, 10) / 1000}s` : '60s';
+    const pollIntervalMs = Number(process.env.WORKER_POLL_INTERVAL_MS) || 60000;
+    const pollInterval = `${pollIntervalMs / 1000}s`;
+    const heartbeatMaxAgeMs = Math.max(pollIntervalMs * 3, 180000);
+    const heartbeatIsFresh = Boolean(heartbeat && Date.now() - heartbeat.heartbeatAt.getTime() <= heartbeatMaxAgeMs);
     const lastRunAt = latestLog[0]?.scrapedAt ? new Date(latestLog[0].scrapedAt).toISOString() : null;
     const latency = Math.round(performance.now() - start);
 
     let status: 'online' | 'degraded' | 'offline' = 'online';
-    let note = 'Worker active and operational';
+    let note = heartbeatIsFresh ? 'Scheduler heartbeat is current' : 'Scheduler heartbeat is missing or stale';
 
     if (!isEnabled) {
       status = 'degraded';
       note = 'Disabled via Feature Flag (scraper.enabled = false)';
+    } else if (!heartbeatIsFresh || heartbeat?.lastError) {
+      status = 'degraded';
+      note = heartbeat?.lastError || 'No recent scheduler heartbeat';
     } else if (lastRunAt) {
       const timeDiffMinutes = (Date.now() - new Date(lastRunAt).getTime()) / (1000 * 60);
-      // Standard career page check intervals are 180 minutes (3 hours). Mark degraded only if no run in > 24 hours.
-      if (timeDiffMinutes > 1440) {
-        status = 'degraded';
-        note = `No scraping activity recorded in last ${Math.round(timeDiffMinutes / 60)} hours`;
-      } else {
-        note = `Last scrape ${Math.round(timeDiffMinutes)}m ago (scheduled interval active)`;
-      }
+      note = `Scheduler heartbeat current; last scrape ${Math.round(timeDiffMinutes)}m ago`;
     }
 
     return {
@@ -308,6 +310,8 @@ async function checkWorker(): Promise<ServiceHealthResult> {
       details: {
         featureFlagEnabled: isEnabled,
         pollInterval,
+        heartbeatAt: heartbeat?.heartbeatAt.toISOString() || null,
+        heartbeatAgeSeconds: heartbeat ? Math.floor((Date.now() - heartbeat.heartbeatAt.getTime()) / 1000) : null,
         lastRunAt: lastRunAt || 'No execution logs recorded yet',
         lastRunStatus: latestLog[0] ? (latestLog[0].success ? 'Success' : 'Failed') : 'N/A',
         note,
@@ -663,9 +667,12 @@ async function fetchResourceQuotas(): Promise<ResourceQuotas> {
 }
 
 export async function GET(req: NextRequest) {
-  const adminUser = await requireAdmin(req);
-  if (!adminUser) {
-    return NextResponse.json({ error: 'Forbidden: Admin access required.' }, { status: 403 });
+  const publicHealthProbe = req.nextUrl.searchParams.get('health') === 'true';
+  if (!publicHealthProbe) {
+    const adminUser = await requireAdmin(req);
+    if (!adminUser) {
+      return NextResponse.json({ error: 'Forbidden: Admin access required.' }, { status: 403 });
+    }
   }
 
   const { searchParams } = new URL(req.url);
@@ -673,7 +680,7 @@ export async function GET(req: NextRequest) {
 
   try {
     let results: ServiceHealthResult[] = [];
-    const quotas = await fetchResourceQuotas();
+    const quotas = publicHealthProbe ? undefined : await fetchResourceQuotas();
 
     if (service === 'database') {
       results = [await checkDatabase()];
@@ -729,6 +736,18 @@ export async function GET(req: NextRequest) {
       overallStatus = 'outage';
     } else if (degradedCount > 0) {
       overallStatus = 'degraded';
+    }
+
+    if (publicHealthProbe) {
+      return NextResponse.json({
+        overallStatus,
+        summary: { totalServices: results.length, onlineCount, degradedCount, offlineCount, notConfiguredCount },
+        services: results.map(({ serviceId, name, status }) => ({ serviceId, name, status })),
+        timestamp: new Date().toISOString(),
+      }, {
+        status: overallStatus === 'operational' ? 200 : 503,
+        headers: { 'Cache-Control': 'no-store, max-age=0' },
+      });
     }
 
     return NextResponse.json({

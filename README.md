@@ -331,7 +331,7 @@ Copy `.env.example` to `.env` and configure the following variables:
 | `OPENAI_API_KEY` | Fallback OpenAI API Key | No | `sk-proj-xxxx` |
 | `BREVO_API_KEY` | Brevo API key for transactional emails | No | `xkeysib-xxxx` |
 | `SENDER_EMAIL` | Outgoing email address | **Yes** | `notifications@jobpingly.com` |
-| `WORKER_POLL_INTERVAL_MS`| Worker poll rate in milliseconds | No | `10000` (10 seconds) |
+| `WORKER_POLL_INTERVAL_MS`| Worker poll rate in milliseconds | No | `60000` (60 seconds) |
 
 ---
 
@@ -366,7 +366,7 @@ npm run db:generate
 ```
 
 ### 4. Running the Application
-Launch both the Next.js development server and the background scraping worker:
+For local development, launch both the Next.js development server and worker:
 
 ```bash
 # Terminal 1: Next.js Frontend & API Server
@@ -376,14 +376,19 @@ npm run dev
 npm run worker
 ```
 
+For a persistent production host, use `npm run start` as the process command. It starts the web server and the background scheduler together, shuts both down if either exits, and runs an immediate scheduler cycle before polling. The worker loads the same `.env` files as Next.js. On platforms that require separate web and worker services, use `npm run start:web` for the web service and `npm run worker` for a dedicated always-on worker service.
+
+Apply database schema changes before deployment with `npm run db:push` (or apply `drizzle/0001_worker_heartbeat.sql`). The public health endpoint is `https://<your-domain>/api/health`; configure Better Stack to monitor that URL. It runs the configured service checks shown in Admin > System & Health and returns HTTP 503 if any service is degraded or offline. Services that are not configured are reported but do not fail the check.
+
 Open [http://localhost:3000](http://localhost:3000) in your browser to access JobPingly.
 
 ---
 
 ## 🔄 Background Worker & Scheduler
 
-The worker operates as a standalone daemon (`worker/scheduler.ts`) isolated from the web server:
-- **Polling Loop:** Queries `career_pages` every 10 seconds for items where `nextCheckAt <= NOW()`.
+The worker operates as a standalone daemon (`worker/scheduler.ts`) alongside the web server:
+- **Polling Loop:** Runs immediately on startup, then queries `career_pages` every `WORKER_POLL_INTERVAL_MS` (60 seconds by default) for due items.
+- **Heartbeat:** Stores a database heartbeat on every scheduler poll for the external `/api/health` monitor.
 - **Feature Flag Control:** Checks `scraper.enabled` before executing.
 - **Auto Cleanup Routine:** Runs a daily maintenance pass via `autoRemoveExpiredJobsFromDb()` to remove expired jobs.
 - **Execution Logging:** Records runtime, jobs discovered, jobs added, and error tracebacks to `scrape_logs`.

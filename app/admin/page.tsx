@@ -937,12 +937,6 @@ export default function AdminDashboardPage() {
       })
       .catch(() => null);
 
-    // Periodic background auto-sync runner for due links (every 60s)
-    const autoSyncInterval = setInterval(() => {
-      fetch('/api/admin/career-pages/cron-check', { method: 'POST' }).catch(() => null);
-    }, 60000);
-
-    return () => clearInterval(autoSyncInterval);
   }, []);
 
   useEffect(() => {
