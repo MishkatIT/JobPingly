@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthUser } from '@/lib/auth/guard';
+import { getAuthUser, invalidateUserSessionCache } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
 import { users, emailApprovals } from '@/lib/db/schema';
 import { isFeatureEnabled } from '@/lib/flags/check';
@@ -21,11 +21,10 @@ export async function PUT(req: NextRequest) {
 
   const finalPreference = isEnforced ? enforcedFrequencyValue : (notificationPreference || 'daily');
 
-  const updateFields: any = {
-    name,
-    emailNotificationsEnabled: Boolean(emailNotificationsEnabled),
-    notificationPreference: finalPreference,
-  };
+  const updateFields: any = {};
+  if (name !== undefined) updateFields.name = name;
+  if (emailNotificationsEnabled !== undefined) updateFields.emailNotificationsEnabled = Boolean(emailNotificationsEnabled);
+  if (notificationPreference !== undefined || isEnforced) updateFields.notificationPreference = finalPreference;
 
   if (avatarUrl !== undefined) {
     updateFields.avatarUrl = avatarUrl ? String(avatarUrl).trim() : null;
@@ -36,6 +35,7 @@ export async function PUT(req: NextRequest) {
   }
 
   const [updated] = await db.update(users).set(updateFields).where(eq(users.id, authUser.userId)).returning();
+  await invalidateUserSessionCache(authUser.userId);
 
   let emailApprovalStatus = 'pending';
   const autoApproveEnabled = await isFeatureEnabled('email.auto_approve_enabled', false);

@@ -60,28 +60,11 @@ export default function SettingsPage() {
   }, fieldKey?: string) => {
     if (fieldKey) setSavingField(fieldKey);
 
-    const updatedName = fields.name !== undefined ? fields.name : name;
-    const updatedAvatarUrl = fields.avatarUrl !== undefined ? fields.avatarUrl : avatarUrl;
-    const updatedEnabled = fields.emailNotificationsEnabled !== undefined ? fields.emailNotificationsEnabled : emailNotificationsEnabled;
-    const updatedPref = fields.notificationPreference !== undefined ? fields.notificationPreference : notificationPreference;
-    const updatedSocials = fields.socials !== undefined ? fields.socials : {
-      github: github.trim(),
-      linkedin: linkedin.trim(),
-      twitter: twitter.trim(),
-      website: website.trim(),
-    };
-
     try {
       const res = await fetch('/api/me/notification-settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: updatedName,
-          avatarUrl: updatedAvatarUrl,
-          emailNotificationsEnabled: updatedEnabled,
-          notificationPreference: updatedPref,
-          socials: updatedSocials,
-        }),
+        body: JSON.stringify(fields),
       });
 
       const data = await res.json();
@@ -170,9 +153,9 @@ export default function SettingsPage() {
 
   const handleToggleDigest = async () => {
     const next = !emailNotificationsEnabled;
-    setEmailNotificationsEnabled(next);
     const ok = await saveSetting({ emailNotificationsEnabled: next }, 'digest');
     if (ok) {
+      setEmailNotificationsEnabled(next);
       toast.success(`Email digest alerts ${next ? 'enabled' : 'disabled'}`);
     }
   };

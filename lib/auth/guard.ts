@@ -76,6 +76,14 @@ export async function getAuthUser(req: NextRequest): Promise<TokenPayload | null
 
   if (cachedUser) {
     if (cachedUser.isBlocked) return null;
+    // Repair session entries created before exemption status was included in the cache.
+    if (!Object.prototype.hasOwnProperty.call(cachedUser, 'frequencyEnforcementExempt')) {
+      const [currentUser] = await db.select({
+        frequencyEnforcementExempt: users.frequencyEnforcementExempt,
+      }).from(users).where(eq(users.id, tokenPayload.userId));
+      cachedUser.frequencyEnforcementExempt = Boolean(currentUser?.frequencyEnforcementExempt);
+      redisSet(cacheKey, cachedUser, USER_SESSION_TTL_SECONDS).catch(() => {});
+    }
     tokenPayload.role = cachedUser.role;
     tokenPayload.userRecord = cachedUser;
     return tokenPayload;
@@ -92,6 +100,7 @@ export async function getAuthUser(req: NextRequest): Promise<TokenPayload | null
     emailVerified: users.emailVerified,
     emailNotificationsEnabled: users.emailNotificationsEnabled,
     notificationPreference: users.notificationPreference,
+    frequencyEnforcementExempt: users.frequencyEnforcementExempt,
     socials: users.socials,
     createdAt: users.createdAt,
   }).from(users).where(eq(users.id, tokenPayload.userId));

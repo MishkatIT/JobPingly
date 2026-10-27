@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth/guard';
+import { requireAdmin, invalidateUserSessionCache } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
 import { users, adminAuditLog } from '@/lib/db/schema';
 import { isFeatureEnabled } from '@/lib/flags/check';
@@ -88,6 +88,8 @@ export async function POST(req: NextRequest) {
   await db.update(users)
     .set({ frequencyEnforcementExempt: exempt })
     .where(inArray(users.id, userIds));
+
+  await Promise.all(userIds.map(userId => invalidateUserSessionCache(userId)));
 
   // Record audit log
   await db.insert(adminAuditLog).values({
