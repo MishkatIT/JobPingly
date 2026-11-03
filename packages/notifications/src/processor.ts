@@ -1,10 +1,11 @@
 import { db } from '@/lib/db/client';
-import { notificationQueue, users, jobs, careerPages } from '@/lib/db/schema';
-import { eq, isNull, isNotNull, inArray, asc, desc, and } from 'drizzle-orm';
+import { notificationQueue, users, jobs, careerPages, listSubscriptions, lists } from '@/lib/db/schema';
+import { eq, isNull, inArray, asc, and } from 'drizzle-orm';
 import { sendEmailDigest } from './sender';
 import { getTodaySentEmailCount } from '@/lib/email/brevo';
-import { isFeatureEnabled } from '@/lib/flags/check';
-import { getFrequencyIntervalMs } from '@/lib/utils/frequency';
+import { loadNotificationPolicy, shouldDeferForCohort, type NotificationPolicy } from './policy';
+import { normalizeFrequencyValue, resolveEffectiveFrequency } from '@/lib/utils/frequency';
+import { evaluateDigestSchedule, describeDigestSchedule } from '@/lib/utils/digestSchedule';
 
 export interface ProcessNotificationResult {
   processedCount: number;
@@ -12,10 +13,100 @@ export interface ProcessNotificationResult {
   errors: string[];
 }
 
+interface PendingItem {
+  queueId: string;
+  userId: string;
+  jobId: string;
+  listId: string | null;
+  eventType: string;
+  createdAt: Date;
+  userEmail: string;
+  userName: string | null;
+  emailNotificationsEnabled: boolean;
+  isBlocked: boolean;
+  notificationPreference: string;
+  digestHour: number;
+  digestMinute: number;
+  timezone: string;
+  lastDigestSentAt: Date | null;
+  frequencyEnforcementExempt: boolean;
+  quotaExempt: boolean;
+  dispatchGroup: number;
+  listDigestFrequency: string | null;
+  listName: string | null;
+  jobTitle: string;
+  jobUrl: string | null;
+  companyName: string | null;
+}
+
+/** One delivery channel for a user: the list that matched, plus its frequency. */
+interface DigestChannel {
+  listId: string | null;
+  listName: string | null;
+  frequency: string;
+  items: PendingItem[];
+  oldestPendingAt: Date;
+}
+
+/**
+ * Resolves the delivery time a user's digest should land on.
+ * The admin can pin a global hour; otherwise each user's own setting applies.
+ */
+function resolveDeliveryClock(item: PendingItem, policy: NotificationPolicy) {
+  if (policy.globalPolicyEnforced && !item.frequencyEnforcementExempt && policy.enforcedDigestHour !== null) {
+    return {
+      hour: policy.enforcedDigestHour,
+      minute: policy.enforcedDigestMinute ?? 0,
+      timezone: item.timezone,
+    };
+  }
+  return { hour: item.digestHour, minute: item.digestMinute, timezone: item.timezone };
+}
+
+/**
+ * Groups a user's pending items into delivery channels and resolves each
+ * channel's effective frequency.
+ *
+ * Precedence is admin-enforced policy > per-list override > account preference.
+ * A list subscription set to 'inherit' (the default) does not override anything.
+ */
+function buildChannels(items: PendingItem[], policy: NotificationPolicy): DigestChannel[] {
+  const first = items[0];
+  const isEnforced = policy.globalPolicyEnforced && !first.frequencyEnforcementExempt;
+
+  const byChannel = new Map<string, DigestChannel>();
+  for (const item of items) {
+    const key = item.listId || '__account__';
+    const existing = byChannel.get(key);
+    if (existing) {
+      existing.items.push(item);
+      if (item.createdAt < existing.oldestPendingAt) existing.oldestPendingAt = item.createdAt;
+      continue;
+    }
+    byChannel.set(key, {
+      listId: item.listId,
+      listName: item.listName,
+      frequency: resolveEffectiveFrequency({
+        isEnforced,
+        enforcedFrequency: policy.enforcedFrequencyValue,
+        listFrequency: item.listDigestFrequency,
+        accountFrequency: item.notificationPreference,
+      }),
+      items: [item],
+      oldestPendingAt: item.createdAt,
+    });
+  }
+
+  return Array.from(byChannel.values());
+}
+
 /**
  * Drains and processes unsent items in notification_queue.
- * Enforces Brevo daily quota checks, transactional safety buffer, user exemptions,
- * user digest frequency settings, admin frequency policies, and staggered cohort rotations.
+ *
+ * Delivery honours, in order: the user's email toggle and block status, the
+ * admin-enforced frequency policy, the per-list digest frequency, the user's own
+ * digest frequency plus wall-clock delivery time and timezone, the Brevo daily
+ * quota, and finally staggered cohort rotation (only under quota pressure).
  */
 export async function processNotificationQueue(): Promise<ProcessNotificationResult> {
   console.log('[Notification Processor] Checking notification_queue for unsent job alerts...');
@@ -23,45 +114,37 @@ export async function processNotificationQueue(): Promise<ProcessNotificationRes
   const errors: string[] = [];
 
   try {
-    // Read persisted Brevo Quota, Safety Reserve & Cohort Cycle Configuration from PostgreSQL feature_flags
-    const envLimit = Number(process.env.BREVO_DAILY_LIMIT) || 300;
-    const envBuffer = Number(process.env.BREVO_SAFETY_BUFFER) || 50;
-
-    const brevoLimit = await isFeatureEnabled('email.brevo_daily_limit', envLimit);
-    const safetyBuffer = await isFeatureEnabled('email.transactional_safety_buffer', envBuffer);
-    const cycleDays = await isFeatureEnabled('email.cohort_cycle_days', 3);
-    const effectiveDigestLimit = Math.max(1, brevoLimit - safetyBuffer);
-
-    // Check if Admin Panel strict global frequency policy is enabled
-    const isEnforcedGlobal1 = await isFeatureEnabled('notifications.enforce_frequency', false);
-    const isEnforcedGlobal2 = await isFeatureEnabled('email.enforce_frequency_policy', false);
-    const globalPolicyEnforced = Boolean(isEnforcedGlobal1 || isEnforcedGlobal2);
-    const enforcedFrequencyValue = await isFeatureEnabled('notifications.enforced_frequency_value', 'daily');
-
-    // Check if Cohort Grouping feature toggle is ON (default: true)
-    const cohortGroupingEnabled = await isFeatureEnabled('email.cohort_grouping_enabled', true);
-
-    // Compute today's active cohort group dynamically based on cycleDays ($K$ Days rotation)
-    const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 1000 / 60 / 60 / 24);
-    const todayCohort = (dayOfYear % Math.max(1, cycleDays)) + 1;
+    const now = new Date();
+    const policy = await loadNotificationPolicy({ now });
 
     // 1. Fetch today's sent email status
-    let todayStats = await getTodaySentEmailCount();
+    const todayStats = await getTodaySentEmailCount();
+    let sentToday = todayStats.sentToday;
 
-    // 2. Fetch unsent notifications with user, job, and career page details
-    const pendingItems = await db.select({
+    // 2. Fetch unsent notifications with user, job, career page and list details.
+    //    The list subscription join is what makes per-list digest frequency real:
+    //    the column existed and was editable in the UI but was never read here.
+    const pendingItems = (await db.select({
       queueId: notificationQueue.id,
       userId: notificationQueue.userId,
       jobId: notificationQueue.jobId,
+      listId: notificationQueue.listId,
       eventType: notificationQueue.eventType,
+      createdAt: notificationQueue.createdAt,
       userEmail: users.email,
       userName: users.name,
       emailNotificationsEnabled: users.emailNotificationsEnabled,
       isBlocked: users.isBlocked,
       notificationPreference: users.notificationPreference,
+      digestHour: users.digestHour,
+      digestMinute: users.digestMinute,
+      timezone: users.timezone,
+      lastDigestSentAt: users.lastDigestSentAt,
       frequencyEnforcementExempt: users.frequencyEnforcementExempt,
       quotaExempt: users.quotaExempt,
       dispatchGroup: users.dispatchGroup,
+      listDigestFrequency: listSubscriptions.digestFrequency,
+      listName: lists.name,
       jobTitle: jobs.title,
       jobUrl: jobs.url,
       companyName: careerPages.companyName,
@@ -70,18 +153,31 @@ export async function processNotificationQueue(): Promise<ProcessNotificationRes
     .innerJoin(users, eq(notificationQueue.userId, users.id))
     .innerJoin(jobs, eq(notificationQueue.jobId, jobs.id))
     .innerJoin(careerPages, eq(jobs.careerPageId, careerPages.id))
+    .leftJoin(lists, eq(notificationQueue.listId, lists.id))
+    .leftJoin(
+      listSubscriptions,
+      and(
+        eq(listSubscriptions.listId, notificationQueue.listId),
+        eq(listSubscriptions.userId, notificationQueue.userId),
+      ),
+    )
     .where(isNull(notificationQueue.sentAt))
-    .orderBy(asc(notificationQueue.createdAt));
+    .orderBy(asc(notificationQueue.createdAt))) as unknown as PendingItem[];
 
     if (pendingItems.length === 0) {
       console.log('[Notification Processor] No pending notifications to process.');
       return { processedCount: 0, emailsSent: 0, errors: [] };
     }
 
-    console.log(`[Notification Processor] Found ${pendingItems.length} pending notification item(s). Processing FIFO with quota limit ${effectiveDigestLimit}/day (Today sent: ${todayStats.sentToday}, Cohort Grouping: ${cohortGroupingEnabled ? 'ON' : 'OFF'}, Frequency Policy Enforced: ${globalPolicyEnforced ? 'YES' : 'NO'})...`);
+    console.log(
+      `[Notification Processor] Found ${pendingItems.length} pending item(s). ` +
+      `Quota ${sentToday}/${policy.effectiveDigestLimit} today. ` +
+      `Cohort grouping: ${policy.cohortGroupingEnabled ? `ON (cycle ${policy.cycleDays}d, today group ${policy.todayCohort}, pressure at ${policy.cohortPressureThreshold})` : 'OFF'}. ` +
+      `Frequency policy enforced: ${policy.globalPolicyEnforced ? `YES (${policy.enforcedFrequencyValue})` : 'NO'}.`,
+    );
 
-    // 3. Group pending items by user ID preserving strict FIFO arrival order
-    const userMap = new Map<string, typeof pendingItems>();
+    // 3. Group pending items by user, preserving FIFO arrival order
+    const userMap = new Map<string, PendingItem[]>();
     for (const item of pendingItems) {
       const list = userMap.get(item.userId) || [];
       list.push(item);
@@ -91,117 +187,130 @@ export async function processNotificationQueue(): Promise<ProcessNotificationRes
     let totalEmailsSent = 0;
     let totalProcessed = 0;
 
-    // 4. Process notifications per user in strict FIFO order
     for (const [userId, items] of userMap.entries()) {
-      const queueIds = items.map(i => i.queueId);
       const firstItem = items[0];
 
-      // If user account is blocked or email notifications are toggled off by user
+      // Blocked accounts and users who turned email off: resolve the rows so the
+      // queue does not grow without bound.
       if (firstItem.isBlocked || !firstItem.emailNotificationsEnabled) {
-        console.log(`[Notification Processor] User ${firstItem.userEmail} has notifications disabled or is blocked. Marking ${queueIds.length} item(s) as resolved.`);
+        const allIds = items.map(i => i.queueId);
+        console.log(`[Notification Processor] ${firstItem.userEmail}: notifications disabled or account blocked. Resolving ${allIds.length} item(s).`);
         await db.update(notificationQueue)
           .set({ sentAt: new Date() })
-          .where(inArray(notificationQueue.id, queueIds));
-        totalProcessed += queueIds.length;
+          .where(inArray(notificationQueue.id, allIds));
+        totalProcessed += allIds.length;
         continue;
       }
 
       const isVipExempt = firstItem.quotaExempt;
+      const channels = buildChannels(items, policy);
+      const clock = resolveDeliveryClock(firstItem, policy);
 
-      // 1. Effective Digest Frequency & Frequency Elapsed Window Check:
-      // VIP users (quotaExempt = true) bypass timing window delays.
-      const isEnforced = globalPolicyEnforced && !firstItem.frequencyEnforcementExempt;
-      const effectiveFrequency = isEnforced ? String(enforcedFrequencyValue) : (firstItem.notificationPreference || 'daily');
-      const frequencyIntervalMs = getFrequencyIntervalMs(effectiveFrequency);
+      // 4. Schedule gate: which channels have a delivery slot pending right now?
+      const dueChannels: DigestChannel[] = [];
+      let anyRealtime = false;
 
-      if (!isVipExempt && frequencyIntervalMs > 0) {
-        const [lastSentRecord] = await db.select({ sentAt: notificationQueue.sentAt })
-          .from(notificationQueue)
-          .where(and(
-            eq(notificationQueue.userId, userId),
-            isNotNull(notificationQueue.sentAt)
-          ))
-          .orderBy(desc(notificationQueue.sentAt))
-          .limit(1);
+      for (const channel of channels) {
+        const verdict = evaluateDigestSchedule({
+          frequency: channel.frequency,
+          now,
+          lastSentAt: firstItem.lastDigestSentAt,
+          timezone: clock.timezone,
+          hour: clock.hour,
+          minute: clock.minute,
+          oldestPendingAt: channel.oldestPendingAt,
+        });
 
-        if (lastSentRecord?.sentAt) {
-          const lastSentMs = new Date(lastSentRecord.sentAt).getTime();
-          const elapsedMs = Date.now() - lastSentMs;
-          if (elapsedMs < frequencyIntervalMs) {
-            const elapsedHours = (elapsedMs / (1000 * 60 * 60)).toFixed(1);
-            const requiredHours = (frequencyIntervalMs / (1000 * 60 * 60)).toFixed(1);
-            console.log(`[Notification Processor] Digest frequency window not elapsed for ${firstItem.userEmail} (Effective Frequency: '${effectiveFrequency}', Elapsed: ${elapsedHours}h < ${requiredHours}h required). Deferring delivery.`);
-            continue;
-          }
+        if (verdict.due) {
+          dueChannels.push(channel);
+          if (verdict.kind === 'realtime') anyRealtime = true;
+        } else {
+          console.log(
+            `[Notification Processor] ${firstItem.userEmail} / ${channel.listName || 'account default'}: ${verdict.reason} ` +
+            `(${describeDigestSchedule(channel.frequency, clock.hour, clock.minute, clock.timezone)})`,
+          );
         }
       }
 
-      // 2. Quota Guard Check:
-      // VIP users (quotaExempt = true) bypass the 300 Brevo daily limit completely!
-      // Regular non-VIP users check today's sent count against Brevo daily quota limit.
-      if (!isVipExempt && todayStats.sentToday >= effectiveDigestLimit) {
-        console.log(`[Notification Processor] Brevo daily quota limit reached (${todayStats.sentToday}/${effectiveDigestLimit}). Deferring delivery for non-VIP user ${firstItem.userEmail} to next cycle.`);
+      if (dueChannels.length === 0) continue;
+
+      // 5. Quota guard. Quota-exempt recipients bypass the Brevo daily ceiling.
+      if (!isVipExempt && sentToday >= policy.effectiveDigestLimit) {
+        console.log(`[Notification Processor] Daily email allowance reached (${sentToday}/${policy.effectiveDigestLimit}). Deferring ${firstItem.userEmail} to the next cycle.`);
         continue;
       }
 
-      // 3. Cohort Grouping Rule (When turned ON):
-      // Applies universally to ALL non-VIP emails regardless of user preference or admin settings.
-      // Designed specifically to budget daily quota and prevent crossing Brevo 300 limit.
-      if (cohortGroupingEnabled && !isVipExempt) {
-        if (firstItem.dispatchGroup !== todayCohort) {
-          console.log(`[Notification Processor] Cohort Grouping Active: User ${firstItem.userEmail} is in Group ${firstItem.dispatchGroup} (Today is Group ${todayCohort}). Deferring for scheduled cohort day.`);
-          continue;
-        }
+      // 6. Staggered cohort rotation, applied only under quota pressure so it
+      //    cannot silently override the frequency the user chose.
+      const cohort = shouldDeferForCohort({
+        policy,
+        dispatchGroup: firstItem.dispatchGroup,
+        sentToday,
+        isRealtime: anyRealtime,
+        isQuotaExempt: Boolean(isVipExempt),
+      });
+      if (cohort.defer) {
+        console.log(`[Notification Processor] ${firstItem.userEmail}: ${cohort.reason} Deferring.`);
+        continue;
       }
 
-
-      // Replace & prune older duplicate pending queue items for the same job for this user
-      const latestJobMap = new Map<string, typeof items[0]>();
+      // 7. Collapse duplicate queue rows for the same job across due channels.
+      const dueItems = dueChannels.flatMap(c => c.items);
+      const latestJobMap = new Map<string, PendingItem>();
       const staleQueueIds: string[] = [];
-
-      for (const item of items) {
+      for (const item of dueItems) {
         if (!latestJobMap.has(item.jobId)) {
           latestJobMap.set(item.jobId, item);
         } else {
-          // Found an older pending queue item for the same job - mark as replaced/pruned
           staleQueueIds.push(item.queueId);
         }
       }
 
       if (staleQueueIds.length > 0) {
-        console.log(`[Notification Processor] Replaced/pruned ${staleQueueIds.length} older duplicate pending queue item(s) for user ${firstItem.userEmail}.`);
+        console.log(`[Notification Processor] Pruned ${staleQueueIds.length} duplicate queue item(s) for ${firstItem.userEmail}.`);
         await db.update(notificationQueue)
           .set({ sentAt: new Date() })
           .where(inArray(notificationQueue.id, staleQueueIds));
       }
 
-      // Deduplicate job listings by jobId for this user
       const freshItems = Array.from(latestJobMap.values());
       const jobListings = freshItems.map(item => ({
         companyName: item.companyName || 'Unknown Company',
         title: item.jobTitle,
         url: item.jobUrl || undefined,
       }));
+      // Only the due channels are settled; items on channels whose slot has not
+      // arrived stay pending for their own schedule.
+      const dueQueueIds = dueItems.map(i => i.queueId);
 
       try {
         const result = await sendEmailDigest(
           firstItem.userEmail,
           firstItem.userName || firstItem.userEmail.split('@')[0],
-          jobListings
+          jobListings,
         );
 
-        // Mark queue items sent if successfully dispatched, or if skipped due to admin approval / feature flag disabled
         if (result.success || result.unapproved || result.disabled || result.mocked) {
           await db.update(notificationQueue)
             .set({ sentAt: new Date() })
-            .where(inArray(notificationQueue.id, queueIds));
+            .where(inArray(notificationQueue.id, dueQueueIds));
 
-          totalProcessed += queueIds.length;
+          totalProcessed += dueQueueIds.length;
 
           if (result.success || result.mocked) {
+            // Stamp the real delivery marker. The schedule window reads this and
+            // never notification_queue.sent_at, which is also set when a row is
+            // merely resolved (suppressed, pruned or pending approval).
+            await db.update(users)
+              .set({ lastDigestSentAt: new Date() })
+              .where(eq(users.id, userId));
+
             totalEmailsSent++;
-            todayStats.sentToday++; // increment in-memory today sent count for loop
-            console.log(`[Notification Processor] Sent digest email with ${jobListings.length} job(s) to ${firstItem.userEmail}.`);
+            sentToday++;
+            console.log(
+              `[Notification Processor] Sent digest with ${jobListings.length} job(s) to ${firstItem.userEmail} ` +
+              `across ${dueChannels.length} channel(s): ${dueChannels.map(c => `${c.listName || 'account'}=${normalizeFrequencyValue(c.frequency)}`).join(', ')}.`,
+            );
           }
         } else if (result.error) {
           console.warn(`[Notification Processor] Could not send email to ${firstItem.userEmail}: ${result.error}`);

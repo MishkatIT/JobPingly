@@ -6,6 +6,7 @@ import { isFeatureEnabled } from '@/lib/flags/check';
 import { eq, inArray, and, count, countDistinct, isNull } from 'drizzle-orm';
 
 import { ensureAdminMasterWatchlist, ADMIN_MASTER_LIST_SLUG } from '@/lib/lists/admin-master';
+import { INHERIT_FREQUENCY } from '@/lib/utils/frequency';
 
 // GET user lists with backend pagination + search
 export async function GET(req: NextRequest) {
@@ -249,11 +250,12 @@ export async function POST(req: NextRequest) {
     followerCount: 1,
   }).returning();
 
-  // Auto-subscribe list owner for email alerts
+  // Auto-subscribe the list owner, inheriting their account digest preference.
+  // Hard-coding 'instant' here silently overrode whatever the user had chosen.
   await db.insert(listSubscriptions).values({
     userId: user.userId,
     listId: newList.id,
-    digestFrequency: 'instant',
+    digestFrequency: INHERIT_FREQUENCY,
   }).catch(() => null);
 
   return NextResponse.json({ list: newList });

@@ -48,6 +48,7 @@ import { useToast } from '@/components/Toast';
 import { useAuth } from '@/components/auth/AuthContext';
 import { getCompanyColorTheme, getCompanyLogoUrl } from '@/lib/utils/companyBranding';
 import { pluralize } from '@/lib/utils/pluralize';
+import { INHERIT_FREQUENCY, normalizeFrequencyValue, formatFrequencyLabel } from '@/lib/utils/frequency';
 
 interface WatchListDetailViewProps {
   listId?: string;
@@ -92,7 +93,7 @@ export default function WatchListDetailView({
   const [showFollowModal, setShowFollowModal] = useState(false);
   const [positiveKeywordsInput, setPositiveKeywordsInput] = useState('');
   const [negativeKeywordsInput, setNegativeKeywordsInput] = useState('');
-  const [digestFrequency, setDigestFrequency] = useState('instant');
+  const [digestFrequency, setDigestFrequency] = useState(INHERIT_FREQUENCY);
   const [followSubmitting, setFollowSubmitting] = useState(false);
 
   // Suggest Company Dialog
@@ -252,7 +253,7 @@ export default function WatchListDetailView({
               if (fJson.subscription) {
                 setPositiveKeywordsInput((fJson.subscription.positiveKeywords || []).join(', '));
                 setNegativeKeywordsInput((fJson.subscription.negativeKeywords || []).join(', '));
-                setDigestFrequency(fJson.subscription.digestFrequency || 'instant');
+                setDigestFrequency(fJson.subscription.digestFrequency || INHERIT_FREQUENCY);
               }
             }
           })
@@ -291,7 +292,7 @@ export default function WatchListDetailView({
               if (fJson.subscription) {
                 setPositiveKeywordsInput((fJson.subscription.positiveKeywords || []).join(', '));
                 setNegativeKeywordsInput((fJson.subscription.negativeKeywords || []).join(', '));
-                setDigestFrequency(fJson.subscription.digestFrequency || 'instant');
+                setDigestFrequency(fJson.subscription.digestFrequency || INHERIT_FREQUENCY);
               }
             }
           })
@@ -1967,22 +1968,32 @@ export default function WatchListDetailView({
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
                   Digest Frequency
                 </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['instant', 'daily', 'weekly'] as const).map((freq) => (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {([
+                    { value: INHERIT_FREQUENCY, label: 'Account default' },
+                    { value: 'realtime', label: 'Instant' },
+                    { value: 'daily', label: 'Daily' },
+                    { value: 'weekly', label: 'Weekly' },
+                  ] as const).map((opt) => (
                     <button
-                      key={freq}
+                      key={opt.value}
                       type="button"
-                      onClick={() => setDigestFrequency(freq)}
-                      className={`py-2.5 px-3 rounded-xl text-xs font-extrabold capitalize cursor-pointer border transition-all ${
-                        digestFrequency === freq
+                      onClick={() => setDigestFrequency(opt.value)}
+                      className={`py-2.5 px-3 rounded-xl text-xs font-extrabold cursor-pointer border transition-all ${
+                        normalizeFrequencyValue(digestFrequency) === normalizeFrequencyValue(opt.value)
                           ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
                           : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
                       }`}
                     >
-                      {freq}
+                      {opt.label}
                     </button>
                   ))}
                 </div>
+                <p className="text-[11px] text-slate-500 mt-1.5">
+                  {digestFrequency === INHERIT_FREQUENCY
+                    ? 'Follows the frequency and delivery time set in your account settings.'
+                    : `Overrides your account setting for this list only (${formatFrequencyLabel(digestFrequency)}). Scheduled digests use your account delivery time.`}
+                </p>
               </div>
 
               <div>

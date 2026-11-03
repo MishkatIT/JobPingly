@@ -15,7 +15,15 @@ export const users = pgTable('users', {
   blockedReason: text('blocked_reason'),
   blockedAt: timestamp('blocked_at', { withTimezone: true }),
   emailNotificationsEnabled: boolean('email_notifications_enabled').default(true).notNull(),
-  notificationPreference: text('notification_preference').default('daily').notNull(), // 'instant' | 'daily' | 'weekly'
+  notificationPreference: text('notification_preference').default('daily').notNull(), // 'realtime' | 'every_6_hours' | 'every_12_hours' | 'daily' | 'twice_weekly' | 'weekly' | 'biweekly' | 'monthly' | 'custom_<n>_<unit>'
+  // Wall-clock time (in `timezone`) at which scheduled digests are delivered.
+  digestHour: integer('digest_hour').default(8).notNull(), // 0-23
+  digestMinute: integer('digest_minute').default(0).notNull(), // 0-59
+  timezone: text('timezone').default('UTC').notNull(), // IANA zone id, e.g. 'Asia/Dhaka'
+  // Last time a digest email was actually dispatched to this user. Drives the
+  // schedule window; distinct from notification_queue.sent_at, which is also set
+  // when a queue row is merely resolved (suppressed, pruned or unapproved).
+  lastDigestSentAt: timestamp('last_digest_sent_at', { withTimezone: true }),
   frequencyEnforcementExempt: boolean('frequency_enforcement_exempt').default(false).notNull(),
   quotaExempt: boolean('quota_exempt').default(false).notNull(),
   dispatchGroup: integer('dispatch_group').default(1).notNull(),
@@ -132,7 +140,8 @@ export const listSubscriptions = pgTable('list_subscriptions', {
   listId: uuid('list_id').notNull().references(() => lists.id, { onDelete: 'cascade' }),
   positiveKeywords: text('positive_keywords').array(),
   negativeKeywords: text('negative_keywords').array(),
-  digestFrequency: text('digest_frequency').default('instant').notNull(), // 'instant' | 'daily' | 'weekly'
+  // 'inherit' (use the account-level preference) or any value from FREQUENCY_OPTIONS.
+  digestFrequency: text('digest_frequency').default('inherit').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   uniqueUserListSub: uniqueIndex('unique_user_list_sub').on(table.userId, table.listId),
@@ -243,6 +252,10 @@ export const notificationQueue = pgTable('notification_queue', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   jobId: uuid('job_id').notNull().references(() => jobs.id, { onDelete: 'cascade' }),
+  // The list subscription that matched this job. Null for legacy rows and for
+  // matches that did not originate from a list subscription; those fall back to
+  // the account-level digest preference.
+  listId: uuid('list_id').references(() => lists.id, { onDelete: 'set null' }),
   eventType: text('event_type').notNull(), // 'new' | 'closed'
   keywordMatched: text('keyword_matched').array(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

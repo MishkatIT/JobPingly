@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
-import { notificationQueue, users, jobs, careerPages, emailApprovals } from '@/lib/db/schema';
-import { eq, isNull, inArray, desc } from 'drizzle-orm';
-import { isFeatureEnabled } from '@/lib/flags/check';
+import { notificationQueue, users, jobs, careerPages, emailApprovals, listSubscriptions, lists } from '@/lib/db/schema';
+import { eq, isNull, inArray, desc, and } from 'drizzle-orm';
 import { getTodaySentEmailCount } from '@/lib/email/brevo';
 import { sendEmailDigest } from '@/packages/notifications/src/sender';
+import { loadNotificationPolicy, shouldDeferForCohort } from '@/packages/notifications/src/policy';
+import { resolveEffectiveFrequency } from '@/lib/utils/frequency';
+import { evaluateDigestSchedule, describeDigestSchedule } from '@/lib/utils/digestSchedule';
 
 export async function GET(req: NextRequest) {
   const adminUser = await requireAdmin(req);
@@ -15,33 +17,37 @@ export async function GET(req: NextRequest) {
 
 
   const { searchParams } = new URL(req.url);
-  const brevoLimit = Number(searchParams.get('brevoLimit')) || 300;
-  const safetyBuffer = Number(searchParams.get('safetyBuffer')) || 50;
+  const brevoLimitParam = Number(searchParams.get('brevoLimit'));
+  const safetyBufferParam = Number(searchParams.get('safetyBuffer'));
   const filterReason = searchParams.get('reason');
 
-  // Check global notifications flag
-  const notificationsEnabled = await isFeatureEnabled('notifications.enabled', true);
+  const now = new Date();
+  // Loaded through the shared policy module so this panel always reports the same
+  // decisions the worker will make. It previously recomputed the cohort day with a
+  // hard-coded 3-day cycle and ignored the cohort-grouping toggle entirely.
+  const policy = await loadNotificationPolicy({
+    now,
+    brevoLimit: Number.isFinite(brevoLimitParam) && brevoLimitParam > 0 ? brevoLimitParam : undefined,
+    safetyBuffer: Number.isFinite(safetyBufferParam) && safetyBufferParam >= 0 ? safetyBufferParam : undefined,
+  });
 
-  // Check admin frequency enforcement status
-  const isEnforcedGlobal1 = await isFeatureEnabled('notifications.enforce_frequency', false);
-  const isEnforcedGlobal2 = await isFeatureEnabled('email.enforce_frequency_policy', false);
-  const globalPolicyEnforced = Boolean(isEnforcedGlobal1 || isEnforcedGlobal2);
-  const enforcedFrequencyValue = await isFeatureEnabled('notifications.enforced_frequency_value', 'daily');
+  const notificationsEnabled = policy.notificationsEnabled;
+  const globalPolicyEnforced = policy.globalPolicyEnforced;
+  const enforcedFrequencyValue = policy.enforcedFrequencyValue;
 
   // Fetch today's sent email count
   const todayStats = await getTodaySentEmailCount();
-  const effectiveLimit = Math.max(1, brevoLimit - safetyBuffer);
+  const effectiveLimit = policy.effectiveDigestLimit;
   const quotaReached = todayStats.sentToday >= effectiveLimit;
+  const todayCohort = policy.todayCohort;
 
-  // Compute today's active cohort group (e.g. day of year modulo 3 + 1)
-  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 1000 / 60 / 60 / 24);
-  const todayCohort = (dayOfYear % 3) + 1;
-
-  // 1. Fetch pending queue items inner joined with users, jobs, and career pages
+  // 1. Fetch pending queue items inner joined with users, jobs, career pages and
+  //    the list subscription that matched (for per-list frequency).
   const pendingItems = await db.select({
     id: notificationQueue.id,
     userId: notificationQueue.userId,
     jobId: notificationQueue.jobId,
+    listId: notificationQueue.listId,
     eventType: notificationQueue.eventType,
     createdAt: notificationQueue.createdAt,
     userEmail: users.email,
@@ -49,9 +55,15 @@ export async function GET(req: NextRequest) {
     isBlocked: users.isBlocked,
     emailNotificationsEnabled: users.emailNotificationsEnabled,
     notificationPreference: users.notificationPreference,
+    digestHour: users.digestHour,
+    digestMinute: users.digestMinute,
+    timezone: users.timezone,
+    lastDigestSentAt: users.lastDigestSentAt,
     quotaExempt: users.quotaExempt,
     frequencyEnforcementExempt: users.frequencyEnforcementExempt,
     dispatchGroup: users.dispatchGroup,
+    listDigestFrequency: listSubscriptions.digestFrequency,
+    listName: lists.name,
     jobTitle: jobs.title,
     companyName: careerPages.companyName,
   })
@@ -59,8 +71,26 @@ export async function GET(req: NextRequest) {
   .innerJoin(users, eq(notificationQueue.userId, users.id))
   .innerJoin(jobs, eq(notificationQueue.jobId, jobs.id))
   .innerJoin(careerPages, eq(jobs.careerPageId, careerPages.id))
+  .leftJoin(lists, eq(notificationQueue.listId, lists.id))
+  .leftJoin(
+    listSubscriptions,
+    and(
+      eq(listSubscriptions.listId, notificationQueue.listId),
+      eq(listSubscriptions.userId, notificationQueue.userId),
+    ),
+  )
   .where(isNull(notificationQueue.sentAt))
   .orderBy(desc(notificationQueue.createdAt));
+
+  // Oldest pending item per delivery channel, so the schedule verdict matches the
+  // worker's (a slot only counts if it is at or after the item's arrival).
+  const oldestPerChannel = new Map<string, Date>();
+  for (const item of pendingItems) {
+    const key = `${item.userId}::${item.listId || '__account__'}`;
+    const created = new Date(item.createdAt);
+    const existing = oldestPerChannel.get(key);
+    if (!existing || created < existing) oldestPerChannel.set(key, created);
+  }
 
   // 2. Fetch email approvals list
   const approvalsList = await db.select().from(emailApprovals);
@@ -78,7 +108,35 @@ export async function GET(req: NextRequest) {
     let reasonLabel = 'Ready to Send';
 
     const isEnforced = globalPolicyEnforced && !item.frequencyEnforcementExempt;
-    const effectivePref = isEnforced ? String(enforcedFrequencyValue) : (item.notificationPreference || 'daily');
+    // Precedence matches the worker: enforced policy > per-list > account default.
+    const effectivePref = resolveEffectiveFrequency({
+      isEnforced,
+      enforcedFrequency: enforcedFrequencyValue,
+      listFrequency: item.listDigestFrequency,
+      accountFrequency: item.notificationPreference,
+    });
+
+    const hourPinned = isEnforced && policy.enforcedDigestHour !== null;
+    const clockHour = hourPinned ? policy.enforcedDigestHour : item.digestHour;
+    const clockMinute = hourPinned ? (policy.enforcedDigestMinute ?? 0) : item.digestMinute;
+
+    const schedule = evaluateDigestSchedule({
+      frequency: effectivePref,
+      now,
+      lastSentAt: item.lastDigestSentAt,
+      timezone: item.timezone,
+      hour: clockHour,
+      minute: clockMinute,
+      oldestPendingAt: oldestPerChannel.get(`${item.userId}::${item.listId || '__account__'}`) || item.createdAt,
+    });
+
+    const cohort = shouldDeferForCohort({
+      policy,
+      dispatchGroup: item.dispatchGroup,
+      sentToday: todayStats.sentToday,
+      isRealtime: schedule.kind === 'realtime',
+      isQuotaExempt: Boolean(item.quotaExempt),
+    });
 
     if (!notificationsEnabled) {
       reasonKey = 'feature_flag_disabled';
@@ -89,21 +147,26 @@ export async function GET(req: NextRequest) {
     } else if (appStatus && appStatus !== 'approved') {
       reasonKey = 'pending_admin_approval';
       reasonLabel = `Admin Approval Pending (${appStatus})`;
+    } else if (!schedule.due) {
+      reasonKey = 'frequency_digest_window';
+      reasonLabel = `Waiting for ${isEnforced ? 'enforced ' : ''}digest slot${schedule.nextDueAt ? ` (next ${schedule.nextDueAt.toISOString()})` : ''}`;
     } else if (quotaReached && !item.quotaExempt) {
       reasonKey = 'brevo_daily_quota_reached';
-      reasonLabel = `Brevo Quota Reached (${todayStats.sentToday}/${effectiveLimit})`;
-    } else if (!item.quotaExempt && item.dispatchGroup !== todayCohort) {
+      reasonLabel = `Daily Email Allowance Reached (${todayStats.sentToday}/${effectiveLimit})`;
+    } else if (cohort.defer) {
       reasonKey = 'staggered_cohort_waiting';
-      reasonLabel = `Waiting Cohort Day (Group ${item.dispatchGroup}, Today is Group ${todayCohort})`;
-    } else if (effectivePref === 'weekly' && !item.quotaExempt) {
-      reasonKey = 'frequency_digest_window';
-      reasonLabel = isEnforced ? `Waiting for Enforced Digest Window (${effectivePref})` : 'Waiting for Weekly Digest Window';
+      reasonLabel = `Waiting Cohort Day (Group ${cohort.userGroup}, Today is Group ${todayCohort})`;
     }
 
     return {
       ...item,
       reasonKey,
       reasonLabel,
+      effectiveFrequency: effectivePref,
+      scheduleLabel: describeDigestSchedule(effectivePref, clockHour, clockMinute, item.timezone),
+      scheduleReason: schedule.reason,
+      nextDueAt: schedule.nextDueAt,
+      cohortGroup: cohort.userGroup,
     };
   });
 
@@ -133,6 +196,15 @@ export async function GET(req: NextRequest) {
     todayCohort,
     todaySentStats: todayStats,
     effectiveLimit,
+    policy: {
+      cohortGroupingEnabled: policy.cohortGroupingEnabled,
+      cycleDays: policy.cycleDays,
+      cohortPressureThreshold: policy.cohortPressureThreshold,
+      globalPolicyEnforced: policy.globalPolicyEnforced,
+      enforcedFrequencyValue: policy.enforcedFrequencyValue,
+      enforcedDigestHour: policy.enforcedDigestHour,
+      enforcedDigestMinute: policy.enforcedDigestMinute,
+    },
     queueItems: filtered,
   });
 }
@@ -278,6 +350,12 @@ export async function POST(req: NextRequest) {
           await db.update(notificationQueue)
             .set({ sentAt: new Date() })
             .where(inArray(notificationQueue.id, qIds));
+          if (result.success || result.mocked) {
+            // Keep the schedule window honest: a forced flush counts as a delivery.
+            await db.update(users)
+              .set({ lastDigestSentAt: new Date() })
+              .where(eq(users.id, userId));
+          }
           sentCount++;
         } else {
           failedCount++;

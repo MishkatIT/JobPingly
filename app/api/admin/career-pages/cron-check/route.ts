@@ -19,7 +19,19 @@ async function executeCronCheckTask() {
 
     const scraperEnabled = await isFeatureEnabled('scraper.enabled', true);
     if (!scraperEnabled) {
-      return { status: 'disabled', message: 'Scraper execution is disabled via feature flag.' };
+      // Still drain the notification queue so pausing the scraper does not also
+      // strand digests that are already due.
+      const notificationResult = await processNotificationQueue().catch(err => ({
+        processedCount: 0,
+        emailsSent: 0,
+        errors: [err.message || 'Failed to process notifications'],
+      }));
+      return {
+        status: 'disabled',
+        message: 'Scraper execution is disabled via feature flag. Notification queue still processed.',
+        notificationsProcessed: notificationResult.processedCount,
+        emailsSent: notificationResult.emailsSent,
+      };
     }
 
     await autoRemoveExpiredJobsFromDb().catch(() => null);
@@ -82,7 +94,10 @@ async function executeCronCheckTask() {
         });
       } catch (err: any) {
         console.error(`Automated cron check failed for ${page.url}:`, err);
-        const backoffMinutes = page.consecutiveFailures >= 3 ? 360 : (page.checkIntervalMinutes || 180);
+        // Respect the admin master timer on the failure path too; this used to
+        // fall back to the per-page interval even when the global timer was on.
+        const baseMinutes = useGlobalTimer ? globalIntervalMinutes : (page.checkIntervalMinutes || 180);
+        const backoffMinutes = page.consecutiveFailures >= 3 ? Math.max(360, baseMinutes) : baseMinutes;
         const nextCheckAt = new Date(Date.now() + backoffMinutes * 60 * 1000);
         await db.update(careerPages).set({ nextCheckAt, lastScrapedAt: new Date() }).where(eq(careerPages.id, page.id)).catch(() => null);
 

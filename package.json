@@ -10,6 +10,7 @@
     "lint": "next lint",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
+    "db:migrate:digest": "tsx --env-file=.env scripts/migrate-digest-schedule.ts",
     "worker": "tsx worker/bootstrap.ts",
     "jobs:check": "tsx --env-file=.env scripts/jobs-check.ts",
     "jobs:test": "tsx --env-file=.env scripts/jobs-test.ts",

@@ -33,7 +33,12 @@ export async function processDuePages() {
     // Check feature flag (cached in-memory)
     const scraperEnabled = await isFeatureEnabled('scraper.enabled', true);
     if (!scraperEnabled) {
-      console.log('[JobPingly Worker] Scraper execution is disabled via feature flag.');
+      // Pausing the scraper must not also strand already-queued digests: the
+      // notification queue is still drained on its own schedule below.
+      console.log('[JobPingly Worker] Scraper execution is disabled via feature flag. Processing the notification queue only.');
+      await processNotificationQueue().catch(err => {
+        console.error('[JobPingly Worker] Notification queue processing error:', err.message);
+      });
       return;
     }
 

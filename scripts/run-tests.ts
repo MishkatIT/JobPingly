@@ -108,5 +108,15 @@ console.assert(effectiveB === 'instant', 'Exempt user should keep personal prefe
 
 console.log('✔ Digest Frequency & Admin Policy Enforcement passed');
 
-console.log('\n✅ ALL SYSTEM TESTS PASSED SUCCESSFULLY!');
+// 6. Digest Delivery Schedule (timezone-aware slots, cohort rotation, precedence)
+console.log('\n[Test 6] Digest Delivery Schedule...');
+void (async () => {
+  await import('../tests/digestSchedule.test');
+
+  if (process.exitCode) {
+    console.error('\n❌ SYSTEM TESTS FAILED.');
+  } else {
+    console.log('\n✅ ALL SYSTEM TESTS PASSED SUCCESSFULLY!');
+  }
+})();
 

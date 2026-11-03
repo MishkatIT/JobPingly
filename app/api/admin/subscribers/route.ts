@@ -5,6 +5,7 @@ import { users, listSubscriptions, emailApprovals, sentEmailLogs } from '@/lib/d
 import { eq, inArray, desc, sql, count, and } from 'drizzle-orm';
 import { getTodaySentEmailCount } from '@/lib/email/brevo';
 import { redisGet, redisSet, redisDel } from '@/lib/redis/client';
+import { normalizeFrequencyValue } from '@/lib/utils/frequency';
 
 const METRICS_CACHE_KEY = 'admin:subscribers:summary_metrics';
 
@@ -32,7 +33,14 @@ export async function GET(req: NextRequest) {
   }
 
   if (frequencyFilter && frequencyFilter !== 'all') {
-    conditions.push(eq(users.notificationPreference, frequencyFilter));
+    // 'instant' is the legacy spelling of 'realtime'; both may be stored, so the
+    // filter has to match either or it silently returns nothing.
+    const normalizedFilter = normalizeFrequencyValue(frequencyFilter);
+    if (normalizedFilter === 'realtime') {
+      conditions.push(inArray(users.notificationPreference, ['realtime', 'instant']));
+    } else {
+      conditions.push(eq(users.notificationPreference, normalizedFilter));
+    }
   }
 
   if (groupFilter && groupFilter !== 'all') {
@@ -118,7 +126,7 @@ export async function GET(req: NextRequest) {
         totalSubscribers: sql<number>`COUNT(*)::int`,
         quotaExemptCount: sql<number>`COUNT(*) FILTER (WHERE ${users.quotaExempt} = true)::int`,
         freqExemptCount: sql<number>`COUNT(*) FILTER (WHERE ${users.frequencyEnforcementExempt} = true)::int`,
-        instantCount: sql<number>`COUNT(*) FILTER (WHERE ${users.notificationPreference} = 'instant')::int`,
+        instantCount: sql<number>`COUNT(*) FILTER (WHERE ${users.notificationPreference} IN ('realtime', 'instant'))::int`,
         dailyCount: sql<number>`COUNT(*) FILTER (WHERE ${users.notificationPreference} = 'daily')::int`,
         weeklyCount: sql<number>`COUNT(*) FILTER (WHERE ${users.notificationPreference} = 'weekly')::int`,
       }).from(users),

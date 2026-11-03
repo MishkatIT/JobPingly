@@ -7,6 +7,7 @@ import { sendOtpVerificationEmail } from '@/lib/email/brevo';
 import { isFeatureEnabled } from '@/lib/flags/check';
 import { checkRateLimit, getClientIp } from '@/lib/security/rateLimit';
 import { eq, sql } from 'drizzle-orm';
+import { normalizeTimezone, DEFAULT_DIGEST_HOUR, DEFAULT_DIGEST_MINUTE } from '@/lib/utils/digestSchedule';
 
 export async function POST(req: NextRequest) {
   try {
@@ -35,7 +36,9 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { email, password, name } = body;
+    const { email, password, name, timezone } = body;
+    // Captured from the browser at signup so "8:00 AM" means the user's 8:00 AM.
+    const clientTimezone = normalizeTimezone(typeof timezone === 'string' ? timezone : null);
 
     if (!email || !password || password.length < 6) {
       return NextResponse.json(
@@ -95,9 +98,13 @@ export async function POST(req: NextRequest) {
     const isAdminBootstrap = process.env.ADMIN_BOOTSTRAP_EMAIL && cleanEmail === process.env.ADMIN_BOOTSTRAP_EMAIL.toLowerCase().trim();
     const role = isAdminBootstrap ? 'admin' : 'user';
 
-    // Calculate round-robin cohort group assignment (Group 1, 2, or 3)
+    // Round-robin cohort assignment across the configured rotation length.
+    // Hard-coding 3 groups here meant that changing the cycle left some groups
+    // unreachable by the dispatcher (or never assigned at all).
+    const cohortCycleFlag = await isFeatureEnabled('email.cohort_cycle_days', 3);
+    const cohortCycleDays = Math.max(1, Math.floor(Number(cohortCycleFlag) || 3));
     const [userCountRecord] = await db.select({ count: sql<number>`count(*)` }).from(users);
-    const assignedCohort = (Number(userCountRecord?.count || 0) % 3) + 1;
+    const assignedCohort = (Number(userCountRecord?.count || 0) % cohortCycleDays) + 1;
 
     const hashedPassword = await hashPassword(password);
     const [newUser] = await db.insert(users).values({
@@ -107,6 +114,9 @@ export async function POST(req: NextRequest) {
       emailVerified: false, // Must verify OTP first
       role,
       emailNotificationsEnabled: true,
+      timezone: clientTimezone,
+      digestHour: DEFAULT_DIGEST_HOUR,
+      digestMinute: DEFAULT_DIGEST_MINUTE,
       dispatchGroup: assignedCohort,
     }).returning();
 

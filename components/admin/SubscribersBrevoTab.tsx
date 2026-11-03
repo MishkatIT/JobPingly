@@ -8,6 +8,7 @@ import {
 import { useToast } from '@/components/Toast';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { Badge } from '@/components/Badge';
+import { formatFrequencyShortLabel, INHERIT_FREQUENCY, FREQUENCY_OPTIONS } from '@/lib/utils/frequency';
 
 interface Props {
   onInspectSubscriptions: (email: string) => void;
@@ -824,6 +825,7 @@ export default function SubscribersBrevoTab({ onInspectSubscriptions }: Props) {
                       <th className="p-4">Recipient</th>
                       <th className="p-4">Job / Company</th>
                       <th className="p-4">Queued At</th>
+                      <th className="p-4">Effective Schedule</th>
                       <th className="p-4">User Cohort</th>
                       <th className="p-4">Non-Send Diagnostic Reason</th>
                       <th className="p-4 text-right">Inspect</th>
@@ -843,6 +845,17 @@ export default function SubscribersBrevoTab({ onInspectSubscriptions }: Props) {
                         <td className="p-4 whitespace-nowrap text-slate-500">
                           {new Date(item.createdAt).toLocaleString()}
                         </td>
+                        <td className="p-4 max-w-[220px]">
+                          <div className="font-bold text-slate-800 dark:text-slate-200">
+                            {formatFrequencyShortLabel(item.effectiveFrequency || INHERIT_FREQUENCY)}
+                          </div>
+                          <div className="text-[11px] text-slate-500" title={item.scheduleReason || ''}>
+                            {item.scheduleLabel || '—'}
+                          </div>
+                          {item.listName && (
+                            <div className="text-[10px] text-slate-400 truncate">via {item.listName}</div>
+                          )}
+                        </td>
                         <td className="p-4 whitespace-nowrap">
                           {item.quotaExempt ? (
                             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
@@ -850,7 +863,7 @@ export default function SubscribersBrevoTab({ onInspectSubscriptions }: Props) {
                             </span>
                           ) : (
                             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/10 text-purple-600 border border-purple-500/20">
-                              Group {item.dispatchGroup}
+                              Group {item.cohortGroup ?? item.dispatchGroup}
                             </span>
                           )}
                         </td>
@@ -911,9 +924,13 @@ export default function SubscribersBrevoTab({ onInspectSubscriptions }: Props) {
                   className="px-3 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white cursor-pointer"
                 >
                   <option value="all">All Frequencies</option>
-                  <option value="instant">Instant</option>
-                  <option value="daily">Daily</option>
-                  <option value="weekly">Weekly</option>
+                  {/* Previously only instant/daily/weekly were listed, so users on
+                      any other supported frequency could not be filtered at all. */}
+                  {FREQUENCY_OPTIONS.filter(o => o.value !== 'custom').map(opt => (
+                    <option key={opt.value} value={opt.value}>
+                      {formatFrequencyShortLabel(opt.value)}
+                    </option>
+                  ))}
                 </select>
 
                 <select
@@ -990,8 +1007,8 @@ export default function SubscribersBrevoTab({ onInspectSubscriptions }: Props) {
                             {user.watchedListsCount || 0} Watched Lists
                           </button>
                         </td>
-                        <td className="p-4 uppercase font-bold text-[11px] text-slate-700 dark:text-slate-300">
-                          {user.notificationPreference}
+                        <td className="p-4 font-bold text-[11px] text-slate-700 dark:text-slate-300">
+                          {formatFrequencyShortLabel(user.notificationPreference)}
                         </td>
                         <td className="p-4">
                           <select

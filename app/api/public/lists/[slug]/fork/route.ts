@@ -3,6 +3,7 @@ import { getAuthUser } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
 import { lists, listCareerPages, listSubscriptions } from '@/lib/db/schema';
 import { checkListRedundancy } from '@/lib/lists/anti-redundancy';
+import { INHERIT_FREQUENCY } from '@/lib/utils/frequency';
 import { eq, and, isNull } from 'drizzle-orm';
 
 export async function POST(req: NextRequest, { params }: { params: { slug: string } }) {
@@ -75,11 +76,12 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
     );
   }
 
-  // 6. Auto-subscribe forking user for instant email alerts
+  // 6. Auto-subscribe the forking user, inheriting their account digest preference
+  //    rather than forcing instant alerts on them.
   await db.insert(listSubscriptions).values({
     userId: user.userId,
     listId: newList.id,
-    digestFrequency: 'instant',
+    digestFrequency: INHERIT_FREQUENCY,
   }).catch(() => null);
 
   return NextResponse.json({

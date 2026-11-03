@@ -16,6 +16,7 @@ import { careerPages, jobs, scrapeLogs, subscriptions, listSubscriptions, listCa
 import { eq, and, inArray, sql, isNull } from 'drizzle-orm';
 import { matchKeywords } from '../../notifications/src/matcher';
 import { isFeatureEnabled } from '../../../lib/flags/check';
+import { INHERIT_FREQUENCY, getFrequencyIntervalMs } from '../../../lib/utils/frequency';
 
 const adapters: ATSAdapter[] = [GreenhouseAdapter, LeverAdapter, WorkdayAdapter, ApiDetectorsAdapter, GenericAdapter];
 
@@ -350,6 +351,12 @@ export async function runScraperPipeline(careerPageId: string, options?: { force
           .from(listSubscriptions)
           .where(inArray(listSubscriptions.listId, targetListIds));
 
+          // Collect every (user, list) subscription this job matches, then enqueue
+          // one row per user attributed to that user's fastest-delivering list.
+          // The queue is unique per (user, job, event), so the attributed list
+          // decides which digest frequency the item is scheduled under.
+          const matchesByUser = new Map<string, { listId: string; frequency: string; matchedKeywords: string[] }[]>();
+
           for (const sub of listSubs) {
             const posKeywords = sub.positiveKeywords || [];
             const negKeywords = sub.negativeKeywords || [];
@@ -366,34 +373,54 @@ export async function runScraperPipeline(careerPageId: string, options?: { force
             );
 
             if (matched.isMatch && !isExcluded) {
-              const existingPending = await db.select({ id: notificationQueue.id })
-                .from(notificationQueue)
-                .where(
-                  and(
-                    eq(notificationQueue.userId, sub.userId),
-                    eq(notificationQueue.jobId, insertedJob.id),
-                    isNull(notificationQueue.sentAt)
-                  )
-                )
-                .limit(1);
+              const bucket = matchesByUser.get(sub.userId) || [];
+              bucket.push({
+                listId: sub.listId,
+                frequency: sub.digestFrequency || INHERIT_FREQUENCY,
+                matchedKeywords: matched.matchedKeywords,
+              });
+              matchesByUser.set(sub.userId, bucket);
+            }
+          }
 
-              if (existingPending.length > 0) {
-                // Replace existing pending item with newest timestamp & matched keywords
-                await db.update(notificationQueue)
-                  .set({
-                    createdAt: new Date(),
-                    keywordMatched: matched.matchedKeywords,
-                  })
-                  .where(eq(notificationQueue.id, existingPending[0].id));
-              } else {
-                // Insert new pending notification queue item
-                await db.insert(notificationQueue).values({
-                  userId: sub.userId,
-                  jobId: insertedJob.id,
-                  eventType: 'new',
-                  keywordMatched: matched.matchedKeywords,
-                }).onConflictDoNothing().catch(() => null);
-              }
+          for (const [subscriberId, matches] of matchesByUser.entries()) {
+            // Rank by nominal cadence so the most responsive list wins. 'inherit'
+            // is ranked as the account default ('daily') for comparison purposes.
+            const best = matches.reduce((acc, cur) => {
+              const rank = (f: string) => getFrequencyIntervalMs(f === INHERIT_FREQUENCY ? 'daily' : f);
+              return rank(cur.frequency) < rank(acc.frequency) ? cur : acc;
+            });
+
+            const existingPending = await db.select({ id: notificationQueue.id })
+              .from(notificationQueue)
+              .where(
+                and(
+                  eq(notificationQueue.userId, subscriberId),
+                  eq(notificationQueue.jobId, insertedJob.id),
+                  isNull(notificationQueue.sentAt)
+                )
+              )
+              .limit(1);
+
+            if (existingPending.length > 0) {
+              // Refresh the matched keywords and list attribution, but keep the
+              // original createdAt: the scheduler uses it to decide which delivery
+              // slot the item belongs to, so bumping it would push the digest back
+              // every time the page is re-scraped.
+              await db.update(notificationQueue)
+                .set({
+                  listId: best.listId,
+                  keywordMatched: best.matchedKeywords,
+                })
+                .where(eq(notificationQueue.id, existingPending[0].id));
+            } else {
+              await db.insert(notificationQueue).values({
+                userId: subscriberId,
+                jobId: insertedJob.id,
+                listId: best.listId,
+                eventType: 'new',
+                keywordMatched: best.matchedKeywords,
+              }).onConflictDoNothing().catch(() => null);
             }
           }
         }

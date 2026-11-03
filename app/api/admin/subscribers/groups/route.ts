@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin, invalidateUserSessionCache } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
-import { users, listSubscriptions } from '@/lib/db/schema';
+import { users, listSubscriptions, featureFlags } from '@/lib/db/schema';
 import { eq, asc, inArray, count, and } from 'drizzle-orm';
 import { redisDel } from '@/lib/redis/client';
+import { invalidateFlagCache } from '@/lib/flags/check';
 
 export async function POST(req: NextRequest) {
   const adminUser = await requireAdmin(req);
@@ -74,6 +75,23 @@ export async function POST(req: NextRequest) {
   }
 
   await Promise.all(updatePromises);
+
+  // Persist the cycle length the groups were balanced for. Without this the
+  // dispatcher kept rotating on its own (possibly different) cycle, so groups
+  // beyond that length were folded back and the balance was lost.
+  if (userIds.length === 0) {
+    await db.insert(featureFlags).values({
+      key: 'email.cohort_cycle_days',
+      value: cycleDays,
+      description: 'Number of days in the staggered cohort dispatch rotation',
+      updatedAt: new Date(),
+      updatedBy: adminUser.userId,
+    }).onConflictDoUpdate({
+      target: featureFlags.key,
+      set: { value: cycleDays, updatedAt: new Date(), updatedBy: adminUser.userId },
+    });
+    invalidateFlagCache('email.cohort_cycle_days');
+  }
 
   // Invalidate Redis caches
   redisDel('admin:subscribers:summary_metrics').catch(() => {});

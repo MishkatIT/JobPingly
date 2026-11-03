@@ -37,7 +37,19 @@ export default function RegisterPage() {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password }),
+        body: JSON.stringify({
+          name,
+          email,
+          password,
+          // Lets scheduled digests land at the user's local time from day one.
+          timezone: (() => {
+            try {
+              return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+            } catch {
+              return 'UTC';
+            }
+          })(),
+        }),
       });
 
       const data = await res.json();

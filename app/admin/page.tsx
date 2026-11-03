@@ -16,7 +16,7 @@ import { Footer } from '@/components/Footer';
 import { PublicUserProfileModal } from '@/components/PublicUserProfileModal';
 import { Badge } from '@/components/Badge';
 import { pluralize } from '@/lib/utils/pluralize';
-import { FREQUENCY_OPTIONS, formatFrequencyLabel, parseCustomFrequency, buildCustomFrequency, normalizeFrequencyValue } from '@/lib/utils/frequency';
+import { FREQUENCY_OPTIONS, formatFrequencyLabel, formatFrequencyShortLabel, parseCustomFrequency, buildCustomFrequency, normalizeFrequencyValue, INHERIT_FREQUENCY } from '@/lib/utils/frequency';
 import SubscribersBrevoTab from '@/components/admin/SubscribersBrevoTab';
 import SystemStatusView from '@/components/admin/SystemStatusView';
 
@@ -168,6 +168,10 @@ export default function AdminDashboardPage() {
   // Notification Frequency Enforcement State
   const [freqEnforceGlobal, setFreqEnforceGlobal] = useState(false);
   const [freqEnforceValue, setFreqEnforceValue] = useState<string>('daily');
+  // -1 = not pinned; each user keeps their own digest delivery time.
+  const [freqEnforceHour, setFreqEnforceHour] = useState<number>(-1);
+  const [freqEnforceMinute, setFreqEnforceMinute] = useState<number>(0);
+  const [freqScheduleLabel, setFreqScheduleLabel] = useState<string>('');
   const [freqStats, setFreqStats] = useState({ totalUsers: 0, enforcedUsersCount: 0, exemptUsersCount: 0 });
   const [freqUsers, setFreqUsers] = useState<any[]>([]);
   const [freqUserFilter, setFreqUserFilter] = useState<'all' | 'enforced' | 'exempt'>('all');
@@ -195,6 +199,18 @@ export default function AdminDashboardPage() {
         const json = await res.json();
         setFreqEnforceGlobal(Boolean(json.isEnforced));
         setFreqEnforceValue(json.enforcedFrequency || 'daily');
+        // null means "each user keeps their own delivery time".
+        setFreqEnforceHour(
+          json.enforcedDigestHour === null || json.enforcedDigestHour === undefined
+            ? -1
+            : Number(json.enforcedDigestHour),
+        );
+        setFreqEnforceMinute(
+          json.enforcedDigestMinute === null || json.enforcedDigestMinute === undefined
+            ? 0
+            : Number(json.enforcedDigestMinute),
+        );
+        setFreqScheduleLabel(json.scheduleLabel || '');
         if (json.stats) setFreqStats(json.stats);
       }
     } catch {}
@@ -209,14 +225,26 @@ export default function AdminDashboardPage() {
     }));
   };
 
-  const handleSaveFrequencyPolicy = async (isEnforced: boolean, enforcedFrequency: string) => {
+  const handleSaveFrequencyPolicy = async (
+    isEnforced: boolean,
+    enforcedFrequency: string,
+    timeOverride?: { hour: number; minute: number },
+  ) => {
     setSavingFreqPolicy(true);
     setFreqEnforceGlobal(isEnforced);
     try {
+      const hour = timeOverride ? timeOverride.hour : freqEnforceHour;
+      const minute = timeOverride ? timeOverride.minute : freqEnforceMinute;
       const res = await fetch('/api/admin/frequency-enforcement', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isEnforced, enforcedFrequency }),
+        body: JSON.stringify({
+          isEnforced,
+          enforcedFrequency,
+          // -1 hands the delivery time back to each user's own setting.
+          enforcedDigestHour: hour,
+          enforcedDigestMinute: hour < 0 ? -1 : minute,
+        }),
       });
       if (res.ok) {
         const json = await res.json();
@@ -3164,6 +3192,62 @@ export default function AdminDashboardPage() {
                   </div>
                 </div>
               )}
+
+              {/* Enforced delivery time. Scheduled digests land at this wall-clock
+                  time in each user's own timezone. */}
+              <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5" /> Enforced Delivery Time
+                    </label>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      Pin the wall-clock hour every scheduled digest is sent at, interpreted in each user&apos;s own timezone. Leave unset to respect each user&apos;s chosen time.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={freqEnforceHour}
+                      onChange={(e) => {
+                        const hour = Number(e.target.value);
+                        setFreqEnforceHour(hour);
+                        handleSaveFrequencyPolicy(freqEnforceGlobal, freqEnforceValue, { hour, minute: freqEnforceMinute });
+                      }}
+                      disabled={savingFreqPolicy}
+                      className="px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-purple-600 cursor-pointer disabled:opacity-60"
+                    >
+                      <option value={-1}>Use each user&apos;s own time</option>
+                      {Array.from({ length: 24 }, (_, h) => (
+                        <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
+                      ))}
+                    </select>
+
+                    {freqEnforceHour >= 0 && (
+                      <select
+                        value={freqEnforceMinute}
+                        onChange={(e) => {
+                          const minute = Number(e.target.value);
+                          setFreqEnforceMinute(minute);
+                          handleSaveFrequencyPolicy(freqEnforceGlobal, freqEnforceValue, { hour: freqEnforceHour, minute });
+                        }}
+                        disabled={savingFreqPolicy}
+                        className="px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-purple-600 cursor-pointer disabled:opacity-60"
+                      >
+                        {[0, 15, 30, 45].map(m => (
+                          <option key={m} value={m}>:{String(m).padStart(2, '0')}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                </div>
+
+                {freqScheduleLabel && (
+                  <p className="text-xs font-bold text-slate-600 dark:text-slate-400">
+                    Effective policy: <span className="text-purple-600 dark:text-purple-400 font-extrabold">{freqScheduleLabel}</span>
+                  </p>
+                )}
+              </div>
             </div>
 
             {/* Quick Stats Cards */}
@@ -6197,7 +6281,7 @@ export default function AdminDashboardPage() {
 
                             <div className="flex flex-col items-end gap-1 shrink-0">
                               <span className="px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-700 dark:text-purple-300 text-[10px] font-extrabold uppercase border border-purple-500/30">
-                                {sl.digestFrequency || 'instant'} digest
+                                {formatFrequencyShortLabel(sl.digestFrequency || INHERIT_FREQUENCY)} digest
                               </span>
                               <span className="text-[10px] text-slate-400">Subscribed {new Date(sl.subscribedAt).toLocaleDateString()}</span>
                             </div>

@@ -6,7 +6,14 @@ import { useToast } from '@/components/Toast';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { Badge } from '@/components/Badge';
 import { pluralize } from '@/lib/utils/pluralize';
-import { FREQUENCY_OPTIONS, formatFrequencyLabel } from '@/lib/utils/frequency';
+import {
+  FREQUENCY_OPTIONS,
+  formatFrequencyLabel,
+  parseCustomFrequency,
+  buildCustomFrequency,
+} from '@/lib/utils/frequency';
+import { describeDigestSchedule, getScheduleKind } from '@/lib/utils/digestSchedule';
+import { getSelectableTimezones, detectBrowserTimezone } from '@/lib/utils/timezones';
 
 export default function SettingsPage() {
   const toast = useToast();
@@ -17,9 +24,23 @@ export default function SettingsPage() {
   const [avatarUrl, setAvatarUrl] = useState('');
   const [emailNotificationsEnabled, setEmailNotificationsEnabled] = useState(true);
   const [notificationPreference, setNotificationPreference] = useState('daily');
+  const [digestHour, setDigestHour] = useState(8);
+  const [digestMinute, setDigestMinute] = useState(0);
+  const [timezone, setTimezone] = useState('UTC');
+  const [nextDigestAt, setNextDigestAt] = useState<string | null>(null);
   const [approvalStatus, setApprovalStatus] = useState('pending');
-  const [frequencyEnforcement, setFrequencyEnforcement] = useState<{ isEnforced: boolean; enforcedFrequency: string; isExempt: boolean } | null>(null);
+  const [frequencyEnforcement, setFrequencyEnforcement] = useState<{
+    isEnforced: boolean;
+    enforcedFrequency: string;
+    enforcedDigestHour?: number | null;
+    enforcedDigestMinute?: number | null;
+    isExempt: boolean;
+  } | null>(null);
   const [savingField, setSavingField] = useState<string | null>(null);
+  const timezoneOptions = useRef<string[]>([]);
+  if (timezoneOptions.current.length === 0) {
+    timezoneOptions.current = getSelectableTimezones();
+  }
 
   // Social Links State
   const [github, setGithub] = useState('');
@@ -37,6 +58,10 @@ export default function SettingsPage() {
           setAvatarUrl(data.user.avatarUrl || '');
           setEmailNotificationsEnabled(data.user.emailNotificationsEnabled ?? true);
           setNotificationPreference(data.user.notificationPreference || 'daily');
+          setDigestHour(Number.isFinite(data.user.digestHour) ? data.user.digestHour : 8);
+          setDigestMinute(Number.isFinite(data.user.digestMinute) ? data.user.digestMinute : 0);
+          setTimezone(data.user.timezone || 'UTC');
+          setNextDigestAt(data.user.nextDigestAt || null);
           setApprovalStatus(data.user.emailApprovalStatus || 'pending');
           if (data.user.frequencyEnforcement) {
             setFrequencyEnforcement(data.user.frequencyEnforcement);
@@ -56,6 +81,9 @@ export default function SettingsPage() {
     avatarUrl?: string;
     emailNotificationsEnabled?: boolean;
     notificationPreference?: string;
+    digestHour?: number;
+    digestMinute?: number;
+    timezone?: string;
     socials?: { github?: string; linkedin?: string; twitter?: string; website?: string };
   }, fieldKey?: string) => {
     if (fieldKey) setSavingField(fieldKey);
@@ -71,6 +99,9 @@ export default function SettingsPage() {
       if (res.ok) {
         if (data.user?.emailApprovalStatus) {
           setApprovalStatus(data.user.emailApprovalStatus);
+        }
+        if (data.user?.nextDigestAt !== undefined) {
+          setNextDigestAt(data.user.nextDigestAt || null);
         }
         setUser((prev: any) => ({ ...prev, ...data.user }));
         return true;
@@ -161,11 +192,40 @@ export default function SettingsPage() {
   };
 
   const handleFrequencyChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const nextPref = e.target.value;
+    const selected = e.target.value;
+    // Picking "Custom" opens the number/unit controls; it is not itself a value
+    // the scheduler understands, so seed a concrete custom frequency instead.
+    const nextPref = selected === 'custom' ? buildCustomFrequency(3, 'hours') : selected;
     setNotificationPreference(nextPref);
     const ok = await saveSetting({ notificationPreference: nextPref }, 'frequency');
     if (ok) {
       toast.success('Notification frequency updated!');
+    }
+  };
+
+  const handleCustomFrequencyChange = async (num: number, unit: 'hours' | 'days' | 'weeks') => {
+    const nextPref = buildCustomFrequency(num, unit);
+    setNotificationPreference(nextPref);
+    const ok = await saveSetting({ notificationPreference: nextPref }, 'frequency');
+    if (ok) {
+      toast.success(`Custom frequency set to every ${num} ${unit}.`);
+    }
+  };
+
+  const handleDigestTimeChange = async (nextHour: number, nextMinute: number) => {
+    setDigestHour(nextHour);
+    setDigestMinute(nextMinute);
+    const ok = await saveSetting({ digestHour: nextHour, digestMinute: nextMinute }, 'digestTime');
+    if (ok) {
+      toast.success(`Digest delivery time set to ${String(nextHour).padStart(2, '0')}:${String(nextMinute).padStart(2, '0')}.`);
+    }
+  };
+
+  const handleTimezoneChange = async (nextTz: string) => {
+    setTimezone(nextTz);
+    const ok = await saveSetting({ timezone: nextTz }, 'timezone');
+    if (ok) {
+      toast.success(`Timezone set to ${nextTz}.`);
     }
   };
 
@@ -192,6 +252,13 @@ export default function SettingsPage() {
   };
 
   if (!user) return <LoadingSpinner message="Loading settings & preferences..." fullPage />;
+
+  const detectedTimezone = detectBrowserTimezone();
+  const timeEnforcedByAdmin = Boolean(
+    frequencyEnforcement?.isEnforced &&
+    frequencyEnforcement?.enforcedDigestHour !== null &&
+    frequencyEnforcement?.enforcedDigestHour !== undefined,
+  );
 
   return (
     <div className="space-y-8 max-w-5xl mx-auto">
@@ -471,15 +538,154 @@ export default function SettingsPage() {
                     {opt.label}
                   </option>
                 ))}
-                {(!FREQUENCY_OPTIONS.some(o => o.value === notificationPreference && o.value !== 'custom') || notificationPreference.startsWith('custom_')) && (
+                {notificationPreference.startsWith('custom_') && (
                   <option value={notificationPreference}>
                     {formatFrequencyLabel(notificationPreference)}
                   </option>
                 )}
+                {/* Custom frequencies were previously unreachable: the option was
+                    filtered out of this list, so the stored value could never be set. */}
+                <option value="custom">⚙️ Custom interval...</option>
               </select>
+
+              {notificationPreference.startsWith('custom_') && !frequencyEnforcement?.isEnforced && (
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Every</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={365}
+                      value={parseCustomFrequency(notificationPreference).num}
+                      onChange={e => {
+                        const num = Math.min(365, Math.max(1, Number(e.target.value) || 1));
+                        handleCustomFrequencyChange(num, parseCustomFrequency(notificationPreference).unit);
+                      }}
+                      disabled={savingField === 'frequency'}
+                      className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white text-sm font-medium focus:outline-none focus:border-blue-600 disabled:opacity-60"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Unit</label>
+                    <select
+                      value={parseCustomFrequency(notificationPreference).unit}
+                      onChange={e => {
+                        const unit = e.target.value as 'hours' | 'days' | 'weeks';
+                        handleCustomFrequencyChange(parseCustomFrequency(notificationPreference).num, unit);
+                      }}
+                      disabled={savingField === 'frequency'}
+                      className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white text-sm font-medium focus:outline-none focus:border-blue-600 cursor-pointer disabled:opacity-60"
+                    >
+                      <option value="hours">Hours</option>
+                      <option value="days">Days</option>
+                      <option value="weeks">Weeks</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
               {frequencyEnforcement?.isEnforced && (
                 <p className="text-xs text-purple-600 dark:text-purple-400 mt-2 font-medium flex items-center gap-1.5">
                   <Lock className="w-3.5 h-3.5 shrink-0" /> Digest frequency is enforced by system administrator and bound to this choice.
+                </p>
+              )}
+            </div>
+
+            {/* Delivery time: the hour the scheduled digest actually lands. */}
+            <div className="pt-5 border-t border-slate-200 dark:border-slate-800">
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 flex items-center gap-2">
+                  <Clock className="w-3.5 h-3.5" /> Digest Delivery Time
+                  {timeEnforcedByAdmin && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-500/30 text-[10px] font-extrabold uppercase">
+                      <Lock className="w-3 h-3" /> Enforced by Admin
+                    </span>
+                  )}
+                </label>
+                {(savingField === 'digestTime' || savingField === 'timezone') && (
+                  <span className="text-[10px] text-blue-500 font-semibold animate-pulse">Saving...</span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Hour</label>
+                  <select
+                    value={digestHour}
+                    onChange={e => handleDigestTimeChange(Number(e.target.value), digestMinute)}
+                    disabled={timeEnforcedByAdmin || savingField === 'digestTime'}
+                    className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white text-sm font-medium focus:outline-none focus:border-blue-600 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {Array.from({ length: 24 }, (_, h) => (
+                      <option key={h} value={h}>
+                        {String(h).padStart(2, '0')}:00 ({h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h - 12} PM`})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Minute</label>
+                  <select
+                    value={digestMinute}
+                    onChange={e => handleDigestTimeChange(digestHour, Number(e.target.value))}
+                    disabled={timeEnforcedByAdmin || savingField === 'digestTime'}
+                    className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white text-sm font-medium focus:outline-none focus:border-blue-600 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {[0, 15, 30, 45].map(m => (
+                      <option key={m} value={m}>:{String(m).padStart(2, '0')}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Timezone</label>
+                  <select
+                    value={timezone}
+                    onChange={e => handleTimezoneChange(e.target.value)}
+                    disabled={savingField === 'timezone'}
+                    className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white text-sm font-medium focus:outline-none focus:border-blue-600 cursor-pointer disabled:opacity-60"
+                  >
+                    {!timezoneOptions.current.includes(timezone) && (
+                      <option value={timezone}>{timezone}</option>
+                    )}
+                    {timezoneOptions.current.map(tz => (
+                      <option key={tz} value={tz}>{tz}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {detectedTimezone && detectedTimezone !== timezone && (
+                <button
+                  type="button"
+                  onClick={() => handleTimezoneChange(detectedTimezone)}
+                  className="mt-2 text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                >
+                  Use my current timezone ({detectedTimezone})
+                </button>
+              )}
+
+              <div className="mt-3 p-3 rounded-xl bg-slate-100 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
+                <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  {describeDigestSchedule(notificationPreference, digestHour, digestMinute, timezone)}
+                </p>
+                {getScheduleKind(notificationPreference) === 'realtime' ? (
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                    Instant alerts ignore the delivery time and are sent as soon as a match is found.
+                  </p>
+                ) : nextDigestAt ? (
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                    Next digest window: {new Date(nextDigestAt).toLocaleString()}
+                  </p>
+                ) : null}
+              </div>
+
+              {timeEnforcedByAdmin && (
+                <p className="text-xs text-purple-600 dark:text-purple-400 mt-2 font-medium flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 shrink-0" /> The system administrator has pinned the delivery time to{' '}
+                  {String(frequencyEnforcement?.enforcedDigestHour ?? 0).padStart(2, '0')}:
+                  {String(frequencyEnforcement?.enforcedDigestMinute ?? 0).padStart(2, '0')} in your timezone.
                 </p>
               )}
             </div>

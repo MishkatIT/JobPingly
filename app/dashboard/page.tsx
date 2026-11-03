@@ -35,6 +35,7 @@ import {
   ArrowUpDown,
 } from 'lucide-react';
 import { pluralize } from '@/lib/utils/pluralize';
+import { INHERIT_FREQUENCY, normalizeFrequencyValue, formatFrequencyShortLabel } from '@/lib/utils/frequency';
 import { useToast } from '@/components/Toast';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { ListSkeletonGrid, ListSkeletonTiles, ListSkeletonTable, ListSkeletonPagination } from '@/components/Skeleton';
@@ -174,7 +175,7 @@ export default function DashboardOverview() {
 
   // Alert Settings Modal State for Followed List
   const [editingSubList, setEditingSubList] = useState<any | null>(null);
-  const [subDigestFreq, setSubDigestFreq] = useState<'instant' | 'daily' | 'weekly'>('instant');
+  const [subDigestFreq, setSubDigestFreq] = useState<string>(INHERIT_FREQUENCY);
   const [subPosKeys, setSubPosKeys] = useState('');
   const [subNegKeys, setSubNegKeys] = useState('');
   const [submittingSub, setSubmittingSub] = useState(false);
@@ -736,7 +737,7 @@ export default function DashboardOverview() {
                   <div className="space-y-3">
                     <div className="flex items-center justify-between gap-2">
                       <span className="px-2.5 py-0.5 rounded-md bg-purple-500/10 text-purple-700 dark:text-purple-300 text-[10px] font-extrabold uppercase border border-purple-500/30">
-                        {fl.digestFrequency || 'instant'} digest
+                        {formatFrequencyShortLabel(fl.digestFrequency || INHERIT_FREQUENCY)}
                       </span>
                       <span className="text-[10px] text-slate-400 font-mono">/{fl.slug}</span>
                     </div>
@@ -784,7 +785,7 @@ export default function DashboardOverview() {
                       type="button"
                       onClick={() => {
                         setEditingSubList(fl);
-                        setSubDigestFreq(fl.digestFrequency || 'instant');
+                        setSubDigestFreq(fl.digestFrequency || INHERIT_FREQUENCY);
                         setSubPosKeys((fl.positiveKeywords || []).join(', '));
                         setSubNegKeys((fl.negativeKeywords || []).join(', '));
                       }}
@@ -1434,22 +1435,32 @@ export default function DashboardOverview() {
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
                   Digest Frequency
                 </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['instant', 'daily', 'weekly'] as const).map((freq) => (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {([
+                    { value: INHERIT_FREQUENCY, label: 'Account default' },
+                    { value: 'realtime', label: 'Instant' },
+                    { value: 'daily', label: 'Daily' },
+                    { value: 'weekly', label: 'Weekly' },
+                  ] as const).map((opt) => (
                     <button
-                      key={freq}
+                      key={opt.value}
                       type="button"
-                      onClick={() => setSubDigestFreq(freq)}
-                      className={`py-2.5 px-3 rounded-xl text-xs font-extrabold capitalize cursor-pointer border transition-all ${
-                        subDigestFreq === freq
+                      onClick={() => setSubDigestFreq(opt.value)}
+                      className={`py-2.5 px-3 rounded-xl text-xs font-extrabold cursor-pointer border transition-all ${
+                        normalizeFrequencyValue(subDigestFreq) === normalizeFrequencyValue(opt.value)
                           ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
                           : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
                       }`}
                     >
-                      {freq}
+                      {opt.label}
                     </button>
                   ))}
                 </div>
+                <p className="text-[11px] text-slate-500 mt-1.5">
+                  {subDigestFreq === INHERIT_FREQUENCY
+                    ? 'Uses the frequency and delivery time from your account settings.'
+                    : 'Overrides your account frequency for this list only.'}
+                </p>
               </div>
 
               <div>

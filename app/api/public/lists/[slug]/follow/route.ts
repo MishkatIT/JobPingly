@@ -3,6 +3,7 @@ import { getAuthUser } from '@/lib/auth/guard';
 import { db } from '@/lib/db/client';
 import { lists, listSubscriptions, listCollaborators } from '@/lib/db/schema';
 import { eq, and, sql, isNull } from 'drizzle-orm';
+import { INHERIT_FREQUENCY, isSupportedFrequency, normalizeFrequencyValue } from '@/lib/utils/frequency';
 
 // Helper to check authorization for private lists
 async function getAuthorizedList(slug: string, userId?: string, isAdmin?: boolean) {
@@ -61,6 +62,19 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
   const body = await req.json().catch(() => ({}));
   const { action, positiveKeywords, negativeKeywords, digestFrequency } = body;
 
+  // 'inherit' means "use my account digest preference" and is the default.
+  let requestedFrequency: string | undefined;
+  if (digestFrequency !== undefined && digestFrequency !== null && String(digestFrequency).trim().length > 0) {
+    const candidate = String(digestFrequency).trim();
+    if (!isSupportedFrequency(candidate, { allowInherit: true })) {
+      return NextResponse.json(
+        { error: `Unsupported digest frequency '${candidate}'.` },
+        { status: 400 },
+      );
+    }
+    requestedFrequency = candidate === INHERIT_FREQUENCY ? INHERIT_FREQUENCY : normalizeFrequencyValue(candidate);
+  }
+
   const [existingSub] = await db
     .select()
     .from(listSubscriptions)
@@ -84,7 +98,7 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
       .set({
         positiveKeywords: positiveKeywords !== undefined ? positiveKeywords : existingSub.positiveKeywords,
         negativeKeywords: negativeKeywords !== undefined ? negativeKeywords : existingSub.negativeKeywords,
-        digestFrequency: digestFrequency || existingSub.digestFrequency,
+        digestFrequency: requestedFrequency || existingSub.digestFrequency,
       })
       .where(eq(listSubscriptions.id, existingSub.id))
       .returning();
@@ -98,7 +112,7 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
         listId: list.id,
         positiveKeywords: positiveKeywords || [],
         negativeKeywords: negativeKeywords || [],
-        digestFrequency: digestFrequency || 'instant',
+        digestFrequency: requestedFrequency || INHERIT_FREQUENCY,
       })
       .returning();
 
