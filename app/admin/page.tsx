@@ -3202,7 +3202,7 @@ export default function AdminDashboardPage() {
                       <Clock className="w-3.5 h-3.5" /> Enforced Delivery Time
                     </label>
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                      Pin the wall-clock hour every scheduled digest is sent at, interpreted in each user&apos;s own timezone. Leave unset to respect each user&apos;s chosen time.
+                      Applied in each user&apos;s own timezone. Leave unset to keep their chosen time.
                     </p>
                   </div>
 
