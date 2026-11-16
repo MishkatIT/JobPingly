@@ -22,7 +22,7 @@ interface Preferences {
   approval: string;
   platformEmailEnabled: boolean;
   enforced: { frequency: string; description: string } | null;
-  schedule: { description: string; nextAt: string | null; lastSentAt: string | null };
+  schedule: { description: string; nextAt: string | null; dueNow: boolean; lastSentAt: string | null };
 }
 
 const pad = (value: number) => String(value).padStart(2, '0');
@@ -138,7 +138,11 @@ function PreferencesForm({ initial, onSaved }: { initial: Preferences; onSaved: 
               <p>
                 <span className="font-medium text-ink">Current schedule:</span> {current.schedule.description}
               </p>
-              {current.schedule.nextAt && <p className="mt-0.5">Next possible email: {formatDateTime(current.schedule.nextAt)} (only sent when there is something new).</p>}
+              {current.schedule.nextAt && (
+                <p className="mt-0.5">
+                  Next possible email: {current.schedule.dueNow ? 'with the next check' : formatDateTime(current.schedule.nextAt)} (only sent when there is something new).
+                </p>
+              )}
               {current.schedule.lastSentAt && <p className="mt-0.5">Last email: {formatDateTime(current.schedule.lastSentAt)}</p>}
             </div>
           )}

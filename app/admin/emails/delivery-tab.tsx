@@ -36,7 +36,7 @@ export function DeliveryTab({ stats, error, isLoading, onChanged }: { stats: Ema
     <div className="space-y-6">
       {stats.provider !== 'brevo' && (
         <Callout tone="warning" title="Emails are not being delivered">
-          The email provider is in console mode: messages are written to the server log instead of being sent. Set BREVO_API_KEY (and BREVO_SENDER_EMAIL) to deliver real email.
+          The email provider is in console mode: messages are written to the server log instead of being sent. Set BREVO_API_KEY (and SENDER_EMAIL, an address verified in Brevo) to deliver real email.
         </Callout>
       )}
       {!policy.notificationsEnabled && (
@@ -68,7 +68,7 @@ export function DeliveryTab({ stats, error, isLoading, onChanged }: { stats: Ema
         </CardBody>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-2">
         <Card className="overflow-hidden">
           <CardHeader title="By type" description="Last 30 days" />
           {stats.byTemplate.length === 0 ? (

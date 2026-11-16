@@ -82,10 +82,12 @@ export function TimeAgo({ value, className, prefix }: { value: string | Date | n
 
 /** Workplace, employment type and seniority as quiet tags. */
 export function JobFacets({ workplaceType, employmentType, seniority, className }: { workplaceType?: string | null; employmentType?: string | null; seniority?: string | null; className?: string }) {
+  // "Internship" already says it; an "Intern" seniority tag next to it would repeat it.
+  const repeatsInternship = seniority === 'intern' && employmentType === 'internship';
   const tags = [
     workplaceType ? WORKPLACE_LABELS[workplaceType as WorkplaceType] : null,
     employmentType ? EMPLOYMENT_LABELS[employmentType as EmploymentType] : null,
-    seniority ? SENIORITY_LABELS[seniority as Seniority] : null,
+    seniority && !repeatsInternship ? SENIORITY_LABELS[seniority as Seniority] : null,
   ].filter(Boolean) as string[];
   if (tags.length === 0) return null;
   return (

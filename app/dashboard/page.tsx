@@ -28,9 +28,9 @@ interface Overview {
     nextScanAt: string | null;
   };
   recentMatches: { id: string; title: string; location: string | null; firstSeenAt: string; terms: string[]; companyName: string }[];
-  issues: { id: string; name: string; status: string; lastErrorClass: string | null }[];
+  issues: { id: string; name: string; status: string; lastErrorClass: string | null; health: string; healthLabel: string }[];
   reminders: { id: string; reminderAt: string; title: string; companyName: string; status: string }[];
-  notifications: { emailEnabled: boolean; approval: string; schedule: string; nextAt: string | null; platformEmailEnabled: boolean };
+  notifications: { emailEnabled: boolean; approval: string; schedule: string; nextAt: string | null; dueNow: boolean; platformEmailEnabled: boolean };
 }
 
 export default function OverviewPage() {
@@ -138,7 +138,7 @@ export default function OverviewPage() {
         )}
       </StatGrid>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+      <div className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
         <Card>
           <CardHeader
             title="Latest matches"
@@ -208,7 +208,7 @@ export default function OverviewPage() {
                       <Link href={`/dashboard/companies/${issue.id}`} className="truncate font-medium text-ink hover:text-accent">
                         {issue.name}
                       </Link>
-                      <HealthStatus health={issue.status} />
+                      <HealthStatus health={issue.health} label={issue.healthLabel} />
                     </li>
                   ))}
                 </ul>
@@ -226,7 +226,11 @@ export default function OverviewPage() {
                       <Mail className="h-3.5 w-3.5 text-success" aria-hidden="true" />
                       {data.notifications.schedule}
                     </p>
-                    {data.notifications.nextAt && <p className="text-muted">Next delivery {formatDateTime(data.notifications.nextAt)} (only if there are new matches)</p>}
+                    {data.notifications.nextAt && (
+                      <p className="text-muted">
+                        {data.notifications.dueNow ? 'Next delivery: with the next check' : `Next delivery ${formatDateTime(data.notifications.nextAt)}`} (only if there are new matches)
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <p className="inline-flex items-center gap-1.5 text-muted">

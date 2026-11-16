@@ -321,6 +321,8 @@ export function startWorkerLoop(options: { intervalMs?: number; workerId?: strin
 export interface WorkerHealth {
   id: string;
   alive: boolean;
+  /** 'loop' for a long-running worker; 'once'/'cron' for scheduled single cycles. */
+  mode: string | null;
   heartbeatAt: Date | null;
   secondsSinceHeartbeat: number | null;
   startedAt: Date | null;
@@ -328,20 +330,31 @@ export interface WorkerHealth {
   lastCycle: Record<string, unknown> | null;
 }
 
-/** Liveness of every worker that has reported in. A worker is alive if it reported within three poll intervals. */
+/** Scheduled single-cycle runs (GitHub Actions every 3 hours, an external cron) report in rarely. */
+const SCHEDULED_STALE_AFTER_MS = 4 * 60 * 60 * 1000;
+
+/**
+ * Liveness of every worker that has reported in. A long-running worker is
+ * alive if it reported within three poll intervals; a scheduled one-shot
+ * worker if it ran within the last four hours.
+ */
 export async function getWorkerHealth(): Promise<WorkerHealth[]> {
   const rows = await db.select().from(workerHeartbeat);
-  const staleAfterMs = Math.max(env.worker.pollIntervalMs * 3, 5 * 60_000);
+  const loopStaleAfterMs = Math.max(env.worker.pollIntervalMs * 3, 5 * 60_000);
   return rows.map(row => {
     const age = Date.now() - row.heartbeatAt.getTime();
+    const lastCycle = (row.stats as Record<string, unknown> | null) ?? null;
+    const mode = typeof lastCycle?.mode === 'string' ? lastCycle.mode : null;
+    const scheduled = mode === 'once' || mode === 'cron';
     return {
       id: row.id,
-      alive: age < staleAfterMs,
+      alive: age < (scheduled ? SCHEDULED_STALE_AFTER_MS : loopStaleAfterMs),
+      mode,
       heartbeatAt: row.heartbeatAt,
       secondsSinceHeartbeat: Math.round(age / 1000),
       startedAt: row.startedAt,
       lastError: row.lastError,
-      lastCycle: (row.stats as Record<string, unknown> | null) ?? null,
+      lastCycle,
     };
   });
 }

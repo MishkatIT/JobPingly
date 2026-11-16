@@ -81,7 +81,7 @@ export default async function PublicListPage({ params }: { params: Promise<{ slu
         <ListActions listId={list.id} slug={list.slug} name={list.name} signedIn={signedIn} isFollowing={viewer.isFollowing} isOwner={viewer.role === 'owner'} canEdit={viewer.canEdit} />
       </header>
 
-      <div className="mt-10 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
+      <div className="mt-10 grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
         <section aria-labelledby="companies-heading">
           <h2 id="companies-heading" className="text-lg">
             Companies

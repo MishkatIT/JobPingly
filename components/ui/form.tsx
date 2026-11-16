@@ -19,9 +19,10 @@ export function Textarea({ className, rows = 4, ...props }: ComponentProps<'text
   return <textarea rows={rows} className={cn(control, 'min-h-[5rem] px-3 py-2 text-md leading-6 sm:text-base', className)} {...props} />;
 }
 
-export function Select({ className, children, ...props }: ComponentProps<'select'>) {
+/** `className` styles the <select>; use `wrapperClassName` for layout (flex-1, widths in flex rows). */
+export function Select({ className, wrapperClassName, children, ...props }: ComponentProps<'select'> & { wrapperClassName?: string }) {
   return (
-    <div className="relative">
+    <div className={cn('relative', wrapperClassName)}>
       <select className={cn(control, 'h-9 appearance-none pl-3 pr-8 text-md sm:text-base', className)} {...props}>
         {children}
       </select>
@@ -141,6 +142,8 @@ export interface TagInputProps {
   max?: number;
   id?: string;
   'aria-describedby'?: string;
+  /** Accessible name when the input is not labelled by a <Field>. */
+  'aria-label'?: string;
   /** Visual tone of the chips. */
   tone?: 'neutral' | 'danger';
   disabled?: boolean;

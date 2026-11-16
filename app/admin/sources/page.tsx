@@ -44,7 +44,7 @@ type StatusFilter = 'all' | 'active' | 'degraded' | 'broken' | 'paused' | 'pendi
 const STATUS_TABS: { value: StatusFilter; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'active', label: 'Healthy' },
-  { value: 'pending', label: 'Never scanned' },
+  { value: 'pending', label: 'No successful scan yet' },
   { value: 'degraded', label: 'Degraded' },
   { value: 'broken', label: 'Broken' },
   { value: 'paused', label: 'Paused' },
@@ -231,7 +231,10 @@ function SourcesView() {
                 </thead>
                 <tbody>
                   {data.map(row => {
-                    const pending = !row.lastSuccessAt && row.status !== 'paused';
+                    const neverSucceeded = !row.lastSuccessAt && row.status !== 'paused';
+                    // Never read successfully: "Pending" until a scan fails, then "Degraded" with the reason.
+                    const pending = neverSucceeded && !row.lastErrorClass;
+                    const failingFirstScan = neverSucceeded && Boolean(row.lastErrorClass) && row.status === 'active';
                     return (
                       <Tr key={row.id} className={cn(selection.has(row.id) && 'bg-accent-soft/40')}>
                         {can('sources.manage') && (
@@ -249,10 +252,10 @@ function SourcesView() {
                         </Td>
                         <Td>
                           <div className="flex flex-wrap items-center gap-1.5">
-                            <SourceStatusBadge status={row.status} pending={pending && row.status === 'active'} />
+                            <SourceStatusBadge status={failingFirstScan ? 'degraded' : row.status} pending={pending && row.status === 'active'} />
                             {row.activeTask && <Badge tone="accent">{row.activeTask === 'running' ? 'Scanning' : 'Queued'}</Badge>}
                           </div>
-                          {(row.errorLabel && row.status !== 'active') || row.pausedReason ? (
+                          {(row.errorLabel && (row.status !== 'active' || failingFirstScan)) || row.pausedReason ? (
                             <span className="mt-0.5 block max-w-[220px] truncate text-xs text-muted" title={row.pausedReason ?? row.errorLabel ?? undefined}>
                               {row.status === 'paused' ? row.pausedReason : row.errorLabel}
                             </span>
@@ -410,7 +413,7 @@ function AddSourceDialog({ open, adapters, onClose, onCreated }: { open: boolean
             />
           )}
         </Field>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2">
           <Field label="Company name" optional hint="Detected automatically when possible.">
             {ids => <Input {...ids} value={companyName} maxLength={120} onChange={event => setCompanyName(event.target.value)} />}
           </Field>

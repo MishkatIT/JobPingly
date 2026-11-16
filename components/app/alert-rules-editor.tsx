@@ -84,7 +84,7 @@ export function AlertRulesEditor({ listId, initial, keywordLimit, onSaved }: { l
   const setGroup = (index: number, value: string[]) => setRules(current => ({ ...current, include: current.include.map((group, i) => (i === index ? value : group)) }));
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
       <div className="space-y-6">
         <Card>
           <CardBody className="space-y-5">
@@ -113,7 +113,13 @@ export function AlertRulesEditor({ listId, initial, keywordLimit, onSaved }: { l
                     </IconButton>
                   )}
                 </div>
-                <TagInput value={group} onChange={value => setGroup(index, value)} max={keywordLimit} placeholder={index === 0 ? 'e.g. frontend, react, ui engineer' : 'e.g. senior, lead'} />
+                <TagInput
+                  aria-label={index === 0 ? 'Keywords: any of these' : `Keyword group ${index + 1}: and any of these`}
+                  value={group}
+                  onChange={value => setGroup(index, value)}
+                  max={keywordLimit}
+                  placeholder={index === 0 ? 'e.g. frontend, react, ui engineer' : 'e.g. senior, lead'}
+                />
               </div>
             ))}
             {rules.include.length < 5 && (
@@ -124,7 +130,7 @@ export function AlertRulesEditor({ listId, initial, keywordLimit, onSaved }: { l
 
             <div>
               <span className="mb-1.5 block text-sm font-medium text-ink">Never if the title contains</span>
-              <TagInput value={rules.exclude} onChange={value => setRules({ ...rules, exclude: value })} max={keywordLimit} tone="danger" placeholder="e.g. intern, principal" />
+              <TagInput aria-label="Never if the title contains" value={rules.exclude} onChange={value => setRules({ ...rules, exclude: value })} max={keywordLimit} tone="danger" placeholder="e.g. intern, principal" />
             </div>
 
             <fieldset>
@@ -179,7 +185,7 @@ export function AlertRulesEditor({ listId, initial, keywordLimit, onSaved }: { l
             ))}
             <div>
               <span className="mb-1.5 block text-sm font-medium text-ink">Locations</span>
-              <TagInput value={rules.locations} onChange={value => setRules({ ...rules, locations: value })} max={keywordLimit} placeholder="e.g. Dhaka, Remote, Singapore" />
+              <TagInput aria-label="Locations" value={rules.locations} onChange={value => setRules({ ...rules, locations: value })} max={keywordLimit} placeholder="e.g. Dhaka, Remote, Singapore" />
             </div>
             <Checkbox
               label="Include jobs that do not state these details"

@@ -322,7 +322,7 @@ function BannerEditor({ setting, onSaved }: { setting: Setting; onSaved: () => v
         <Field label="Message" hint={`${form.message.length}/300 characters. Plain text.`}>
           {ids => <Textarea {...ids} rows={2} maxLength={300} value={form.message} disabled={locked} onChange={event => setForm({ ...form, message: event.target.value })} />}
         </Field>
-        <div className="grid gap-4 sm:grid-cols-[10rem_minmax(0,1fr)_12rem]">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-[10rem_minmax(0,1fr)_12rem]">
           <Field label="Style">
             {ids => (
               <Select {...ids} value={form.type} disabled={locked} onChange={event => setForm({ ...form, type: event.target.value as BannerConfig['type'] })}>

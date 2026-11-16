@@ -21,7 +21,8 @@ export async function GET() {
     try {
       const workers = await getWorkerHealth();
       const freshest = workers.sort((a, b) => (a.secondsSinceHeartbeat ?? Infinity) - (b.secondsSinceHeartbeat ?? Infinity))[0];
-      worker = { ok: Boolean(freshest?.alive), secondsSinceHeartbeat: freshest?.secondsSinceHeartbeat ?? null };
+      // Healthy if any worker is alive (a stopped loop worker may be fresher than the last scheduled run).
+      worker = { ok: workers.some(item => item.alive), secondsSinceHeartbeat: freshest?.secondsSinceHeartbeat ?? null };
     } catch {
       worker = { ok: false, secondsSinceHeartbeat: null };
     }

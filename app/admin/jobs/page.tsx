@@ -376,7 +376,7 @@ function JobDialog({
             <StatCell label="Alerts settled" value={formatNumber(current.counts.sentAlerts)} hint="Sent or cancelled" />
           </StatGrid>
 
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-2">
             <dl className="divide-y divide-line">
               <DetailRow label="Department">{current.job.department ?? '—'}</DetailRow>
               <DetailRow label="Type (as published)">{current.job.jobType ?? '—'}</DetailRow>

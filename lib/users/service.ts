@@ -3,7 +3,7 @@ import { errors } from '@/lib/api/errors';
 import { recordAudit } from '@/lib/audit';
 import { verifyPassword } from '@/lib/auth/password';
 import { invalidateSessionCache } from '@/lib/auth/session';
-import { displayCompanyName } from '@/lib/companies/service';
+import { displayCompanyName, healthOf } from '@/lib/companies/service';
 import { client, db } from '@/lib/db/client';
 import { emailApprovals, listSubscriptions, lists, notifications, refreshTokens, userJobs, users } from '@/lib/db/schema';
 import { visibleListIdsSql, visibleSourceIdsSql } from '@/lib/lists/access';
@@ -152,6 +152,8 @@ export async function getNotificationPreferences(userId: string) {
     schedule: {
       description: describeDigestSchedule(effectiveFrequency, hour, minute, row.timezone),
       nextAt: schedule.nextDueAt,
+      /** A slot has already passed and will be delivered by the next worker cycle. */
+      dueNow: schedule.due,
       lastSentAt: row.lastDigestSentAt,
     },
   };
@@ -316,9 +318,10 @@ export async function dashboardOverview(userId: string) {
       (SELECT count(*) FROM user_jobs u WHERE u.user_id = ${userId} AND u.status = 'applied')::int AS applied,
       (SELECT count(*) FROM user_jobs u WHERE u.user_id = ${userId} AND u.status = 'interviewing')::int AS interviewing,
       (SELECT count(*) FROM career_pages cp WHERE cp.id IN (SELECT career_page_id FROM sources)
-        AND cp.status IN ('degraded', 'broken', 'paused'))::int AS "companiesWithIssues",
+        AND (cp.status IN ('degraded', 'broken', 'paused')
+          OR (cp.last_success_at IS NULL AND cp.last_error_class IS NOT NULL)))::int AS "companiesWithIssues",
       (SELECT count(*) FROM career_pages cp WHERE cp.id IN (SELECT career_page_id FROM sources)
-        AND cp.last_success_at IS NULL AND cp.status <> 'paused')::int AS "pendingFirstScan",
+        AND cp.last_success_at IS NULL AND cp.last_error_class IS NULL AND cp.status <> 'paused')::int AS "pendingFirstScan",
       (SELECT max(cp.last_success_at) FROM career_pages cp WHERE cp.id IN (SELECT career_page_id FROM sources)) AS "lastScanAt",
       (SELECT min(cp.next_check_at) FROM career_pages cp WHERE cp.id IN (SELECT career_page_id FROM sources)
         AND cp.status <> 'paused') AS "nextScanAt",
@@ -345,7 +348,8 @@ export async function dashboardOverview(userId: string) {
   const issues = await client<{ id: string; url: string; companyName: string | null; status: string; lastErrorClass: string | null; lastSuccessAt: Date | null }[]>`
     SELECT cp.id, cp.url, cp.company_name AS "companyName", cp.status, cp.last_error_class AS "lastErrorClass", cp.last_success_at AS "lastSuccessAt"
     FROM career_pages cp
-    WHERE cp.id IN (${visibleSourceIdsSql(userId)}) AND cp.status IN ('degraded', 'broken', 'paused')
+    WHERE cp.id IN (${visibleSourceIdsSql(userId)})
+      AND (cp.status IN ('degraded', 'broken', 'paused') OR (cp.last_success_at IS NULL AND cp.last_error_class IS NOT NULL))
     ORDER BY cp.consecutive_failures DESC
     LIMIT 5
   `;
@@ -370,7 +374,7 @@ export async function dashboardOverview(userId: string) {
       terms: job.terms ?? [],
       companyName: displayCompanyName(job.companyName, job.companyUrl),
     })),
-    issues: issues.map(issue => ({ ...issue, name: displayCompanyName(issue.companyName, issue.url) })),
+    issues: issues.map(issue => ({ ...issue, name: displayCompanyName(issue.companyName, issue.url), ...healthOf(issue) })),
     reminders: reminders.map(reminder => ({
       id: reminder.id,
       reminderAt: reminder.reminderAt,
@@ -383,6 +387,7 @@ export async function dashboardOverview(userId: string) {
       approval: preferences.approval,
       schedule: preferences.schedule.description,
       nextAt: preferences.schedule.nextAt,
+      dueNow: preferences.schedule.dueNow,
       platformEmailEnabled: preferences.platformEmailEnabled,
     },
   };

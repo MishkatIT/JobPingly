@@ -58,7 +58,7 @@ interface Overview {
     oldestQueuedSeconds: number | null;
     avgDurationSeconds24h: number | null;
   };
-  workers: { id: string; alive: boolean; heartbeatAt: string; secondsSinceHeartbeat: number; lastError: string | null }[];
+  workers: { id: string; alive: boolean; mode: string | null; heartbeatAt: string; secondsSinceHeartbeat: number; lastError: string | null }[];
   email: { sentToday: number; failedToday: number; totalToday: number; dailyLimit: number | null; digestLimit: number | null; provider: string };
   switches: { monitoring: boolean; emailAlerts: boolean; maintenance: boolean; signups: boolean };
 }
@@ -187,7 +187,7 @@ function OverviewView() {
         <StatCell label="Database size" value={formatBytes(counts.dbBytes)} hint={`${formatNumber(counts.pendingAlerts)} alerts waiting to be sent`} />
       </StatGrid>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-2">
+      <div className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-6 xl:grid-cols-2">
         <Card>
           <CardBody>
             <BarChart title="New jobs found" description="Per day, last 30 days" data={data.series} x="day" series={[{ key: 'jobs', label: 'New jobs', color: 'var(--chart-1)' }]} />
@@ -230,7 +230,7 @@ function OverviewView() {
         </Card>
       </div>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-3">
+      <div className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-3">
         <Card>
           <CardHeader title="Sources by status" action={<LinkRow href="/admin/sources">All sources</LinkRow>} />
           <CardBody>
@@ -288,7 +288,10 @@ function OverviewView() {
             <ul className="divide-y divide-line">
               {workers.map(worker => (
                 <li key={worker.id} className="flex items-center justify-between gap-3 px-4 py-2.5 sm:px-5">
-                  <span className="min-w-0 truncate font-mono text-xs text-ink">{worker.id}</span>
+                  <span className="min-w-0">
+                    <span className="block truncate font-mono text-xs text-ink">{worker.id}</span>
+                    <span className="block text-xs text-subtle">{worker.mode === 'once' || worker.mode === 'cron' ? 'Scheduled runs' : 'Continuous'}</span>
+                  </span>
                   <span className="flex shrink-0 items-center gap-2">
                     <StatusDot tone={worker.alive ? 'success' : 'danger'}>{worker.alive ? 'Alive' : 'Stale'}</StatusDot>
                     <TimeAgo value={worker.heartbeatAt} className="text-xs text-subtle" />

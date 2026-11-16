@@ -212,7 +212,7 @@ function UserView() {
         <StatCell label="Active sessions" value={formatNumber(activity.sessions)} hint={`${formatNumber(activity.unread)} unread notifications`} />
       </StatGrid>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+      <div className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader title="Account" />
           <dl className="divide-y divide-line px-4 sm:px-5">
@@ -304,7 +304,7 @@ function UserView() {
         )}
       </Card>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+      <div className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-2">
         <Can permission="emails.read">
           <Card className="overflow-hidden">
             <CardHeader title="Recent emails" action={<Link href={`/admin/emails?tab=logs&q=${encodeURIComponent(user.email)}`} className="text-sm font-medium text-accent hover:text-accent-hover">All</Link>} />

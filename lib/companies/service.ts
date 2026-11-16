@@ -322,21 +322,25 @@ export async function listCompaniesOnList(listId: string) {
   return rows.map(row => ({ ...row, name: displayCompanyName(row.companyName, row.url), ...healthOf(row) }));
 }
 
-/** Plain-language health for users (raw error text stays in the admin panel). */
+/**
+ * Plain-language health for users (raw error text stays in the admin panel).
+ * A source that has never been read successfully is never "Healthy": it is
+ * either waiting for its first scan or having trouble with it.
+ */
 export function healthOf(source: { status: string; lastErrorClass: string | null; lastSuccessAt: Date | null; pausedReason?: string | null }) {
   const error = source.lastErrorClass ? describeErrorClass(source.lastErrorClass) : null;
-  const pending = !source.lastSuccessAt && source.status !== 'paused' && !source.lastErrorClass;
+  const neverSucceeded = !source.lastSuccessAt && source.status !== 'paused';
+  const health = neverSucceeded ? (source.lastErrorClass ? (source.status === 'broken' ? 'broken' : 'degraded') : 'pending') : source.status;
+  const labels: Record<string, string> = {
+    pending: 'Waiting for first scan',
+    active: 'Healthy',
+    degraded: 'Having trouble',
+    broken: 'Failing',
+    paused: 'Paused',
+  };
   return {
-    health: pending ? 'pending' : source.status,
-    healthLabel: pending
-      ? 'Waiting for first scan'
-      : source.status === 'active'
-        ? 'Healthy'
-        : source.status === 'degraded'
-          ? 'Having trouble'
-          : source.status === 'broken'
-            ? 'Failing'
-            : 'Paused',
+    health,
+    healthLabel: labels[health] ?? 'Paused',
     issue: error ? { label: error.label, hint: error.hint } : source.status === 'paused' && source.pausedReason ? { label: 'Paused', hint: source.pausedReason } : null,
   };
 }

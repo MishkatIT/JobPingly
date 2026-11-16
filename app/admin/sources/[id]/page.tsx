@@ -247,7 +247,7 @@ function SourceView() {
         <StatCell label="Hidden by admins" value={formatNumber(jobStats.hidden)} />
       </StatGrid>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="min-w-0 space-y-6">
           <Card className="overflow-hidden">
             <CardHeader title="Recent scans" description="The last 50 attempts, newest first." />
@@ -515,7 +515,7 @@ function ConfigurationCard({ source, adapters, canEdit, onSaved }: { source: Sou
     <Card className="mt-6">
       <CardHeader title="Configuration" description={canEdit ? 'Changes apply to every watchlist that includes this source and are recorded in the audit log.' : 'Read only. Changing sources needs the sources.manage permission.'} />
       <CardBody>
-        <fieldset disabled={!canEdit || saving} className="grid gap-4 md:grid-cols-2">
+        <fieldset disabled={!canEdit || saving} className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2">
           <Field label="Company name" optional error={errors.companyName}>
             {ids => <Input {...ids} value={form.companyName} maxLength={120} onChange={event => set('companyName', event.target.value)} />}
           </Field>

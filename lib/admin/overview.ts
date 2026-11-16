@@ -57,10 +57,12 @@ export async function adminOverview() {
       (SELECT count(*) FROM users WHERE last_active_at > now() - interval '30 days')::int AS "usersActive30d",
       (SELECT count(*) FROM career_pages)::int AS "sourcesTotal",
       (SELECT count(*) FROM career_pages WHERE status = 'active' AND last_success_at IS NOT NULL)::int AS "sourcesActive",
-      (SELECT count(*) FROM career_pages WHERE status = 'degraded')::int AS "sourcesDegraded",
+      -- Sources that never succeeded count as degraded once a scan has failed, so the buckets add up.
+      (SELECT count(*) FROM career_pages WHERE status = 'degraded'
+        OR (status = 'active' AND last_success_at IS NULL AND last_error_class IS NOT NULL))::int AS "sourcesDegraded",
       (SELECT count(*) FROM career_pages WHERE status = 'broken')::int AS "sourcesBroken",
       (SELECT count(*) FROM career_pages WHERE status = 'paused')::int AS "sourcesPaused",
-      (SELECT count(*) FROM career_pages WHERE last_success_at IS NULL AND status <> 'paused')::int AS "sourcesPending",
+      (SELECT count(*) FROM career_pages WHERE last_success_at IS NULL AND last_error_class IS NULL AND status NOT IN ('paused', 'broken', 'degraded'))::int AS "sourcesPending",
       (SELECT count(*) FROM career_pages cp WHERE NOT EXISTS (
         SELECT 1 FROM list_career_pages x JOIN lists l ON l.id = x.list_id
         WHERE x.career_page_id = cp.id AND l.deleted_at IS NULL))::int AS "sourcesUnwatched",

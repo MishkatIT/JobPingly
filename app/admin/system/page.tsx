@@ -67,7 +67,7 @@ function SystemView() {
             </ul>
           </Card>
 
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-2">
             <Card>
               <CardHeader title="Application" />
               <dl className="divide-y divide-line px-4 sm:px-5">
@@ -100,7 +100,7 @@ function SystemView() {
             </Card>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-2">
             <Card className="overflow-hidden">
               <CardHeader title="Largest tables" />
               {data.tables.length === 0 ? (

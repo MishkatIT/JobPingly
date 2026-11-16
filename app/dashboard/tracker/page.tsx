@@ -136,20 +136,23 @@ function TrackerView() {
       </div>
       {entry.notes && <p className="mt-2 line-clamp-2 text-sm text-muted">{entry.notes}</p>}
       {entry.appliedAt && <p className="mt-1 text-xs text-subtle">Applied {formatDate(entry.appliedAt)}</p>}
-      <div className="mt-3 flex items-center gap-1.5">
-        <Select aria-label={`Status of ${entry.title}`} value={entry.status} onChange={event => move(entry, event.target.value as UserJobStatus)} className="h-8 flex-1 text-sm">
+      {/* Board columns are narrow: the status picker gets its own full-width row. */}
+      <div className="mt-3 space-y-1.5">
+        <Select aria-label={`Status of ${entry.title}`} value={entry.status} onChange={event => move(entry, event.target.value as UserJobStatus)} className="h-8 text-sm">
           {TRACKER_STATUSES.map(status => (
             <option key={status} value={status}>
               {USER_JOB_STATUS_LABELS[status]}
             </option>
           ))}
         </Select>
-        <Button size="sm" onClick={() => setEditing(entry)}>
-          Notes
-        </Button>
-        <IconButton label="Remove from tracker" size="sm" onClick={() => remove(entry)}>
-          <Trash2 className="h-4 w-4" />
-        </IconButton>
+        <div className="flex items-center justify-between gap-1.5">
+          <Button size="xs" variant="ghost" onClick={() => setEditing(entry)}>
+            Notes &amp; reminder
+          </Button>
+          <IconButton label={`Remove ${entry.title} from tracker`} size="xs" onClick={() => remove(entry)}>
+            <Trash2 className="h-3.5 w-3.5" />
+          </IconButton>
+        </div>
       </div>
     </article>
   );

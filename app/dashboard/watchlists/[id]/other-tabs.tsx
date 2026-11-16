@@ -78,7 +78,7 @@ export function MembersTab({ detail }: { detail: ListDetail }) {
   };
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
       <Card>
         <CardHeader title="People who maintain this watchlist" />
         {error ? (

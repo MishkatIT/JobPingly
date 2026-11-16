@@ -245,7 +245,7 @@ function IssueDialog({ issue, onClose, onChanged }: { issue: Issue | null; onClo
             </dl>
 
             {canManage ? (
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2">
                 <Field label="Status">
                   {ids => (
                     <Select {...ids} value={form.status} onChange={event => setForm({ ...form, status: event.target.value })}>

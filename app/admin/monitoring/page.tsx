@@ -283,7 +283,7 @@ function MonitoringView() {
             </CardBody>
           </Card>
 
-          <div className="mt-6 grid gap-6 lg:grid-cols-2">
+          <div className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-2">
             <Card>
               <CardHeader title="Workers" description={`Scans are run by ${WORKER_MODE_TEXT[data.workerMode] ?? data.workerMode}.`} />
               {data.workers.length === 0 ? (

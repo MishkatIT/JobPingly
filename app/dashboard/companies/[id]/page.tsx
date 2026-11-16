@@ -152,7 +152,7 @@ export default function CompanyPage() {
         <StatCell label="Tracked since" value={<span className="text-lg">{stats.firstSeen ? formatDate(stats.firstSeen) : '—'}</span>} />
       </StatGrid>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <Card className="overflow-hidden">
           <CardHeader
             title="Open jobs"
