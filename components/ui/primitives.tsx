@@ -147,7 +147,8 @@ export function EmptyState({ icon, title, description, action, className }: { ic
   return (
     <div className={cn('flex flex-col items-center px-6 py-14 text-center', className)}>
       {icon && <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-lg border border-line bg-sunken text-muted [&_svg]:h-5 [&_svg]:w-5">{icon}</div>}
-      <h3 className="text-md font-semibold text-ink">{title}</h3>
+      {/* h2: empty states often follow the page's h1 directly, and headings must not skip levels. */}
+      <h2 className="text-md font-semibold text-ink">{title}</h2>
       {description && <p className="mt-1.5 max-w-sm text-base text-muted">{description}</p>}
       {action && <div className="mt-5 flex flex-wrap items-center justify-center gap-2">{action}</div>}
     </div>
@@ -162,7 +163,7 @@ export function ErrorState({ title = 'Something went wrong', description, onRetr
           <path d="M10 6.5v4m0 3h.01M3.4 15.5h13.2a1 1 0 0 0 .87-1.5L10.87 3a1 1 0 0 0-1.74 0L2.53 14a1 1 0 0 0 .87 1.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </div>
-      <h3 className="text-md font-semibold text-ink">{title}</h3>
+      <h2 className="text-md font-semibold text-ink">{title}</h2>
       {description && <p className="mt-1.5 max-w-sm text-base text-muted">{description}</p>}
       {onRetry && (
         <button type="button" onClick={onRetry} className="mt-4 h-9 rounded-md border border-line-strong bg-surface px-3.5 text-base font-medium text-ink shadow-xs hover:bg-sunken">
