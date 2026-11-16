@@ -49,10 +49,12 @@ Web service settings:
 
 | Setting | Value |
 | --- | --- |
-| Build command | `npm ci && npm run build` |
+| Build command | `npm ci --include=dev && npm run build` |
 | Start command | `npm start` |
 | Health check path | `/api/health` |
-| Environment | `NODE_VERSION=22`, `NODE_ENV=production`, plus the variables from `.env.example` |
+| Environment | `NODE_VERSION=22` plus the variables from `.env.example` |
+
+Leave `NODE_ENV` unset: `npm start` sets it to `production` itself. If it is set during the build, npm skips devDependencies (TypeScript, Tailwind), which the build needs; `--include=dev` keeps them either way.
 
 `npm start` runs migrations, then the web server and the worker (`WORKER_MODE=separate`). On a 512 MB instance, `WORKER_MODE=inline` runs the worker inside the web server and saves roughly one Node.js process.
 
