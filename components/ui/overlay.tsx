@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/client/cn';
 import { Button, type ButtonVariant } from './button';
@@ -316,10 +316,30 @@ export interface SegmentOption<T extends string> {
   count?: number | null;
 }
 
+/**
+ * Arrow keys, Home and End move between options and select them, as the tab
+ * and radio-group roles promise to keyboard and screen-reader users. Only the
+ * selected option is in the Tab order (roving tabindex).
+ */
+function rovingKeyHandler<T extends string>(options: SegmentOption<T>[], value: T, onChange: (value: T) => void) {
+  return (event: KeyboardEvent<HTMLElement>) => {
+    const keys = ['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End'];
+    if (!keys.includes(event.key) || options.length === 0) return;
+    event.preventDefault();
+    const current = Math.max(0, options.findIndex(option => option.value === value));
+    const next =
+      event.key === 'Home' ? 0 : event.key === 'End' ? options.length - 1 : event.key === 'ArrowRight' || event.key === 'ArrowDown' ? (current + 1) % options.length : (current - 1 + options.length) % options.length;
+    onChange(options[next].value);
+    const buttons = event.currentTarget.querySelectorAll<HTMLButtonElement>('button');
+    buttons[next]?.focus();
+  };
+}
+
 /** Underlined tab bar. Scrolls horizontally on narrow screens. */
 export function Tabs<T extends string>({ value, onChange, options, label, className }: { value: T; onChange: (value: T) => void; options: SegmentOption<T>[]; label: string; className?: string }) {
+  const onKeyDown = rovingKeyHandler(options, value, onChange);
   return (
-    <div role="tablist" aria-label={label} className={cn('scroll-slim -mb-px flex gap-5 overflow-x-auto border-b border-line', className)}>
+    <div role="tablist" aria-label={label} onKeyDown={onKeyDown} className={cn('scroll-slim -mb-px flex gap-5 overflow-x-auto border-b border-line', className)}>
       {options.map(option => {
         const active = option.value === value;
         return (
@@ -328,6 +348,7 @@ export function Tabs<T extends string>({ value, onChange, options, label, classN
             type="button"
             role="tab"
             aria-selected={active}
+            tabIndex={active ? 0 : -1}
             onClick={() => onChange(option.value)}
             className={cn(
               'flex shrink-0 items-center gap-1.5 border-b-2 px-0.5 pb-2.5 pt-1 text-base font-medium transition-colors',
@@ -347,8 +368,9 @@ export function Tabs<T extends string>({ value, onChange, options, label, classN
 
 /** Compact mutually exclusive choice, e.g. a view switcher. */
 export function Segmented<T extends string>({ value, onChange, options, label, className }: { value: T; onChange: (value: T) => void; options: SegmentOption<T>[]; label: string; className?: string }) {
+  const onKeyDown = rovingKeyHandler(options, value, onChange);
   return (
-    <div role="radiogroup" aria-label={label} className={cn('inline-flex rounded-md border border-line-strong bg-sunken p-0.5', className)}>
+    <div role="radiogroup" aria-label={label} onKeyDown={onKeyDown} className={cn('inline-flex rounded-md border border-line-strong bg-sunken p-0.5', className)}>
       {options.map(option => {
         const active = option.value === value;
         return (
@@ -357,6 +379,7 @@ export function Segmented<T extends string>({ value, onChange, options, label, c
             type="button"
             role="radio"
             aria-checked={active}
+            tabIndex={active ? 0 : -1}
             onClick={() => onChange(option.value)}
             className={cn('h-7 rounded px-2.5 text-sm font-medium transition-colors', active ? 'bg-surface text-ink shadow-xs' : 'text-muted hover:text-ink')}
           >
