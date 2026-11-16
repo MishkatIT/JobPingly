@@ -1,6 +1,7 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import { client, db } from '@/lib/db/client';
-import { listCollaborators, listSubscriptions, lists, type List } from '@/lib/db/schema';
+import { listCollaborators, listSubscriptions, lists, users, type List } from '@/lib/db/schema';
+import { getSetting } from '@/lib/settings/store';
 
 /**
  * Who may do what with a watchlist. Every list endpoint resolves access
@@ -75,10 +76,19 @@ async function resolveAccess(list: List, userId: string | null): Promise<ListAcc
     isFollowing = Boolean(subscription);
   }
 
-  if (!role && list.visibility === 'public') role = 'viewer';
+  // Public lists: people who follow one keep access (to manage or stop their
+  // alerts); everyone else only while public lists are switched on and the
+  // owner is not suspended, the same rules as the public directory.
+  if (!role && list.visibility === 'public' && (isFollowing || (await publicListOpen(list.userId)))) role = 'viewer';
   if (!role) return null;
 
   return { list, role, isFollowing, ...permissionsForRole(role) };
+}
+
+async function publicListOpen(ownerId: string): Promise<boolean> {
+  if (!(await getSetting('public_lists.enabled'))) return false;
+  const [owner] = await db.select({ isBlocked: users.isBlocked }).from(users).where(eq(users.id, ownerId));
+  return Boolean(owner) && !owner.isBlocked;
 }
 
 /**

@@ -4,6 +4,17 @@ import { afterEach, describe, test } from 'node:test';
 import { listMigrationFiles } from '@/lib/db/migrate';
 import { LATEST_MIGRATION } from '@/lib/db/schema-version';
 import { env } from '@/lib/env';
+import { effectivePlan } from '@/lib/plans';
+
+describe('Plans', () => {
+  test('a paid plan whose end date has passed counts as free', () => {
+    assert.equal(effectivePlan('pro', null), 'pro');
+    assert.equal(effectivePlan('pro', new Date(Date.now() + 86_400_000)), 'pro');
+    assert.equal(effectivePlan('pro', new Date(Date.now() - 1000)), 'free');
+    assert.equal(effectivePlan('team', new Date(Date.now() - 1000).toISOString()), 'free');
+    assert.equal(effectivePlan('nonsense', null), 'free');
+  });
+});
 
 describe('Schema version', () => {
   test('the worker expects the newest migration file', () => {

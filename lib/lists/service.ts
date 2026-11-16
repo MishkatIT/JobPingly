@@ -190,7 +190,9 @@ export async function listDetail(access: ListAccess, userId: string | null) {
     pendingSuggestions = row?.n ?? 0;
   }
 
-  const limits = await getLimits((await db.select({ plan: users.plan, role: users.role, quotaExempt: users.quotaExempt }).from(users).where(eq(users.id, list.userId)))[0] ?? { plan: 'free' });
+  const limits = await getLimits(
+    (await db.select({ plan: users.plan, planExpiresAt: users.planExpiresAt, role: users.role, quotaExempt: users.quotaExempt }).from(users).where(eq(users.id, list.userId)))[0] ?? { plan: 'free' },
+  );
 
   return {
     list: {

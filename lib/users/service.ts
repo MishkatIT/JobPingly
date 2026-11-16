@@ -8,7 +8,7 @@ import { client, db } from '@/lib/db/client';
 import { emailApprovals, listSubscriptions, lists, notifications, refreshTokens, userJobs, users } from '@/lib/db/schema';
 import { visibleListIdsSql, visibleSourceIdsSql } from '@/lib/lists/access';
 import { loadNotificationPolicy } from '@/lib/notifications/policy';
-import { getLimits, normalizePlan, PLAN_INFO, serializeLimits } from '@/lib/plans';
+import { effectivePlan, getLimits, PLAN_INFO, serializeLimits } from '@/lib/plans';
 import { cleanText } from '@/lib/security/html';
 import { describeDigestSchedule, evaluateDigestSchedule, isValidTimezone } from '@/lib/utils/digestSchedule';
 import { isSupportedFrequency, resolveEffectiveFrequency } from '@/lib/utils/frequency';
@@ -47,6 +47,7 @@ export async function getProfile(userId: string) {
       timezone: users.timezone,
       role: users.role,
       plan: users.plan,
+      planExpiresAt: users.planExpiresAt,
       quotaExempt: users.quotaExempt,
       hasPassword: sql<boolean>`${users.passwordHash} IS NOT NULL`,
       hasGoogle: sql<boolean>`${users.googleId} IS NOT NULL`,
@@ -58,7 +59,7 @@ export async function getProfile(userId: string) {
   if (!row) throw errors.notFound('Account');
 
   const limits = await getLimits(row);
-  const plan = normalizePlan(row.plan);
+  const plan = effectivePlan(row.plan, row.planExpiresAt);
   const [usage] = await client<{ lists: number }[]>`
     SELECT count(*)::int AS lists FROM lists WHERE user_id = ${userId} AND deleted_at IS NULL
   `;
@@ -261,6 +262,19 @@ export async function exportUserData(userId: string) {
   };
 }
 
+/**
+ * Followers' queued alerts for lists that are about to disappear with their
+ * owner's account. The queue keeps rows when a list is deleted (list_id is set
+ * to NULL), so without this they would still be emailed later.
+ */
+export async function cancelAlertsForOwnedLists(userId: string): Promise<void> {
+  await client`
+    UPDATE notification_queue
+    SET sent_at = now(), last_error = 'Watchlist deleted with its owner''s account'
+    WHERE sent_at IS NULL AND list_id IN (SELECT id FROM lists WHERE user_id = ${userId})
+  `;
+}
+
 /** Permanently deletes the account and everything it owns. */
 export async function deleteAccount(userId: string, confirmation: { password?: string; email?: string }, req?: { headers: Headers }) {
   const [user] = await db.select({ email: users.email, role: users.role, passwordHash: users.passwordHash }).from(users).where(eq(users.id, userId));
@@ -276,6 +290,7 @@ export async function deleteAccount(userId: string, confirmation: { password?: s
   }
 
   await recordAudit({ action: 'user.delete', actor: { id: userId, email: user.email, role: user.role }, targetType: 'user', targetId: userId, metadata: { self: true }, req });
+  await cancelAlertsForOwnedLists(userId);
   await db.delete(emailApprovals).where(eq(emailApprovals.email, user.email));
   await db.delete(users).where(eq(users.id, userId));
   invalidateSessionCache(userId);

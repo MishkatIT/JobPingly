@@ -12,8 +12,9 @@ import postgres from 'postgres';
  *   the database exactly as it was.
  * - Takes a transaction-scoped advisory lock, so two deploys cannot apply the
  *   same migration at once. (Transaction-scoped rather than session-scoped so
- *   that it also behaves correctly behind a transaction-mode connection
- *   pooler such as Supabase's port 6543.)
+ *   that the lock stays correct even behind a transaction-mode pooler such as
+ *   Supabase's port 6543. A direct or session-mode connection, port 5432, set
+ *   as MIGRATION_DATABASE_URL, is still the recommended way to migrate.)
  *
  * The files in drizzle/legacy are never executed. Databases created before
  * this runner existed were managed with `drizzle-kit push`, so the first

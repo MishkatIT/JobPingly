@@ -14,7 +14,7 @@ A rebuild of the application on the same database. Existing accounts, watchlists
 - **Email**: digest schedules including custom intervals in the user's time zone, one-click unsubscribe, delivery webhooks, approval of new recipients, daily quota protection and staggered delivery.
 - **Public site**: new home page (live data only), pricing, help and contact, privacy, terms, bot policy, directory of public watchlists, public profiles, robots.txt and sitemap.
 - **Operations**: `npm start` applies migrations and runs web and worker; `worker:once`, `/api/cron/tick` and a scheduled GitHub Action for hosts that sleep; `/api/health`; CLI scripts `admin:grant`, `seed:demo`, `scan:url`, `db:check`; CI workflow.
-- **Tests**: 106 unit and 52 integration tests (Node test runner, real PostgreSQL, fake network).
+- **Tests**: 107 unit and 56 integration tests (Node test runner, real PostgreSQL, fake network).
 - **Documentation**: README, architecture, API, database, deployment, admin and user guides, security.
 
 ### Changed
@@ -30,6 +30,10 @@ A rebuild of the application on the same database. Existing accounts, watchlists
 - Jobs no longer close after a single missed scan, and a mass disappearance is held back as suspicious.
 - List owners without a subscription row never received alerts for their own list (rows are created, with alerts off).
 - Broadcasts now exclude unsubscribed and revoked addresses.
+- Watchlist subscriptions still holding v1's old `'instant'` default would have switched every user from their digest to one email per match after the upgrade; migration 0006 sets them to follow the account schedule, as v1's own (never-applied) 0002 intended.
+- Paid-plan end dates now apply to every limit, not only some.
+- Deleting an account cancels followers' pending alerts for the watchlists that disappear with it.
+- Public watchlists are hidden from non-followers while public lists are switched off or the owner is suspended.
 - Many smaller issues found during testing; see the git history.
 
 ### Security

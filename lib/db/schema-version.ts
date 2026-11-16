@@ -7,7 +7,7 @@ import { client } from './client';
  * Checking the database for this one name, instead of reading the migration
  * directory, keeps filesystem access out of the server bundles.
  */
-export const LATEST_MIGRATION = '0005_verification_and_directory.sql';
+export const LATEST_MIGRATION = '0006_v1_frequency_defaults.sql';
 
 /** True when the database has every migration this code expects. */
 export async function schemaIsCurrent(): Promise<boolean> {

@@ -9,6 +9,7 @@ import { adminAuditLog, emailApprovals, refreshTokens, sentEmailLogs, users } fr
 import { PLAN_IDS, type PlanId } from '@/lib/plans';
 import { cleanText } from '@/lib/security/html';
 import { avatarUrlSql } from '@/lib/users/avatar';
+import { cancelAlertsForOwnedLists } from '@/lib/users/service';
 
 export const USER_STATUS_FILTERS = ['all', 'active', 'unverified', 'suspended', 'staff'] as const;
 export const USER_SORTS = ['newest', 'oldest', 'active', 'name'] as const;
@@ -178,7 +179,8 @@ export async function applyUserAction(actor: AuditActor & { role: string }, user
   if (!target) throw errors.notFound('User');
 
   // Acting on an account requires a higher rank than the account holder.
-  const guarded = ['suspend', 'reactivate', 'set_role', 'revoke_sessions', 'set_plan', 'set_exemptions'];
+  // (Sending a reset link is allowed for any account: the email only reaches its owner.)
+  const guarded = ['suspend', 'reactivate', 'set_role', 'revoke_sessions', 'set_plan', 'set_exemptions', 'verify', 'approve_email', 'revoke_email'];
   if (guarded.includes(input.action) && input.action !== 'set_role' && !canActOnUser(actor, target)) {
     throw errors.forbidden(actor.id === target.id ? 'You cannot do that to your own account.' : 'You cannot change an account with an equal or higher role.');
   }
@@ -272,6 +274,7 @@ export async function deleteUserAsAdmin(actor: AuditActor & { role: string }, us
   if (!target) throw errors.notFound('User');
   if (!canActOnUser(actor, target)) throw errors.forbidden('You cannot delete an account with an equal or higher role.');
   await recordAudit({ action: 'user.delete', actor, targetType: 'user', targetId: userId, metadata: { email: target.email }, req });
+  await cancelAlertsForOwnedLists(userId);
   await db.delete(emailApprovals).where(eq(emailApprovals.email, target.email));
   await db.delete(users).where(eq(users.id, userId));
   invalidateSessionCache(userId);

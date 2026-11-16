@@ -16,6 +16,7 @@ import { getLimits } from '@/lib/plans';
 import { cleanText } from '@/lib/security/html';
 import { rateLimit } from '@/lib/security/rateLimit';
 import { UnsafeUrlError, assertPublicUrl, checkUrlSyntax } from '@/lib/security/ssrf';
+import { getSetting } from '@/lib/settings/store';
 
 /**
  * Companies (monitored career sources) as users see them.
@@ -77,7 +78,10 @@ export async function ensureSource(rawUrl: string, options: { companyName?: stri
 }
 
 async function limitsForListOwner(ownerId: string) {
-  const [owner] = await db.select({ plan: users.plan, role: users.role, quotaExempt: users.quotaExempt }).from(users).where(eq(users.id, ownerId));
+  const [owner] = await db
+    .select({ plan: users.plan, planExpiresAt: users.planExpiresAt, role: users.role, quotaExempt: users.quotaExempt })
+    .from(users)
+    .where(eq(users.id, ownerId));
   return getLimits(owner ?? { plan: 'free' });
 }
 
@@ -446,13 +450,21 @@ export async function previewSource(rawUrl: string) {
 /** A company's profile for a user who has it on a watchlist (or on any public list). */
 export async function companyDetailForUser(userId: string | null, careerPageId: string) {
   if (!/^[0-9a-f-]{36}$/i.test(careerPageId)) return null;
+  // Through a public list only while public lists are on and that list's owner is not suspended.
+  const publicLists = await getSetting('public_lists.enabled');
   const [visible] = await client<{ ok: number }[]>`
     SELECT 1 AS ok
     WHERE ${userId ? client`${careerPageId}::uuid IN (${visibleSourceIdsSql(userId)})` : client`false`}
-       OR EXISTS (
-         SELECT 1 FROM list_career_pages x JOIN lists l ON l.id = x.list_id
-         WHERE x.career_page_id = ${careerPageId} AND l.visibility = 'public' AND l.deleted_at IS NULL
-       )
+      ${
+        publicLists
+          ? client`OR EXISTS (
+              SELECT 1 FROM list_career_pages x
+              JOIN lists l ON l.id = x.list_id
+              JOIN users o ON o.id = l.user_id
+              WHERE x.career_page_id = ${careerPageId} AND l.visibility = 'public' AND l.deleted_at IS NULL AND NOT o.is_blocked
+            )`
+          : client``
+      }
   `;
   if (!visible) return null;
 

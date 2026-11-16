@@ -39,6 +39,13 @@ export function normalizePlan(plan: string | null | undefined): PlanId {
   return (PLAN_IDS as readonly string[]).includes(plan ?? '') ? (plan as PlanId) : 'free';
 }
 
+/** The plan in force: a paid plan whose end date has passed counts as free. */
+export function effectivePlan(plan: string | null | undefined, expiresAt?: Date | string | null): PlanId {
+  const id = normalizePlan(plan);
+  if (id !== 'free' && expiresAt && new Date(expiresAt).getTime() <= Date.now()) return 'free';
+  return id;
+}
+
 export async function getFreeLimits(): Promise<PlanLimits> {
   const settings = await getSettings(['limits.max_lists_per_user', 'limits.max_urls_per_list', 'limits.max_keywords_per_sub']);
   const toLimit = (value: number) => (value < 0 ? Infinity : value);
@@ -50,9 +57,9 @@ export async function getFreeLimits(): Promise<PlanLimits> {
 }
 
 /** Effective limits for a user. Staff and quota-exempt accounts are not limited. */
-export async function getLimits(user: { plan: string; role?: string; quotaExempt?: boolean }): Promise<PlanLimits> {
+export async function getLimits(user: { plan: string; role?: string; quotaExempt?: boolean; planExpiresAt?: Date | string | null }): Promise<PlanLimits> {
   if (user.quotaExempt || isStaff(user.role)) return UNLIMITED;
-  const plan = normalizePlan(user.plan);
+  const plan = effectivePlan(user.plan, user.planExpiresAt);
   return plan === 'free' ? getFreeLimits() : PAID_LIMITS[plan];
 }
 

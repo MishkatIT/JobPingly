@@ -136,7 +136,7 @@ function UserView() {
 
   const menu: MenuItem[] = [];
   if (can('users.manage')) {
-    if (!user.emailVerified) menu.push({ label: 'Mark email as verified', icon: <BadgeCheck />, onSelect: () => confirmThen('Mark as verified?', 'Only do this if you have confirmed the person owns this address another way.', { action: 'verify' }, 'Marked as verified') });
+    if (!user.emailVerified) menu.push({ label: 'Mark email as verified', icon: <BadgeCheck />, disabled: !outranks, onSelect: () => confirmThen('Mark as verified?', 'Only do this if you have confirmed the person owns this address another way.', { action: 'verify' }, 'Marked as verified') });
     menu.push({ label: 'Send password reset link', icon: <KeyRound />, onSelect: () => confirmThen('Send a password reset link?', `An email with a reset link goes to ${user.email}. It also verifies the address when used.`, { action: 'send_reset_link' }, 'Reset link sent') });
     menu.push({ label: 'Sign out of all devices', icon: <LogOut />, disabled: !outranks, onSelect: () => confirmThen('Sign out everywhere?', 'Every session for this account ends immediately.', { action: 'revoke_sessions' }, 'Signed out everywhere') });
     menu.push(
@@ -148,8 +148,8 @@ function UserView() {
   if (can('emails.manage')) {
     menu.push(
       approval?.status === 'approved'
-        ? { label: 'Revoke email approval', icon: <MailX />, separator: true, onSelect: () => confirmThen('Stop alert emails to this user?', 'Their matches still appear in the app.', { action: 'revoke_email' }, 'Email approval revoked') }
-        : { label: 'Approve email alerts', icon: <MailCheck />, separator: true, onSelect: () => confirmThen('Approve alert emails?', 'They will start receiving alert emails, and a welcome email if they have not had one.', { action: 'approve_email' }, 'Email approved') },
+        ? { label: 'Revoke email approval', icon: <MailX />, separator: true, disabled: !outranks, onSelect: () => confirmThen('Stop alert emails to this user?', 'Their matches still appear in the app.', { action: 'revoke_email' }, 'Email approval revoked') }
+        : { label: 'Approve email alerts', icon: <MailCheck />, separator: true, disabled: !outranks, onSelect: () => confirmThen('Approve alert emails?', 'They will start receiving alert emails, and a welcome email if they have not had one.', { action: 'approve_email' }, 'Email approved') },
     );
   }
   if (can('users.plans')) menu.push({ label: 'Change plan or limits…', icon: <WalletCards />, separator: !can('emails.manage'), disabled: !outranks && !isSelf, onSelect: () => setDialog('plan') });

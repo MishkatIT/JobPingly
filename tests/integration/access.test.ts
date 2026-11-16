@@ -3,7 +3,7 @@ import { after, before, describe, test } from 'node:test';
 import { NextRequest } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { closeDb, db } from '@/lib/db/client';
-import { jobs } from '@/lib/db/schema';
+import { jobs, notificationQueue, users } from '@/lib/db/schema';
 import { proxy } from '@/proxy';
 import * as listsRoute from '@/app/api/lists/route';
 import * as listRoute from '@/app/api/lists/[id]/route';
@@ -19,7 +19,7 @@ import * as adminOverview from '@/app/api/admin/overview/route';
 import * as adminSources from '@/app/api/admin/sources/route';
 import * as adminSettings from '@/app/api/admin/settings/route';
 import * as adminUser from '@/app/api/admin/users/[id]/route';
-import { BASE_URL, call, createSource, createUser, resetData } from '../helpers/integration';
+import { BASE_URL, call, createSource, createUser, resetData, setSettings } from '../helpers/integration';
 
 before(resetData);
 after(() => closeDb());
@@ -79,6 +79,28 @@ describe('Watchlist privacy', () => {
 
     // Unfollowing still works so the follower is not stuck.
     assert.equal((await call(followRoute.DELETE, { cookie: fan.cookie, params, method: 'DELETE' })).status, 200);
+  });
+
+  test('public lists close to non-followers when public lists are off or the owner is suspended', async () => {
+    const owner = await createUser();
+    const fan = await createUser();
+    const stranger = await createUser();
+    const created = await call<{ id: string }>(listsRoute.POST, { cookie: owner.cookie, body: { name: 'Gated', visibility: 'public' } });
+    const params = { id: created.body.data!.id };
+    await call(followRoute.POST, { cookie: fan.cookie, params, body: {} });
+
+    await setSettings({ 'public_lists.enabled': false });
+    try {
+      assert.equal((await call(listRoute.GET, { params })).status, 404, 'anonymous, directory off');
+      assert.equal((await call(listRoute.GET, { cookie: stranger.cookie, params })).status, 404, 'stranger, directory off');
+      assert.equal((await call(listRoute.GET, { cookie: fan.cookie, params })).status, 200, 'a follower can still manage their alerts');
+    } finally {
+      await setSettings({ 'public_lists.enabled': true });
+    }
+
+    await db.update(users).set({ isBlocked: true }).where(eq(users.id, owner.id));
+    assert.equal((await call(listRoute.GET, { cookie: stranger.cookie, params })).status, 404, 'owner suspended');
+    assert.equal((await call(listRoute.GET, { cookie: fan.cookie, params })).status, 200, 'follower keeps access');
   });
 
   test('private lists never appear in the public directory', async () => {
@@ -166,12 +188,57 @@ describe('Admin authorisation is enforced on the server', () => {
     assert.equal(result.status, 403);
   });
 
+  test('verifying or changing email approval also needs a higher role than the account holder', async () => {
+    const support = await createUser({ role: 'support' });
+    const admin = await createUser({ role: 'admin', verified: false });
+    const regular = await createUser({ verified: false });
+    assert.equal((await call(adminUser.POST, { cookie: support.cookie, params: { id: admin.id }, body: { action: 'verify' } })).status, 403);
+    assert.equal((await call(adminUser.POST, { cookie: support.cookie, params: { id: regular.id }, body: { action: 'verify' } })).status, 200);
+    const owner = await createUser({ role: 'owner' });
+    const otherAdmin = await createUser({ role: 'admin' });
+    assert.equal((await call(adminUser.POST, { cookie: otherAdmin.cookie, params: { id: owner.id }, body: { action: 'revoke_email' } })).status, 403);
+  });
+
+  test("deleting an account cancels followers' pending alerts for its lists", async () => {
+    const owner = await createUser();
+    const fan = await createUser();
+    const admin = await createUser({ role: 'admin' });
+    const source = await createSource('https://boards.greenhouse.io/leaving-co');
+    const [job] = await db.insert(jobs).values({ careerPageId: source.id, fingerprint: 'ext:leave1', title: 'Engineer', status: 'active' }).returning();
+    const created = await call<{ id: string }>(listsRoute.POST, { cookie: owner.cookie, body: { name: 'Going away', visibility: 'public' } });
+    const listId = created.body.data!.id;
+    await db.insert(notificationQueue).values({ userId: fan.id, jobId: job.id, listId, eventType: 'new' });
+
+    assert.equal((await call(adminUser.DELETE, { cookie: admin.cookie, params: { id: owner.id }, method: 'DELETE' })).status, 200);
+    const [row] = await db.select().from(notificationQueue).where(eq(notificationQueue.userId, fan.id));
+    assert.ok(row.sentAt, 'settled, so it is never emailed');
+    assert.match(row.lastError ?? '', /deleted/);
+  });
+
   test('settings reject values of the wrong type', async () => {
     const owner = await createUser({ role: 'owner' });
     const result = await call(adminSettings.PUT, { cookie: owner.cookie, method: 'PUT', body: { key: 'email.brevo_daily_limit', value: true } });
     assert.equal(result.status, 400);
     const unknown = await call(adminSettings.PUT, { cookie: owner.cookie, method: 'PUT', body: { key: 'made.up', value: 1 } });
     assert.equal(unknown.status, 400);
+  });
+});
+
+describe('Plans', () => {
+  test('a paid plan past its end date gets the free-plan limits everywhere', async () => {
+    const { getLimits } = await import('@/lib/plans');
+    const paid = await getLimits({ plan: 'pro', planExpiresAt: new Date(Date.now() + 86_400_000) });
+    assert.equal(paid.companiesPerList, 250);
+    const lapsed = await getLimits({ plan: 'pro', planExpiresAt: new Date(Date.now() - 1000) });
+    const free = await getLimits({ plan: 'free' });
+    assert.deepEqual(lapsed, free);
+
+    // The watchlist page reads the owner's plan from the database: it must apply the end date too.
+    const owner = await createUser({ plan: 'pro' });
+    await db.update(users).set({ planExpiresAt: new Date(Date.now() - 1000) }).where(eq(users.id, owner.id));
+    const created = await call<{ id: string }>(listsRoute.POST, { cookie: owner.cookie, body: { name: 'Lapsed' } });
+    const detail = await call<{ limits: { companiesPerList: number | null } }>(listRoute.GET, { cookie: owner.cookie, params: { id: created.body.data!.id } });
+    assert.equal(detail.body.data!.limits.companiesPerList, free.companiesPerList);
   });
 });
 
