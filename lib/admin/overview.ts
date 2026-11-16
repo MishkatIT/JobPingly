@@ -8,7 +8,20 @@ import { getWorkerHealth } from '@/lib/monitoring/scheduler';
 import { loadNotificationPolicy } from '@/lib/notifications/policy';
 import { getSettings } from '@/lib/settings/store';
 
-/** Platform-wide figures for the admin overview. Every number is a live query. */
+let sizeCache: { bytes: number; at: number } | null = null;
+
+/**
+ * pg_database_size() walks every file of the database (about 100 ms even on a
+ * small one), so the figure is cached for ten minutes per process.
+ */
+async function databaseSize(): Promise<number> {
+  if (sizeCache && Date.now() - sizeCache.at < 10 * 60_000) return sizeCache.bytes;
+  const [row] = await client<{ bytes: string }[]>`SELECT pg_database_size(current_database())::bigint AS bytes`;
+  sizeCache = { bytes: Number(row?.bytes ?? 0), at: Date.now() };
+  return sizeCache.bytes;
+}
+
+/** Platform-wide figures for the admin overview. Every number is a live query (database size: up to 10 minutes old). */
 export async function adminOverview() {
   const [counts] = await client<
     {
@@ -42,7 +55,6 @@ export async function adminOverview() {
       pendingAlerts: number;
       pendingApprovals: number;
       openIssues: number;
-      dbBytes: number;
     }[]
   >`
     SELECT
@@ -79,22 +91,45 @@ export async function adminOverview() {
       (SELECT count(*) FROM lists WHERE deleted_at IS NULL AND visibility = 'public')::int AS "listsPublic",
       (SELECT count(*) FROM notification_queue WHERE sent_at IS NULL)::int AS "pendingAlerts",
       (SELECT count(*) FROM email_approvals WHERE status = 'pending')::int AS "pendingApprovals",
-      (SELECT count(*) FROM reported_issues WHERE status IN ('open', 'in_progress'))::int AS "openIssues",
-      pg_database_size(current_database())::bigint AS "dbBytes"
+      (SELECT count(*) FROM reported_issues WHERE status IN ('open', 'in_progress'))::int AS "openIssues"
   `;
 
+  // One grouped pass per table over the window (instead of a sub-query per day and metric).
   const series = await client<{ day: Date; signups: number; jobs: number; scansOk: number; scansFailed: number; emailsSent: number; emailsFailed: number }[]>`
-    WITH days AS (
-      SELECT generate_series(date_trunc('day', now()) - interval '29 days', date_trunc('day', now()), interval '1 day') AS day
+    WITH bounds AS (SELECT date_trunc('day', now()) - interval '29 days' AS start),
+    days AS (
+      SELECT generate_series((SELECT start FROM bounds), date_trunc('day', now()), interval '1 day') AS day
+    ),
+    signups AS (
+      SELECT date_trunc('day', created_at) AS day, count(*)::int AS n
+      FROM users WHERE created_at >= (SELECT start FROM bounds) GROUP BY 1
+    ),
+    found AS (
+      SELECT date_trunc('day', first_seen_at) AS day, count(*)::int AS n
+      FROM jobs WHERE first_seen_at >= (SELECT start FROM bounds) GROUP BY 1
+    ),
+    scans AS (
+      SELECT date_trunc('day', scraped_at) AS day,
+        count(*) FILTER (WHERE success)::int AS ok, count(*) FILTER (WHERE NOT success)::int AS failed
+      FROM scrape_logs WHERE scraped_at >= (SELECT start FROM bounds) GROUP BY 1
+    ),
+    mail AS (
+      SELECT date_trunc('day', created_at) AS day,
+        count(*) FILTER (WHERE status = 'sent')::int AS sent, count(*) FILTER (WHERE status = 'failed')::int AS failed
+      FROM sent_email_logs WHERE created_at >= (SELECT start FROM bounds) GROUP BY 1
     )
     SELECT d.day,
-      (SELECT count(*) FROM users u WHERE u.created_at >= d.day AND u.created_at < d.day + interval '1 day')::int AS signups,
-      (SELECT count(*) FROM jobs j WHERE j.first_seen_at >= d.day AND j.first_seen_at < d.day + interval '1 day')::int AS jobs,
-      (SELECT count(*) FROM scrape_logs s WHERE s.scraped_at >= d.day AND s.scraped_at < d.day + interval '1 day' AND s.success)::int AS "scansOk",
-      (SELECT count(*) FROM scrape_logs s WHERE s.scraped_at >= d.day AND s.scraped_at < d.day + interval '1 day' AND NOT s.success)::int AS "scansFailed",
-      (SELECT count(*) FROM sent_email_logs e WHERE e.created_at >= d.day AND e.created_at < d.day + interval '1 day' AND e.status = 'sent')::int AS "emailsSent",
-      (SELECT count(*) FROM sent_email_logs e WHERE e.created_at >= d.day AND e.created_at < d.day + interval '1 day' AND e.status = 'failed')::int AS "emailsFailed"
+      coalesce(s.n, 0) AS signups,
+      coalesce(f.n, 0) AS jobs,
+      coalesce(sc.ok, 0) AS "scansOk",
+      coalesce(sc.failed, 0) AS "scansFailed",
+      coalesce(m.sent, 0) AS "emailsSent",
+      coalesce(m.failed, 0) AS "emailsFailed"
     FROM days d
+    LEFT JOIN signups s ON s.day = d.day
+    LEFT JOIN found f ON f.day = d.day
+    LEFT JOIN scans sc ON sc.day = d.day
+    LEFT JOIN mail m ON m.day = d.day
     ORDER BY d.day
   `;
 
@@ -108,18 +143,19 @@ export async function adminOverview() {
     SELECT coalesce(ats_type, 'unknown') AS adapter, count(*)::int AS count FROM career_pages GROUP BY 1 ORDER BY 2 DESC
   `;
 
-  const [queue, workers, email, policy, settings] = await Promise.all([
+  const [queue, workers, email, policy, settings, dbBytes] = await Promise.all([
     getQueueStats(),
     getWorkerHealth(),
     getTodaySentEmailCount(),
     loadNotificationPolicy(),
     getSettings(['scraper.enabled', 'notifications.enabled', 'platform.maintenance_mode', 'auth.signup_enabled']),
+    databaseSize(),
   ]);
 
   return {
     counts: {
       ...counts,
-      dbBytes: Number(counts.dbBytes),
+      dbBytes,
       scanSuccessRate24h: counts.scans24h > 0 ? (counts.scans24h - counts.scansFailed24h) / counts.scans24h : null,
     },
     series,
