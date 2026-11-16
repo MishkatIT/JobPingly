@@ -22,6 +22,20 @@ const nextBin = require.resolve('next/dist/bin/next', { paths: [root] });
 const tsxBin = require.resolve('tsx/cli', { paths: [root] });
 const mode = (process.env.WORKER_MODE || 'separate').toLowerCase();
 
+// This is the production entry point. `next start` forces production mode for
+// the web server; the worker and the scripts below must agree with it, or they
+// would accept development fallbacks (for example the insecure dev secret).
+if (!process.env.NODE_ENV) process.env.NODE_ENV = 'production';
+
+// Check configuration before touching the database, so a deploy with a
+// missing or placeholder secret fails without migrating anything.
+console.log('[start] Checking configuration...');
+const preflight = spawnSync(process.execPath, [tsxBin, 'scripts/preflight.ts'], { cwd: root, stdio: 'inherit', env: process.env });
+if (preflight.status !== 0) {
+  console.error('[start] Configuration is incomplete. Nothing was changed; fix the environment variables above and redeploy.');
+  process.exit(preflight.status || 1);
+}
+
 if (process.env.SKIP_MIGRATIONS !== 'true') {
   console.log('[start] Applying database migrations...');
   const migrate = spawnSync(process.execPath, [tsxBin, 'scripts/migrate.ts'], { cwd: root, stdio: 'inherit', env: process.env });
