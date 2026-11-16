@@ -141,6 +141,14 @@ export async function sendEmail(message: EmailMessage): Promise<SendResult> {
     return { success: false, error: 'Invalid recipient address.' };
   }
 
+  // Never report success for mail that cannot go anywhere (production without a provider).
+  if (!env.email.deliveryConfigured) {
+    const result: SendResult = { success: false, error: 'Email delivery is not configured (BREVO_API_KEY is missing).' };
+    console.error(`[email] ${message.template} to ${message.to} not sent: no email provider is configured.`);
+    await recordLog(message, result, 1);
+    return result;
+  }
+
   if (env.email.provider === 'console') {
     const result: SendResult = { success: true, simulated: true, messageId: `console-${Date.now()}` };
     const outbox = consoleOutbox();

@@ -1,0 +1,77 @@
+name: Scheduled monitoring
+
+# Runs one worker cycle (scan due companies, deliver due alerts, housekeeping)
+# every three hours, like the v1 "job-monitor" workflow it replaces. This
+# matters on hosts whose free tier puts the web service (and its built-in
+# worker) to sleep. It is harmless alongside an always-on worker: the
+# database queue makes sure each company is scanned once.
+#
+# Repository secrets used (Settings > Secrets and variables > Actions):
+#   DATABASE_URL           required; the run is skipped when it is missing
+#   APP_SECRET             required (or JWT_ACCESS_SECRET, as in v1); must equal the web server's value
+#   NEXT_PUBLIC_APP_URL    required for correct links in emails
+#   BREVO_API_KEY          without it alerts stay queued instead of being sent
+#   SENDER_EMAIL, SENDER_NAME, GROQ_API_KEY, OPENAI_API_KEY, OLLAMA_API_KEY,
+#   OLLAMA_MODEL, OLLAMA_BASE_URL   optional
+
+on:
+  schedule:
+    - cron: '17 */3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scheduled-monitoring
+  cancel-in-progress: false
+
+jobs:
+  cycle:
+    name: Worker cycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_ENV: production
+      WORKER_ID: github-actions
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      APP_SECRET: ${{ secrets.APP_SECRET }}
+      JWT_ACCESS_SECRET: ${{ secrets.JWT_ACCESS_SECRET }}
+      NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
+      BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+      SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+      SENDER_NAME: ${{ secrets.SENDER_NAME }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+      OLLAMA_MODEL: ${{ secrets.OLLAMA_MODEL }}
+      OLLAMA_BASE_URL: ${{ secrets.OLLAMA_BASE_URL }}
+    steps:
+      - name: Check configuration
+        id: config
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::notice::DATABASE_URL secret is not set; skipping the monitoring cycle."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$NEXT_PUBLIC_APP_URL" ]; then
+            echo "::error::Set the NEXT_PUBLIC_APP_URL secret (for example https://jobpingly.onrender.com) so links in alert emails point at the site."
+            exit 1
+          fi
+
+      - if: steps.config.outputs.skip != 'true'
+        uses: actions/checkout@v4
+
+      - if: steps.config.outputs.skip != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - if: steps.config.outputs.skip != 'true'
+        run: npm ci --omit=dev
+
+      - if: steps.config.outputs.skip != 'true'
+        name: Run one cycle
+        run: npm run worker:once

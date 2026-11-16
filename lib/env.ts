@@ -105,11 +105,16 @@ export const env = {
   get email() {
     const apiKey = read('BREVO_API_KEY');
     const explicit = read('EMAIL_PROVIDER');
+    const provider = (explicit === 'console' || explicit === 'brevo' ? explicit : apiKey ? 'brevo' : 'console') as 'brevo' | 'console';
     return {
       /** 'brevo' sends real mail; 'console' logs and records the message without sending. */
-      provider: (explicit === 'console' || explicit === 'brevo' ? explicit : apiKey ? 'brevo' : 'console') as
-        | 'brevo'
-        | 'console',
+      provider,
+      /**
+       * False for a production process that would only log emails because no
+       * provider is configured (and EMAIL_PROVIDER=console was not chosen on
+       * purpose). Job alerts are then kept queued instead of being "sent".
+       */
+      deliveryConfigured: provider === 'brevo' ? Boolean(apiKey) : !env.isProduction || explicit === 'console',
       brevoApiKey: apiKey,
       senderEmail: read('SENDER_EMAIL') ?? read('EMAIL_FROM') ?? 'notifications@jobpingly.com',
       senderName: read('SENDER_NAME') ?? 'JobPingly',
@@ -184,8 +189,10 @@ export function assertRuntimeConfig(): string[] {
     if (!read('NEXT_PUBLIC_APP_URL') && !read('APP_URL')) {
       warnings.push('NEXT_PUBLIC_APP_URL is not set; links in emails fall back to the platform URL.');
     }
-    if (env.email.provider === 'console') {
-      warnings.push('BREVO_API_KEY is not set; emails are logged but not delivered.');
+    if (!env.email.deliveryConfigured) {
+      warnings.push('BREVO_API_KEY is not set; sign-in codes cannot be delivered and job alerts stay queued until it is.');
+    } else if (env.email.provider === 'console') {
+      warnings.push('EMAIL_PROVIDER=console: emails are logged, not delivered.');
     }
     if (!env.cronSecret) {
       warnings.push('CRON_SECRET is not set; /api/cron/* endpoints are disabled.');

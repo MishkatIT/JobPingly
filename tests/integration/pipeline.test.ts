@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { after, before, beforeEach, describe, test } from 'node:test';
 import { and, eq } from 'drizzle-orm';
 import { closeDb, db } from '@/lib/db/client';
-import { careerPages, jobEvents, jobMatches, jobs, monitorTasks, notificationQueue, notifications, scrapeLogs } from '@/lib/db/schema';
+import { careerPages, jobEvents, jobMatches, jobs, monitorTasks, notificationQueue, notifications, scrapeLogs, userJobs, users } from '@/lib/db/schema';
+import { backfillMatchesIfEmpty } from '@/lib/monitoring/housekeeping';
 import { runScan } from '@/lib/monitoring/pipeline';
 import { claimTasks, completeTask, enqueueScan, recoverExpiredLeases } from '@/lib/monitoring/queue';
 import { fakeWeb, type FakeWeb } from '../helpers/fake-http';
@@ -173,6 +174,63 @@ describe('Scan lifecycle', () => {
     const [job] = await db.select().from(jobs);
     assert.equal(job.url, null);
     assert.ok(job.title.includes('Engineer'));
+  });
+});
+
+describe('Notification preferences and upgrade catch-up', () => {
+  let ctx: Awaited<ReturnType<typeof setup>>;
+  beforeEach(async () => {
+    ctx = await setup();
+  });
+
+  const inbox = (type: string) => db.select().from(notifications).where(and(eq(notifications.userId, ctx.user.id), eq(notifications.type, type)));
+
+  test('a source that breaks notifies the list owner', async () => {
+    ctx.web.set(API, { status: 404, body: 'gone' });
+    await ctx.scan();
+    await ctx.scan();
+    assert.equal((await ctx.sourceRow()).status, 'broken');
+    assert.equal((await inbox('source_failed')).length, 1);
+  });
+
+  test('no source-failure notification when the owner switched it off', async () => {
+    await db.update(users).set({ notificationSettings: { sourceFailures: false } }).where(eq(users.id, ctx.user.id));
+    ctx.web.set(API, { status: 404, body: 'gone' });
+    await ctx.scan();
+    await ctx.scan();
+    assert.equal((await ctx.sourceRow()).status, 'broken');
+    assert.equal((await inbox('source_failed')).length, 0);
+  });
+
+  test('changes to a saved job notify the person tracking it, unless switched off', async () => {
+    board(ctx.web, [{ id: 1, title: 'Backend Engineer', location: 'Dhaka' }]);
+    await ctx.scan();
+    const [job] = await db.select().from(jobs);
+    await db.insert(userJobs).values({ userId: ctx.user.id, jobId: job.id, status: 'saved', snapshot: { title: job.title, companyName: 'Acme' } });
+
+    board(ctx.web, [{ id: 1, title: 'Backend Engineer', location: 'Remote' }]);
+    await ctx.scan();
+    assert.equal((await inbox('job_updated')).length, 1);
+
+    await db.delete(notifications);
+    await db.update(users).set({ notificationSettings: { jobChanges: false } }).where(eq(users.id, ctx.user.id));
+    board(ctx.web, [{ id: 1, title: 'Backend Engineer', location: 'Berlin' }]);
+    await ctx.scan();
+    assert.equal((await inbox('job_updated')).length, 0);
+  });
+
+  test('matches are rebuilt once for alerts that predate the match table', async () => {
+    board(ctx.web, [
+      { id: 1, title: 'Backend Engineer' },
+      { id: 2, title: 'Office Manager' },
+    ]);
+    await ctx.scan();
+    await db.delete(jobMatches);
+
+    assert.equal(await backfillMatchesIfEmpty(), 1, 'only the job matching "engineer"');
+    assert.equal((await db.select().from(jobMatches).where(eq(jobMatches.userId, ctx.user.id))).length, 1);
+    assert.equal(await backfillMatchesIfEmpty(), null, 'nothing to do once matches exist');
+    assert.equal((await db.select().from(notificationQueue)).length, 0, 'the catch-up never sends alerts');
   });
 });
 

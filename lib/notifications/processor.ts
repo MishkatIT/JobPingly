@@ -4,6 +4,7 @@ import { careerPages, emailApprovals, jobMatches, jobs, listSubscriptions, lists
 import { getTodaySentEmailCount, sendEmail } from '@/lib/email/send';
 import { digestEmail, type DigestJob } from '@/lib/email/templates';
 import { unsubscribeLinks } from '@/lib/email/unsubscribe';
+import { env } from '@/lib/env';
 import { explainMatch, type MatchReason } from '@/lib/matching/engine';
 import { describeDigestSchedule, evaluateDigestSchedule } from '@/lib/utils/digestSchedule';
 import { resolveEffectiveFrequency } from '@/lib/utils/frequency';
@@ -158,6 +159,12 @@ export async function processNotificationQueue(options: ProcessOptions = {}): Pr
   const policy = await loadNotificationPolicy({ now });
   if (!policy.notificationsEnabled) {
     result.errors.push('Email alerts are switched off in platform settings.');
+    return result;
+  }
+  // A production process without a mail provider must not "deliver" alerts
+  // into a log: they stay queued until email is configured.
+  if (!env.email.deliveryConfigured) {
+    result.errors.push('Email delivery is not configured (set BREVO_API_KEY). Alerts stay queued.');
     return result;
   }
 
