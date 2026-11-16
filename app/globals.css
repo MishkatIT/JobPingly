@@ -26,7 +26,8 @@
 
     --ink: 14 16 20;
     --muted: 88 95 108;
-    --subtle: 134 141 153;
+    /* At least 4.5:1 on canvas, surface and sunken (WCAG AA for small text). */
+    --subtle: 104 111 124;
 
     --primary: 14 16 20;
     --primary-hover: 38 42 51;
@@ -68,7 +69,8 @@
 
     --ink: 236 238 242;
     --muted: 160 167 180;
-    --subtle: 110 118 132;
+    /* At least 4.5:1 on canvas, surface, raised and sunken. */
+    --subtle: 124 132 146;
 
     --primary: 236 238 242;
     --primary-hover: 255 255 255;
@@ -85,7 +87,8 @@
     --warning-soft: 48 35 12;
     --danger: 245 124 114;
     --danger-soft: 54 20 18;
-    --danger-solid: 214 68 58;
+    /* White button text needs 4.5:1. */
+    --danger-solid: 196 56 47;
     --info: 118 152 255;
     --info-soft: 24 33 61;
 
