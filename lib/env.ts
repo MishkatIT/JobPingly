@@ -52,7 +52,9 @@ export const env = {
   get databaseUrl(): string {
     const url = read('DATABASE_URL');
     if (url) return url;
-    if (env.isProduction) throw new ConfigError('DATABASE_URL is required in production.');
+    // `next build` may run without database access; pages that prerender data
+    // fall back to empty states and are regenerated at runtime.
+    if (env.isProduction && process.env.NEXT_PHASE !== 'phase-production-build') throw new ConfigError('DATABASE_URL is required in production.');
     return 'postgresql://postgres:postgres@localhost:5432/jobpingly';
   },
 

@@ -48,6 +48,13 @@
     --info-soft: 237 242 255;
 
     --shadow: 15 18 25;
+
+    /* Data visualisation (validated for colour-vision deficiency on this surface). */
+    --chart-1: #2a78d6;
+    --chart-2: #eb6834;
+    --chart-3: #1baf7a;
+    --chart-good: #0ca30c;
+    --chart-critical: #d03b3b;
     color-scheme: light;
   }
 
@@ -83,6 +90,12 @@
     --info-soft: 24 33 61;
 
     --shadow: 0 0 0;
+
+    --chart-1: #3987e5;
+    --chart-2: #d95926;
+    --chart-3: #199e70;
+    --chart-good: #0ca30c;
+    --chart-critical: #d03b3b;
     color-scheme: dark;
   }
 

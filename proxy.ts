@@ -17,8 +17,12 @@ import { getClientIp, rateLimitSync } from '@/lib/security/rateLimit';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
-/** Server-to-server endpoints authenticated by a shared secret rather than cookies. */
-const CSRF_EXEMPT_PREFIXES = ['/api/cron/', '/api/webhooks/'];
+/**
+ * Endpoints authorised by something other than the session cookie: a shared
+ * secret (cron, webhooks) or a signed single-purpose token (one-click
+ * unsubscribe, which mailbox providers POST to from their own servers).
+ */
+const CSRF_EXEMPT_PREFIXES = ['/api/cron/', '/api/webhooks/', '/api/unsubscribe'];
 
 function sameOrigin(req: NextRequest): boolean {
   const origin = req.headers.get('origin');

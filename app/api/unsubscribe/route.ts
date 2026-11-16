@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { readUnsubscribeToken, unsubscribeUser } from '@/lib/email/unsubscribe';
+import { readUnsubscribeToken, resubscribeUser, unsubscribeUser } from '@/lib/email/unsubscribe';
 import { getClientIp, rateLimit } from '@/lib/security/rateLimit';
 
 /**
@@ -15,6 +15,12 @@ export async function POST(req: NextRequest) {
   const token = req.nextUrl.searchParams.get('token') ?? '';
   const userId = readUnsubscribeToken(token);
   if (!userId) return NextResponse.json({ error: { code: 'invalid_token', message: 'This unsubscribe link is not valid.' } }, { status: 400 });
+
+  // "Changed your mind?" on the confirmation page. Mailbox providers never send this.
+  if (req.nextUrl.searchParams.get('action') === 'resubscribe') {
+    if (!(await resubscribeUser(userId))) return NextResponse.json({ error: { code: 'not_found', message: 'This account no longer exists.' } }, { status: 404 });
+    return NextResponse.json({ data: { unsubscribed: false } }, { headers: { 'Cache-Control': 'no-store' } });
+  }
 
   const result = await unsubscribeUser(userId);
   if (!result) return NextResponse.json({ error: { code: 'not_found', message: 'This account no longer exists.' } }, { status: 404 });

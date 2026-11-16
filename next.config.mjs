@@ -56,6 +56,19 @@ const nextConfig = {
     // API caching is decided per response (see lib/api/route.ts).
     return [{ source: '/:path*', headers: securityHeaders }];
   },
+  async redirects() {
+    // Addresses used by v1 that may still be bookmarked or sitting in old emails.
+    return [
+      { source: '/dashboard/lists', destination: '/dashboard/watchlists', permanent: true },
+      { source: '/dashboard/lists/:id', destination: '/dashboard/watchlists/:id', permanent: true },
+      {
+        source: '/api/collaborators/accept',
+        has: [{ type: 'query', key: 'token', value: '(?<token>[0-9a-fA-F-]{36})' }],
+        destination: '/invite/:token',
+        permanent: false,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

@@ -19,7 +19,7 @@ export async function landingPathFor(userId: string, next?: unknown): Promise<st
   if (!user?.onboarded) {
     // People who joined from a shared list still get to finish setting up.
     const [anyList] = await db.select({ id: listSubscriptions.id }).from(listSubscriptions).where(eq(listSubscriptions.userId, userId)).limit(1);
-    if (!anyList) return '/onboarding';
+    if (!anyList) return requested ? `/onboarding?next=${encodeURIComponent(requested)}` : '/onboarding';
   }
   return requested ?? '/dashboard';
 }

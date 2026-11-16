@@ -106,7 +106,7 @@ export async function deleteNotification(userId: string, id: string): Promise<bo
   return rows.length > 0;
 }
 
-/** Housekeeping: read notifications older than the retention window are removed. */
+/** Housekeeping: notifications older than the retention window are removed, read or not. */
 export async function pruneNotifications(olderThanDays = 60): Promise<number> {
   const cutoff = new Date(Date.now() - olderThanDays * 86_400_000);
   const rows = await db.delete(notifications).where(lt(notifications.createdAt, cutoff)).returning({ id: notifications.id });

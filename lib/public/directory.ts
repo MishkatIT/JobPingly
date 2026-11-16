@@ -197,3 +197,27 @@ export async function publicProfile(userId: string) {
   if (lists.length === 0) return null;
   return { user: { ...user, socials: user.socials ?? {} }, lists };
 }
+
+/** The most recently discovered open jobs at companies on public lists (for the homepage preview). */
+export async function latestPublicJobs(limit = 6) {
+  const rows = await client<
+    { id: string; title: string; location: string | null; workplaceType: string | null; employmentType: string | null; firstSeenAt: Date; companyName: string | null; companyUrl: string; logoUrl: string | null }[]
+  >`
+    SELECT DISTINCT ON (j.career_page_id) j.id, j.title, j.location, j.workplace_type AS "workplaceType",
+      j.employment_type AS "employmentType", j.first_seen_at AS "firstSeenAt",
+      cp.company_name AS "companyName", cp.url AS "companyUrl", cp.logo_url AS "logoUrl"
+    FROM jobs j
+    JOIN career_pages cp ON cp.id = j.career_page_id
+    WHERE j.status = 'active' AND j.hidden_at IS NULL
+      AND EXISTS (
+        SELECT 1 FROM list_career_pages x JOIN lists l ON l.id = x.list_id
+        JOIN users u ON u.id = l.user_id AND NOT u.is_blocked
+        WHERE x.career_page_id = j.career_page_id AND l.visibility = 'public' AND l.deleted_at IS NULL
+      )
+    ORDER BY j.career_page_id, j.first_seen_at DESC
+  `;
+  return rows
+    .sort((a, b) => b.firstSeenAt.getTime() - a.firstSeenAt.getTime())
+    .slice(0, limit)
+    .map(row => ({ ...row, companyName: displayCompanyName(row.companyName, row.companyUrl) }));
+}

@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db } from '@/lib/db/client';
-import { careerPages, jobEvents, jobs, listCareerPages, lists, scrapeLogs, userJobs, type CareerPage } from '@/lib/db/schema';
+import { careerPages, jobEvents, jobs, listCareerPages, lists, scrapeLogs, userJobs, users, type CareerPage } from '@/lib/db/schema';
 import type { TaskTrigger } from '@/lib/constants';
 import { createNotifications, type NewNotification } from '@/lib/notifications/inapp';
 import { getSettings } from '@/lib/settings/store';
@@ -87,6 +87,15 @@ async function effectiveInterval(page: CareerPage): Promise<number> {
   return Math.max(15, Number(minutes) || 180);
 }
 
+/**
+ * True unless the user switched this kind of in-app notification off in
+ * Settings → Notifications (a missing key means "on"). `inApp` covers new
+ * matches and is checked in matching.ts.
+ */
+function notificationEnabled(key: 'sourceFailures' | 'jobChanges') {
+  return and(sql`coalesce(${users.notificationSettings}->>${key}, 'true') <> 'false'`, eq(users.isBlocked, false));
+}
+
 /** People who should hear when a source breaks or recovers: owners of the lists that include it. */
 async function notifyWatchers(page: CareerPage, type: 'source_failed' | 'source_recovered', title: string, body: string): Promise<void> {
   try {
@@ -94,7 +103,8 @@ async function notifyWatchers(page: CareerPage, type: 'source_failed' | 'source_
       .selectDistinct({ userId: lists.userId })
       .from(listCareerPages)
       .innerJoin(lists, and(eq(lists.id, listCareerPages.listId), isNull(lists.deletedAt)))
-      .where(eq(listCareerPages.careerPageId, page.id));
+      .innerJoin(users, eq(users.id, lists.userId))
+      .where(and(eq(listCareerPages.careerPageId, page.id), notificationEnabled('sourceFailures')));
     const day = new Date().toISOString().slice(0, 10);
     await createNotifications(
       owners.map(
@@ -279,7 +289,8 @@ async function notifyTrackers(events: { jobId: string; title: string; kind: 'clo
     const trackers = await db
       .select({ userId: userJobs.userId, jobId: userJobs.jobId })
       .from(userJobs)
-      .where(and(inArray(userJobs.jobId, events.map(event => event.jobId)), sql`${userJobs.status} <> 'dismissed'`));
+      .innerJoin(users, eq(users.id, userJobs.userId))
+      .where(and(inArray(userJobs.jobId, events.map(event => event.jobId)), sql`${userJobs.status} <> 'dismissed'`, notificationEnabled('jobChanges')));
     if (trackers.length === 0) return;
 
     const byJob = new Map(events.map(event => [event.jobId, event]));
