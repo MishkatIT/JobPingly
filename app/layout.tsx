@@ -1,61 +1,55 @@
-import './globals.css';
+import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
-import { ThemeProvider } from '@/components/ThemeProvider';
-import { ToastProvider } from '@/components/Toast';
-import { AuthProvider } from '@/components/auth/AuthContext';
-import { SiteAnnouncementBanner } from '@/components/SiteAnnouncementBanner';
+import type { ReactNode } from 'react';
+import { THEME_BOOTSTRAP } from '@/components/ui/theme';
+import { ToastProvider } from '@/components/ui/toast';
+import './globals.css';
 
-const inter = Inter({ subsets: ['latin'] });
+const inter = Inter({ subsets: ['latin'], variable: '--font-sans', display: 'swap' });
 
-export const metadata = {
-  title: 'JobPingly - Autonomous Career Page Monitoring SaaS',
-  description: 'Follow company career pages automatically. Detect newly posted jobs instantly and receive personalized daily digests.',
-  icons: {
-    icon: '/icon.svg',
-    shortcut: '/icon.svg',
-    apple: '/icon.svg',
+const appUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://jobpingly.onrender.com').replace(/\/+$/, '');
+
+export const metadata: Metadata = {
+  metadataBase: new URL(appUrl),
+  title: {
+    default: 'JobPingly · Job alerts from the careers pages you care about',
+    template: '%s · JobPingly',
   },
+  description:
+    'JobPingly watches the careers pages of the companies you choose and emails you when a job that matches your keywords is posted. Works with Greenhouse, Lever, Ashby, Workday and ordinary company sites.',
+  applicationName: 'JobPingly',
+  icons: { icon: '/icon.svg' },
+  openGraph: {
+    type: 'website',
+    siteName: 'JobPingly',
+    title: 'JobPingly · Job alerts from the careers pages you care about',
+    description: 'Pick the companies you want to work for. Get an email when they post a job that fits.',
+  },
+  twitter: { card: 'summary_large_image' },
+  robots: { index: true, follow: true },
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#fafafb' },
+    { media: '(prefers-color-scheme: dark)', color: '#0a0b0e' },
+  ],
+};
+
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className={inter.variable} suppressHydrationWarning>
       <head>
-        {/* Anti-flicker theme script: runs synchronously before browser paint */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              (function() {
-                try {
-                  var stored = localStorage.getItem('jobpingly_theme');
-                  if (stored === 'light') {
-                    document.documentElement.classList.remove('dark');
-                    document.documentElement.classList.add('light');
-                  } else {
-                    document.documentElement.classList.remove('light');
-                    document.documentElement.classList.add('dark');
-                  }
-                } catch (e) {
-                  document.documentElement.classList.add('dark');
-                }
-              })();
-            `,
-          }}
-        />
+        {/* Applies the saved theme before first paint; static, contains no user data. */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
       </head>
-      <body className={`${inter.className} min-h-screen transition-colors duration-200 antialiased`}>
-        <AuthProvider>
-          <ThemeProvider>
-            <ToastProvider>
-              <SiteAnnouncementBanner />
-              {children}
-            </ToastProvider>
-          </ThemeProvider>
-        </AuthProvider>
+      <body>
+        <a href="#main" className="sr-only-focusable fixed left-3 top-3 z-[70] rounded-md bg-ink px-3 py-2 text-sm font-medium text-canvas">
+          Skip to content
+        </a>
+        <ToastProvider>{children}</ToastProvider>
       </body>
     </html>
   );

@@ -1,1533 +1,281 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { createPortal } from 'react-dom';
 import Link from 'next/link';
-import {
-  Layers,
-  Briefcase,
-  Globe,
-  Lock,
-  Plus,
-  CheckCircle2,
-  ExternalLink,
-  ChevronLeft,
-  ChevronRight,
-  LayoutGrid,
-  Grid2X2,
-  List,
-  MoreVertical,
-  Edit3,
-  Trash2,
-  Building,
-  Search,
-  Sparkles,
-  RefreshCw,
-  Users,
-  Bell,
-  Settings,
-  Sliders,
-  Filter,
-  X,
-  Bot,
-  Cpu,
-  Zap,
-  ArrowUpDown,
-} from 'lucide-react';
-import { pluralize } from '@/lib/utils/pluralize';
-import { INHERIT_FREQUENCY, normalizeFrequencyValue, formatFrequencyShortLabel } from '@/lib/utils/frequency';
-import { useToast } from '@/components/Toast';
-import LoadingSpinner from '@/components/LoadingSpinner';
-import { ListSkeletonGrid, ListSkeletonTiles, ListSkeletonTable, ListSkeletonPagination } from '@/components/Skeleton';
+import { useState } from 'react';
+import { ArrowRight, BellOff, CalendarClock, Check, Clock, Mail, Plus } from 'lucide-react';
+import { AddCompanyDialog } from '@/components/app/add-company-dialog';
+import { HealthStatus, TimeAgo } from '@/components/app/bits';
+import { useSession } from '@/components/app/session';
+import { Button, LinkButton } from '@/components/ui/button';
+import { Callout, Card, CardBody, CardHeader, ErrorState, PageHeader, Skeleton, StatCell, StatGrid } from '@/components/ui/primitives';
+import { cn } from '@/lib/client/cn';
+import { formatDateTime, formatNumber, formatRelative } from '@/lib/client/format';
+import { useApi } from '@/lib/client/use-api';
 
-export default function DashboardOverview() {
-  const toast = useToast();
-  const [mounted, setMounted] = useState(false);
-  const [lists, setLists] = useState<any[]>([]);
-  const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-
-  // View Mode State (Grid, Tiles, List)
-  const [viewMode, setViewMode] = useState<'grid' | 'tiles' | 'list'>('grid');
-
-  // Search & Filter State
-  const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'followers' | 'companies' | 'jobs' | 'name_asc'>('newest');
-
-  // Modals & Menu State
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showAddPageModal, setShowAddPageModal] = useState(false);
-  const [showHowItWorks, setShowHowItWorks] = useState(true);
-  const [editingList, setEditingList] = useState<any | null>(null);
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const createListInputRef = useRef<HTMLInputElement>(null);
-  const addPageInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (showCreateModal) {
-      setTimeout(() => createListInputRef.current?.focus(), 50);
-    }
-  }, [showCreateModal]);
-
-  useEffect(() => {
-    if (showAddPageModal) {
-      setTimeout(() => addPageInputRef.current?.focus(), 50);
-    }
-  }, [showAddPageModal]);
-
-  // Pagination states
-  const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(9);
-  const [pagination, setPagination] = useState({ total: 0, page: 1, limit: 9, totalPages: 1 });
-
-  // Form states for Create/Edit List
-  const [listName, setListName] = useState('');
-  const [listDescription, setListDescription] = useState('');
-  const [listVisibility, setListVisibility] = useState('private');
-
-  // Form states for Add Career Page
-  const [pageUrl, setPageUrl] = useState('');
-  const [companyName, setCompanyName] = useState('');
-  const [selectedListId, setSelectedListId] = useState('');
-  const [keywords, setKeywords] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-    const savedView = localStorage.getItem('jobpingly_dashboard_view');
-    if (savedView === 'grid' || savedView === 'tiles' || savedView === 'list') {
-      setViewMode(savedView);
-    }
-    const savedGuide = localStorage.getItem('jobpingly_show_how_it_works');
-    if (savedGuide !== null) {
-      setShowHowItWorks(savedGuide === 'true');
-    }
-  }, []);
-
-  const handleToggleHowItWorks = () => {
-    setShowHowItWorks(prev => {
-      const next = !prev;
-      localStorage.setItem('jobpingly_show_how_it_works', String(next));
-      return next;
-    });
+interface Overview {
+  counts: {
+    watchlists: number;
+    companies: number;
+    openJobs: number;
+    newThisWeek: number;
+    matchingThisWeek: number;
+    saved: number;
+    applied: number;
+    interviewing: number;
+    companiesWithIssues: number;
+    pendingFirstScan: number;
+    lastScanAt: string | null;
+    nextScanAt: string | null;
   };
+  recentMatches: { id: string; title: string; location: string | null; firstSeenAt: string; terms: string[]; companyName: string }[];
+  issues: { id: string; name: string; status: string; lastErrorClass: string | null; health: string; healthLabel: string }[];
+  reminders: { id: string; reminderAt: string; title: string; companyName: string; status: string }[];
+  notifications: { emailEnabled: boolean; approval: string; schedule: string; nextAt: string | null; dueNow: boolean; platformEmailEnabled: boolean };
+}
 
-  const handleViewChange = (mode: 'grid' | 'tiles' | 'list') => {
-    setViewMode(mode);
-    localStorage.setItem('jobpingly_dashboard_view', mode);
-  };
+export default function OverviewPage() {
+  const { user } = useSession();
+  const [addOpen, setAddOpen] = useState(false);
+  const { data, error, isLoading, mutate } = useApi<Overview>('/api/me/overview', { refreshInterval: 120_000 });
 
-  // Close dropdown on click outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setOpenMenuId(null);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  if (error) return <ErrorState description="Your overview could not be loaded." onRetry={() => mutate()} />;
 
-  // Invitations & Stats state
-  const [invitations, setInvitations] = useState<any[]>([]);
-  const [stats, setStats] = useState<any>(null);
-
-  const fetchDashboardData = async (p = page, l = limit, sort = sortBy, search = searchQuery) => {
-    try {
-      const [listsRes, invRes, subRes] = await Promise.all([
-        fetch(`/api/lists?page=${p}&limit=${l}&search=${encodeURIComponent(search)}&sort=${sort}`),
-        fetch('/api/me/invitations'),
-        fetch('/api/me/subscriptions'),
-      ]);
-
-      if (listsRes.ok) {
-        const data = await listsRes.json();
-        setLists(data.lists || []);
-        setPagination(data.pagination || { total: 0, page: p, limit: l, totalPages: 1 });
-        if (data.stats) setStats(data.stats);
-        if (data.lists?.length > 0 && !selectedListId) {
-          setSelectedListId(data.lists[0].id);
-        }
-      }
-
-      if (invRes.ok) {
-        const invData = await invRes.json();
-        setInvitations(invData.invitations || []);
-      }
-
-      if (subRes.ok) {
-        const subData = await subRes.json();
-        setFollowedLists(subData.subscriptions || []);
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-      setLoadingFollowed(false);
-    }
-  };
-
-  // Subscribed / Followed Lists State
-  const [activeDashboardTab, setActiveDashboardTab] = useState<'owned' | 'followed'>('owned');
-  const [followedLists, setFollowedLists] = useState<any[]>([]);
-  const [loadingFollowed, setLoadingFollowed] = useState(false);
-
-  // Alert Settings Modal State for Followed List
-  const [editingSubList, setEditingSubList] = useState<any | null>(null);
-  const [subDigestFreq, setSubDigestFreq] = useState<string>(INHERIT_FREQUENCY);
-  const [subPosKeys, setSubPosKeys] = useState('');
-  const [subNegKeys, setSubNegKeys] = useState('');
-  const [submittingSub, setSubmittingSub] = useState(false);
-
-  const fetchFollowedLists = async () => {
-    setLoadingFollowed(true);
-    try {
-      const res = await fetch('/api/me/subscriptions');
-      if (res.ok) {
-        const json = await res.json();
-        setFollowedLists(json.subscriptions || []);
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoadingFollowed(false);
-    }
-  };
-
-  const handleUnfollowSub = async (slug: string, name: string) => {
-    if (!confirm(`Unfollow watch list "${name}" and stop receiving email alerts?`)) return;
-    try {
-      const res = await fetch(`/api/public/lists/${slug}/follow`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'unfollow' }),
-      });
-      if (res.ok) {
-        toast.info(`Unfollowed watch list "${name}"`);
-        fetchFollowedLists();
-      } else {
-        toast.error('Failed to unfollow watch list');
-      }
-    } catch (err: any) {
-      toast.error(err.message);
-    }
-  };
-
-  const handleUpdateSubAlerts = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingSubList) return;
-    setSubmittingSub(true);
-    try {
-      const posArray = subPosKeys.split(',').map(s => s.trim()).filter(Boolean);
-      const negArray = subNegKeys.split(',').map(s => s.trim()).filter(Boolean);
-
-      const res = await fetch(`/api/public/lists/${editingSubList.slug}/follow`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'follow',
-          positiveKeywords: posArray,
-          negativeKeywords: negArray,
-          digestFrequency: subDigestFreq,
-        }),
-      });
-
-      if (res.ok) {
-        toast.success(`Alert settings saved for "${editingSubList.name}"!`);
-        setEditingSubList(null);
-        fetchFollowedLists();
-      } else {
-        toast.error('Failed to update alert preferences');
-      }
-    } catch (err: any) {
-      toast.error(err.message);
-    } finally {
-      setSubmittingSub(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchDashboardData(page, limit, sortBy, searchQuery);
-  }, [page, limit, sortBy, searchQuery]);
-
-  // Create Watch List
-  const handleCreateList = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-
-    try {
-      const res = await fetch('/api/lists', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: listName,
-          description: listDescription,
-          visibility: listVisibility,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (res.ok) {
-        toast.success(`Watch list '${listName}' created successfully!`);
-        setListName('');
-        setListDescription('');
-        setListVisibility('private');
-        setShowCreateModal(false);
-        setPage(1);
-        fetchDashboardData(1, limit);
-      } else {
-        toast.error(data.error || 'Failed to create watch list.');
-      }
-    } catch (e: any) {
-      toast.error(e.message || 'An unexpected error occurred.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  // Edit Watch List
-  const handleUpdateList = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingList) return;
-    setSubmitting(true);
-
-    try {
-      const res = await fetch(`/api/lists/${editingList.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: listName,
-          description: listDescription,
-          visibility: listVisibility,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (res.ok) {
-        toast.success(`Watch list '${listName}' updated!`);
-        setEditingList(null);
-        setListName('');
-        setListDescription('');
-        fetchDashboardData(page, limit);
-      } else {
-        toast.error(data.error || 'Failed to update list.');
-      }
-    } catch (e: any) {
-      toast.error(e.message || 'An error occurred.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  // Delete Watch List
-  const handleDeleteList = async (listId: string, nameToDelete: string) => {
-    if (!confirm(`Are you sure you want to delete watch list '${nameToDelete}'?`)) return;
-
-    try {
-      const res = await fetch(`/api/lists/${listId}`, { method: 'DELETE' });
-      if (res.ok) {
-        toast.success(`Watch list '${nameToDelete}' deleted.`);
-        setOpenMenuId(null);
-        fetchDashboardData(page, limit);
-      } else {
-        const data = await res.json();
-        toast.error(data.error || 'Failed to delete watch list.');
-      }
-    } catch (e: any) {
-      toast.error(e.message);
-    }
-  };
-
-  // Add Career Page
-  const handleAddCareerPage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-
-    try {
-      let listIdToUse = selectedListId;
-
-      if (!listIdToUse) {
-        const createRes = await fetch('/api/lists', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: 'My Primary Watch List', visibility: 'private' }),
-        });
-        const createData = await createRes.json();
-        if (!createRes.ok) throw new Error(createData.error || 'Failed to create list');
-        listIdToUse = createData.list.id;
-      }
-
-      const res = await fetch(`/api/lists/${listIdToUse}/career-pages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          url: pageUrl,
-          companyName,
-          positiveKeywords: keywords ? keywords.split(',').map(k => k.trim()) : [],
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to add career page');
-
-      const addedPage = data.careerPage;
-      const compName = addedPage?.companyName || companyName || 'Company';
-
-      setPageUrl('');
-      setCompanyName('');
-      setKeywords('');
-      setShowAddPageModal(false);
-      fetchDashboardData(page, limit);
-
-      toast.info(`Job sync started for '${compName}'...`);
-
-      if (addedPage?.id) {
-        fetch(`/api/career-pages/${addedPage.id}`, { method: 'POST' })
-          .then(r => r.json())
-          .then(syncJson => {
-            if (syncJson.success) {
-              const found = syncJson.result?.jobsFound || 0;
-              const added = syncJson.result?.jobsAdded || 0;
-              if (found > 0) {
-                toast.success(`Sync complete for '${compName}': ${pluralize(found, 'job')} found (${added} new)!`);
-              } else {
-                toast.info(`Sync complete for '${compName}': No open positions detected.`);
-              }
-              fetchDashboardData(page, limit);
-            }
-          })
-          .catch(() => {});
-      }
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to add career page');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const openEditModal = (listObj: any) => {
-    setEditingList(listObj);
-    setListName(listObj.name || '');
-    setListDescription(listObj.description || '');
-    setListVisibility(listObj.visibility || 'private');
-    setOpenMenuId(null);
-  };
-
-  const handleRespondInvitation = async (collabId: string, action: 'accept' | 'decline') => {
-    try {
-      const res = await fetch('/api/collaborators/accept', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ collabId, action }),
-      });
-      if (res.ok) {
-        toast.success(action === 'accept' ? 'Invitation accepted! You are now a collaborator.' : 'Invitation declined.');
-        fetchDashboardData(page, limit);
-      } else {
-        const data = await res.json();
-        toast.error(data.error || 'Failed to respond to invitation.');
-      }
-    } catch (e: any) {
-      toast.error(e.message);
-    }
-  };
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setShowCreateModal(false);
-        setShowAddPageModal(false);
-        setEditingList(null);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-
-
-  const filteredLists = lists.filter(l =>
-    l.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (l.description && l.description.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
-
-  const totalCompanies = lists.reduce((acc, l) => acc + (l.companyCount || 0), 0);
-  const totalJobs = lists.reduce((acc, l) => acc + (l.jobCount || 0), 0);
+  const counts = data?.counts;
+  const firstName = user.name?.split(/\s+/)[0];
+  const setupSteps = data
+    ? [
+        { done: counts!.watchlists > 0, label: 'Create a watchlist', href: '/dashboard/watchlists' },
+        { done: counts!.companies > 0, label: 'Add the companies you want to work for', action: () => setAddOpen(true) },
+        { done: data.recentMatches.length > 0 || counts!.matchingThisWeek > 0, label: 'Set the keywords you care about', href: '/dashboard/watchlists' },
+        { done: data.notifications.emailEnabled, label: 'Choose when you get emails', href: '/dashboard/settings/notifications' },
+      ]
+    : [];
+  const showSetup = data && counts!.companies === 0;
 
   return (
-    <div className="space-y-6">
-      {/* Pending Collaborator Invitations Notification Banner */}
-      {invitations.length > 0 && (
-        <div className="space-y-3">
-          {invitations.map(inv => (
-            <div key={inv.id} className="p-4 sm:p-5 rounded-2xl bg-blue-600/10 border border-blue-500/30 text-slate-900 dark:text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-md animate-in fade-in zoom-in-95 duration-200">
-              <div className="flex items-start sm:items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-blue-600 text-white shrink-0">
-                  <Sparkles className="w-5 h-5" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                    Collaboration Invitation from <span className="text-blue-600 dark:text-blue-400">{inv.inviterName || inv.inviterEmail || 'A user'}</span>
-                  </h4>
-                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
-                    You were invited as an <span className="font-bold uppercase text-blue-600 dark:text-blue-400">{inv.role}</span> to collaborate on watch list <strong className="text-slate-900 dark:text-white">&quot;{inv.listName}&quot;</strong>.
-                  </p>
-                </div>
-              </div>
+    <>
+      <PageHeader
+        title={firstName ? `Welcome back, ${firstName}` : 'Overview'}
+        description="What changed at the companies you watch."
+        actions={
+          <>
+            <LinkButton href="/dashboard/jobs" variant="secondary">
+              Browse jobs
+            </LinkButton>
+            <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setAddOpen(true)}>
+              Add company
+            </Button>
+          </>
+        }
+      />
 
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  onClick={() => handleRespondInvitation(inv.id, 'decline')}
-                  className="px-4 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all cursor-pointer"
-                >
-                  Decline
-                </button>
-                <button
-                  onClick={() => handleRespondInvitation(inv.id, 'accept')}
-                  className="px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-md transition-all cursor-pointer"
-                >
-                  Accept Invitation &rarr;
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+      {showSetup && (
+        <Card className="mb-6">
+          <CardHeader title="Get set up" description="Four quick steps and JobPingly takes it from here." />
+          <CardBody>
+            <ol className="space-y-2.5">
+              {setupSteps.map((step, index) => (
+                <li key={step.label} className="flex items-center gap-3">
+                  <span
+                    className={cn(
+                      'flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold',
+                      step.done ? 'border-success bg-success text-white' : 'border-line-strong text-muted',
+                    )}
+                    aria-hidden="true"
+                  >
+                    {step.done ? <Check className="h-3.5 w-3.5" /> : index + 1}
+                  </span>
+                  {step.done ? (
+                    <span className="text-base text-muted line-through">{step.label}</span>
+                  ) : step.href ? (
+                    <Link href={step.href} className="text-base font-medium text-ink hover:text-accent">
+                      {step.label}
+                    </Link>
+                  ) : (
+                    <button type="button" onClick={step.action} className="text-base font-medium text-ink hover:text-accent">
+                      {step.label}
+                    </button>
+                  )}
+                  <span className="sr-only">{step.done ? '(done)' : '(to do)'}</span>
+                </li>
+              ))}
+            </ol>
+          </CardBody>
+        </Card>
       )}
 
-      {/* Header Banner with Action Buttons */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center gap-3">
-            Private Watch Lists
-          </h1>
-          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-            Manage your watched company lists, track career pages, and view automated ATS job alerts.
-          </p>
-        </div>
+      {data && !data.notifications.platformEmailEnabled && (
+        <Callout tone="warning" className="mb-6" title="Email alerts are paused by the administrator">
+          Matches still appear here and in your notifications.
+        </Callout>
+      )}
+      {data && data.notifications.approval === 'pending' && data.notifications.emailEnabled && (
+        <Callout tone="accent" className="mb-6" title="Your email address is waiting for approval">
+          Alerts are collected and will be emailed as soon as an administrator approves your address. Matches already appear here.
+        </Callout>
+      )}
 
-        <div className="flex items-center gap-3 flex-wrap">
-          <button
-            onClick={() => {
-              setListName('');
-              setListDescription('');
-              setListVisibility('private');
-              setShowCreateModal(true);
-            }}
-            className="text-sm font-semibold bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-800 hover:border-blue-500/50 px-4 py-2.5 rounded-xl shadow-sm flex items-center gap-2 transition-all cursor-pointer"
-          >
-            <Plus className="w-4 h-4 text-blue-500" />
-            Create Watch List
-          </button>
-
-          <button
-            onClick={() => setShowAddPageModal(true)}
-            className="text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl shadow-md flex items-center gap-2 transition-all cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            Add Career Page
-          </button>
-        </div>
-      </div>
-
-      {/* Step-by-Step "How It Works" Guide */}
-      <div className="glass-panel p-6 sm:p-7 rounded-3xl border border-blue-500/20 bg-gradient-to-r from-blue-500/5 via-purple-500/5 to-transparent space-y-4 relative overflow-hidden">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-blue-600 text-white shrink-0 shadow-sm">
-              <Sparkles className="w-5 h-5" />
+      <StatGrid>
+        {isLoading || !counts ? (
+          Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="space-y-2 bg-surface p-4">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-7 w-14" />
             </div>
-            <div>
-              <h2 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                How JobPingly Works — Step-by-Step Guide
-              </h2>
-              <p className="text-xs text-slate-600 dark:text-slate-400">
-                Follow these 4 simple steps to start tracking career pages and getting automated job alerts.
-              </p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleToggleHowItWorks}
-            className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
-          >
-            {showHowItWorks ? 'Hide Steps ▲' : 'Show Steps ▼'}
-          </button>
-        </div>
-
-        {showHowItWorks && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
-            {/* Step 1 */}
-            <div className="p-4 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 space-y-2 relative group hover:border-blue-500/40 transition-all">
-              <div className="flex items-center justify-between">
-                <span className="w-7 h-7 rounded-xl bg-blue-600 text-white font-extrabold text-xs flex items-center justify-center shadow-xs">
-                  1
-                </span>
-                <Layers className="w-4 h-4 text-blue-500" />
-              </div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Create a Watch List</h3>
-              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                Click <strong>&quot;Create Watch List&quot;</strong> to group company career pages by target industry or role type.
-              </p>
-            </div>
-
-            {/* Step 2 */}
-            <div className="p-4 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 space-y-2 relative group hover:border-purple-500/40 transition-all">
-              <div className="flex items-center justify-between">
-                <span className="w-7 h-7 rounded-xl bg-purple-600 text-white font-extrabold text-xs flex items-center justify-center shadow-xs">
-                  2
-                </span>
-                <Briefcase className="w-4 h-4 text-purple-500" />
-              </div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Add Career Page URLs</h3>
-              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                Click <strong>&quot;Add Career Page&quot;</strong> and paste target company career links (Greenhouse, Lever, Workday, etc.).
-              </p>
-            </div>
-
-            {/* Step 3 */}
-            <div className="p-4 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 space-y-2 relative group hover:border-emerald-500/40 transition-all">
-              <div className="flex items-center justify-between">
-                <span className="w-7 h-7 rounded-xl bg-emerald-600 text-white font-extrabold text-xs flex items-center justify-center shadow-xs">
-                  3
-                </span>
-                <Bell className="w-4 h-4 text-emerald-500" />
-              </div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Automated Job Alerts</h3>
-              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                JobPingly checks career pages continuously and sends instant or daily email digests matching your keywords.
-              </p>
-            </div>
-
-            {/* Step 4 */}
-            <div className="p-4 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 space-y-2 relative group hover:border-amber-500/40 transition-all">
-              <div className="flex items-center justify-between">
-                <span className="w-7 h-7 rounded-xl bg-amber-600 text-white font-extrabold text-xs flex items-center justify-center shadow-xs">
-                  4
-                </span>
-                <Globe className="w-4 h-4 text-amber-500" />
-              </div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Follow Public Lists</h3>
-              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                Browse <strong>Public Watch Lists</strong> and click <strong>&quot;Follow &amp; Get Alerts&quot;</strong> on any list to receive email job notifications.
-              </p>
-            </div>
-          </div>
+          ))
+        ) : (
+          <>
+            <StatCell label="Matching jobs this week" value={formatNumber(counts.matchingThisWeek)} hint={<Link href="/dashboard/jobs?view=matching" className="hover:text-ink">View matches</Link>} />
+            <StatCell label="New jobs this week" value={formatNumber(counts.newThisWeek)} hint="At all your companies" />
+            <StatCell label="Open jobs" value={formatNumber(counts.openJobs)} hint={`At ${formatNumber(counts.companies)} companies`} />
+            <StatCell
+              label="Companies with issues"
+              value={formatNumber(counts.companiesWithIssues)}
+              tone={counts.companiesWithIssues > 0 ? 'warning' : undefined}
+              hint={counts.pendingFirstScan > 0 ? `${counts.pendingFirstScan} waiting for first scan` : 'All others healthy'}
+            />
+          </>
         )}
-      </div>
+      </StatGrid>
 
-      {/* Metrics Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-        <div className="glass-card p-6 rounded-2xl border-slate-200 dark:border-slate-800">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Total Watch Lists</span>
-            <Layers className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-          </div>
-          {loading ? (
-            <div className="h-9 w-16 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse my-0.5" />
-          ) : (
-            <p className="text-3xl font-extrabold text-slate-900 dark:text-white">{stats?.totalLists ?? pagination.total ?? lists.length}</p>
-          )}
-        </div>
-
-        <div className="glass-card p-6 rounded-2xl border-slate-200 dark:border-slate-800">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Unique Monitored Companies</span>
-            <Briefcase className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-          </div>
-          {loading ? (
-            <div className="h-9 w-16 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse my-0.5" />
-          ) : (
-            <p className="text-3xl font-extrabold text-slate-900 dark:text-white">{stats?.totalUniqueCompanies ?? totalCompanies}</p>
-          )}
-        </div>
-
-        <div className="glass-card p-6 rounded-2xl border-slate-200 dark:border-slate-800">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Active Job Postings</span>
-            <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-          </div>
-          {loading ? (
-            <div className="h-9 w-16 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse my-0.5" />
-          ) : (
-            <p className="text-3xl font-extrabold text-slate-900 dark:text-white">{stats?.totalActiveJobs ?? totalJobs}</p>
-          )}
-        </div>
-      </div>
-
-      {/* Sub-Tab Navigation Bar: Created Watch Lists vs Followed Watch Lists */}
-      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
-        <button
-          type="button"
-          onClick={() => setActiveDashboardTab('owned')}
-          className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer ${
-            activeDashboardTab === 'owned'
-              ? 'bg-blue-600 text-white shadow-md'
-              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
-          }`}
-        >
-          <Layers className="w-4 h-4" />
-          <span>My Created Watch Lists ({pagination.total})</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveDashboardTab('followed')}
-          className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer ${
-            activeDashboardTab === 'followed'
-              ? 'bg-purple-600 text-white shadow-md'
-              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
-          }`}
-        >
-          <Bell className="w-4 h-4" />
-          <span>Followed Lists &amp; Email Alerts ({followedLists.length})</span>
-        </button>
-      </div>
-
-      {activeDashboardTab === 'followed' ? (
-        /* FOLLOWED WATCH LISTS & EMAIL ALERTS VIEW */
-        <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Bell className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-                Followed Watch Lists &amp; Alert Subscriptions ({followedLists.length})
-              </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Quickly manage your followed watch lists, active email digest frequencies, and positive/negative keyword filters.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={fetchFollowedLists}
-              className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white flex items-center gap-1.5 cursor-pointer shrink-0"
-            >
-              <RefreshCw className="w-3.5 h-3.5" /> Refresh Subscriptions
-            </button>
-          </div>
-
-          {loadingFollowed ? (
-            <ListSkeletonGrid count={3} />
-          ) : followedLists.length === 0 ? (
-            <div className="p-12 text-center rounded-2xl border border-dashed border-slate-300 dark:border-slate-800 space-y-4">
-              <Bell className="w-12 h-12 text-slate-400 dark:text-slate-600 mx-auto" />
-              <div>
-                <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">No Followed Watch Lists</h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  You are not currently following any watch lists. Explore public watch lists in the directory to subscribe to job alerts.
-                </p>
-              </div>
-              <Link
-                href="/discover"
-                className="text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white px-4 py-2.5 rounded-xl cursor-pointer shadow-md inline-flex items-center gap-1.5"
-              >
-                <Globe className="w-3.5 h-3.5" /> Explore Public Directory
+      <div className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+        <Card>
+          <CardHeader
+            title="Latest matches"
+            description="New jobs that fit your alert keywords."
+            action={
+              <Link href="/dashboard/jobs?view=matching" className="inline-flex items-center gap-1 text-sm font-medium text-accent hover:text-accent-hover">
+                All matches <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
               </Link>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {followedLists.map((fl: any) => (
-                <div
-                  key={fl.subId}
-                  className="glass-card p-6 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 flex flex-col justify-between hover:shadow-xl hover:border-purple-500/30 transition-all space-y-4"
-                >
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="px-2.5 py-0.5 rounded-md bg-purple-500/10 text-purple-700 dark:text-purple-300 text-[10px] font-extrabold uppercase border border-purple-500/30">
-                        {formatFrequencyShortLabel(fl.digestFrequency || INHERIT_FREQUENCY)}
-                      </span>
-                      <span className="text-[10px] text-slate-400 font-mono">/{fl.slug}</span>
-                    </div>
-
-                    <div>
-                      <Link
-                        href={`/lists/${fl.slug}`}
-                        className="font-extrabold text-slate-900 dark:text-white text-base hover:text-purple-600 dark:hover:text-purple-400 transition-colors line-clamp-1 flex items-center gap-1.5"
-                      >
-                        {fl.name} <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
-                      </Link>
-                      {fl.description && (
-                        <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 mt-1">{fl.description}</p>
-                      )}
-                    </div>
-
-                    {/* Curator Info & Company Count */}
-                    <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
-                      <span>Curated by: <strong className="text-slate-800 dark:text-slate-200">{fl.curator.name}</strong></span>
-                      <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-bold text-[10px] text-slate-600 dark:text-slate-400">{pluralize(fl.companyCount || 0, 'Company', 'Companies')}</span>
-                    </div>
-
-                    {/* Keywords Summary */}
-                    {(fl.positiveKeywords.length > 0 || fl.negativeKeywords.length > 0) && (
-                      <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] space-y-1">
-                        {fl.positiveKeywords.length > 0 && (
-                          <div className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                            <span className="font-bold">Match:</span>
-                            <span className="truncate">{fl.positiveKeywords.join(', ')}</span>
-                          </div>
-                        )}
-                        {fl.negativeKeywords.length > 0 && (
-                          <div className="flex items-center gap-1 text-rose-600 dark:text-rose-400">
-                            <span className="font-bold">Exclude:</span>
-                            <span className="truncate">{fl.negativeKeywords.join(', ')}</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Actions Bar */}
-                  <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingSubList(fl);
-                        setSubDigestFreq(fl.digestFrequency || INHERIT_FREQUENCY);
-                        setSubPosKeys((fl.positiveKeywords || []).join(', '));
-                        setSubNegKeys((fl.negativeKeywords || []).join(', '));
-                      }}
-                      className="px-3 py-1.5 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 hover:bg-purple-500/20 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <Sliders className="w-3.5 h-3.5" /> Alert Settings
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleUnfollowSub(fl.slug, fl.name)}
-                      className="px-3 py-1.5 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500/20 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
-                    >
-                      Unfollow
-                    </button>
-                  </div>
-                </div>
+            }
+          />
+          {isLoading ? (
+            <div className="space-y-3 p-5">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <Skeleton key={index} className="h-10" />
               ))}
             </div>
-          )}
-        </div>
-      ) : (
-        /* OWNED WATCH LISTS VIEW */
-        <div className="glass-panel p-6 sm:p-8 rounded-3xl border-slate-200 dark:border-slate-800 space-y-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Layers className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                Your Watch Lists ({pagination.total})
-              </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Select a view layout below to organize your watch lists.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3 flex-wrap">
-            {/* 3-TYPE VIEW SWITCHER: Grid, Tiles, List */}
-            <div className="flex items-center bg-slate-100 dark:bg-slate-900/90 p-1 rounded-xl border border-slate-200 dark:border-slate-800 shrink-0">
-              <button
-                type="button"
-                onClick={() => handleViewChange('grid')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  viewMode === 'grid'
-                    ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                }`}
-                title="Grid View (Rich Cards)"
-              >
-                <LayoutGrid className="w-3.5 h-3.5" />
-                <span>Grid</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleViewChange('tiles')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  viewMode === 'tiles'
-                    ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                }`}
-                title="Tiles View (Compact Cards)"
-              >
-                <Grid2X2 className="w-3.5 h-3.5" />
-                <span>Tiles</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleViewChange('list')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  viewMode === 'list'
-                    ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                }`}
-                title="List View (Data Table)"
-              >
-                <List className="w-3.5 h-3.5" />
-                <span>Table List</span>
-              </button>
-            </div>
-
-            {/* SORT FILTER DROPDOWN */}
-            <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-900/90 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 shrink-0">
-              <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
-              <span className="text-xs font-semibold text-slate-500 hidden sm:inline">Sort:</span>
-              <select
-                value={sortBy}
-                onChange={e => {
-                  setSortBy(e.target.value as any);
-                  setPage(1);
-                }}
-                className="bg-transparent text-xs font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
-              >
-                <option value="newest">Newest Lists (Default)</option>
-                <option value="oldest">Oldest Lists</option>
-                <option value="followers">Most Followed</option>
-                <option value="companies">Most Companies</option>
-                <option value="jobs">Most Open Jobs</option>
-                <option value="name_asc">Name (A-Z)</option>
-              </select>
-            </div>
-
-            {/* Search Input */}
-            <div className="relative w-full sm:w-56">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Search watch lists..."
-                className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:border-blue-600"
-              />
-            </div>
-
-            {/* Items Per Page */}
-            <select
-              value={limit}
-              onChange={e => {
-                setLimit(Number(e.target.value));
-                setPage(1);
-              }}
-              className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
-            >
-              <option value={6}>6 per page</option>
-              <option value={9}>9 per page</option>
-              <option value={15}>15 per page</option>
-              <option value={30}>30 per page</option>
-              <option value={50}>50 per page</option>
-            </select>
-          </div>
-        </div>
-
-        {/* List Content Area with Skeleton Loader */}
-        {loading ? (
-          <div className="space-y-6">
-            {viewMode === 'tiles' ? (
-              <ListSkeletonTiles count={limit} />
-            ) : viewMode === 'list' ? (
-              <ListSkeletonTable rows={limit} />
-            ) : (
-              <ListSkeletonGrid count={limit} />
-            )}
-            <ListSkeletonPagination />
-          </div>
-        ) : filteredLists.length === 0 ? (
-          <div className="p-12 text-center rounded-2xl border border-dashed border-slate-300 dark:border-slate-800 space-y-4">
-            <Briefcase className="w-12 h-12 text-slate-400 dark:text-slate-600 mx-auto" />
-            <div>
-              <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">No Watch Lists Found</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                {searchQuery ? 'No watch lists match your search terms.' : 'Create your first watch list to start monitoring career pages.'}
+          ) : data && data.recentMatches.length > 0 ? (
+            <ul className="divide-y divide-line">
+              {data.recentMatches.map(job => (
+                <li key={job.id}>
+                  <Link href={`/dashboard/jobs/${job.id}`} className="flex items-start justify-between gap-3 px-4 py-3 hover:bg-sunken/50 sm:px-5">
+                    <div className="min-w-0">
+                      <p className="truncate text-base font-medium text-ink">{job.title}</p>
+                      <p className="mt-0.5 truncate text-sm text-muted">
+                        {job.companyName}
+                        {job.location ? ` · ${job.location}` : ''}
+                        {job.terms.length > 0 ? ` · matched ${job.terms.slice(0, 2).join(', ')}` : ''}
+                      </p>
+                    </div>
+                    <TimeAgo value={job.firstSeenAt} className="shrink-0 text-xs text-subtle" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="px-5 py-10 text-center">
+              <p className="text-base font-medium text-ink">No matches yet</p>
+              <p className="mt-1 text-sm text-muted">
+                {counts && counts.companies > 0
+                  ? 'New jobs that fit your keywords will appear here. You can browse every open job in the meantime.'
+                  : 'Add a few companies to start receiving matches.'}
               </p>
             </div>
-            <button
-              onClick={() => {
-                setListName('');
-                setListDescription('');
-                setListVisibility('private');
-                setShowCreateModal(true);
-              }}
-              className="text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl cursor-pointer shadow-md inline-flex items-center gap-1.5"
-            >
-              <Plus className="w-3.5 h-3.5" /> Create Watch List
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {/* VIEW 1: GRID VIEW & VIEW 2: TILES VIEW */}
-            {viewMode !== 'list' ? (
-              <div className={viewMode === 'tiles' ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4' : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'}>
-                {filteredLists.map(l => (
-                  <div
-                    key={l.id}
-                    className={`glass-card border border-slate-200/80 dark:border-slate-800/80 flex flex-col justify-between hover:shadow-xl hover:border-blue-500/30 transition-all duration-300 group relative ${
-                      viewMode === 'tiles' ? 'p-4 rounded-2xl space-y-3' : 'p-6 rounded-3xl space-y-4'
-                    }`}
-                  >
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className={`text-[11px] font-medium px-2 py-0.5 rounded-md flex items-center gap-1.5 ${
-                            l.visibility === 'public'
-                              ? 'bg-blue-500/8 text-blue-600 dark:text-blue-400 border border-blue-500/20'
-                              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-                          }`}>
-                            {l.visibility === 'public' ? <Globe className="w-3.5 h-3.5 text-blue-500" /> : <Lock className="w-3.5 h-3.5 text-slate-400" />}
-                            {l.visibility === 'public' ? 'Public' : 'Private'}
-                          </span>
+          )}
+        </Card>
 
-                          {l.isCollaborator && (
-                            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md flex items-center gap-1 bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
-                              <Users className="w-3.5 h-3.5 text-purple-500" /> Collaborator
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Three Dots Menu Dropdown */}
-                        <div className="relative">
-                          <button
-                            onClick={() => setOpenMenuId(openMenuId === l.id ? null : l.id)}
-                            className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-all cursor-pointer"
-                            title="Options"
-                          >
-                            <MoreVertical className="w-4 h-4" />
-                          </button>
-
-                          {openMenuId === l.id && (
-                            <div
-                              ref={menuRef}
-                              className="absolute right-0 top-8 w-44 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl z-30 py-1 space-y-0.5 animate-in fade-in zoom-in-95 duration-100"
-                            >
-                              <Link
-                                href={`/dashboard/lists/${l.id}`}
-                                className="w-full text-left px-3.5 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-2 transition-colors"
-                                onClick={() => setOpenMenuId(null)}
-                              >
-                                <Building className="w-3.5 h-3.5 text-blue-500" />
-                                Add Company Page
-                              </Link>
-
-                              <button
-                                onClick={() => openEditModal(l)}
-                                className="w-full text-left px-3.5 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors cursor-pointer"
-                              >
-                                <Edit3 className="w-3.5 h-3.5 text-slate-500" />
-                                Edit List
-                              </button>
-
-                              <div className="my-1 border-t border-slate-200 dark:border-slate-800" />
-
-                              <button
-                                onClick={() => handleDeleteList(l.id, l.name)}
-                                className="w-full text-left px-3.5 py-2 text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 flex items-center gap-2 transition-colors cursor-pointer"
-                              >
-                                <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-                                Delete List
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      <div>
-                        <Link
-                          href={l.visibility === 'public' ? `/lists/${l.slug}` : `/dashboard/lists/${l.id}`}
-                          className="hover:underline decoration-blue-500/50 block"
-                        >
-                          <h3 className={`font-bold text-slate-900 dark:text-white tracking-tight group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors ${viewMode === 'tiles' ? 'text-base leading-snug' : 'text-xl'}`}>
-                            {l.name}
-                          </h3>
-                        </Link>
-                        <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2 mt-1 leading-relaxed">
-                          {l.description || 'No description provided.'}
-                        </p>
-                      </div>
-
-                      {/* Stats Badges Bar */}
-                      <div className="flex items-center gap-1.5 pt-0.5">
-                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 px-2 py-0.5 rounded-md">
-                          <Building className="w-3.5 h-3.5 text-slate-500" />
-                          {pluralize(l.companyCount || 0, 'Page')}
-                        </span>
-
-                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-600 dark:text-blue-400 bg-blue-500/8 border border-blue-500/20 px-2 py-0.5 rounded-md">
-                          <Briefcase className="w-3.5 h-3.5 text-blue-500" />
-                          {pluralize(l.jobCount || 0, 'Job')}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="pt-3 border-t border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between">
-                      <Link
-                        href={`/dashboard/lists/${l.id}`}
-                        className="text-xs font-semibold text-blue-600 dark:text-blue-400 group-hover:translate-x-0.5 flex items-center gap-1 transition-all"
-                      >
-                        Manage Pages <ExternalLink className="w-3.5 h-3.5" />
+        <div className="space-y-6">
+          <Card>
+            <CardHeader title="Monitoring" action={<Link href="/dashboard/companies" className="text-sm font-medium text-accent hover:text-accent-hover">Companies</Link>} />
+            <CardBody className="space-y-3 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <span className="inline-flex items-center gap-1.5 text-muted">
+                  <Clock className="h-3.5 w-3.5" aria-hidden="true" /> Last successful check
+                </span>
+                <span className="text-ink">{counts?.lastScanAt ? formatRelative(counts.lastScanAt) : '—'}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="inline-flex items-center gap-1.5 text-muted">
+                  <CalendarClock className="h-3.5 w-3.5" aria-hidden="true" /> Next check
+                </span>
+                <span className="text-ink">{counts?.nextScanAt ? formatRelative(counts.nextScanAt) : '—'}</span>
+              </div>
+              {data && data.issues.length > 0 && (
+                <ul className="space-y-2 border-t border-line pt-3">
+                  {data.issues.map(issue => (
+                    <li key={issue.id} className="flex items-center justify-between gap-3">
+                      <Link href={`/dashboard/companies/${issue.id}`} className="truncate font-medium text-ink hover:text-accent">
+                        {issue.name}
                       </Link>
+                      <HealthStatus health={issue.health} label={issue.healthLabel} />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardBody>
+          </Card>
 
-                      {l.visibility === 'public' && (
-                        <Link
-                          href={`/lists/${l.slug}`}
-                          className="text-xs font-medium text-slate-500 hover:text-slate-900 dark:hover:text-white flex items-center gap-1 transition-colors"
-                        >
-                          Public Link <Globe className="w-3.5 h-3.5" />
-                        </Link>
-                      )}
-                    </div>
+          <Card>
+            <CardHeader title="Email alerts" action={<Link href="/dashboard/settings/notifications" className="text-sm font-medium text-accent hover:text-accent-hover">Change</Link>} />
+            <CardBody className="text-sm">
+              {data ? (
+                data.notifications.emailEnabled ? (
+                  <div className="space-y-1.5">
+                    <p className="inline-flex items-center gap-1.5 text-ink">
+                      <Mail className="h-3.5 w-3.5 text-success" aria-hidden="true" />
+                      {data.notifications.schedule}
+                    </p>
+                    {data.notifications.nextAt && (
+                      <p className="text-muted">
+                        {data.notifications.dueNow ? 'Next delivery: with the next check' : `Next delivery ${formatDateTime(data.notifications.nextAt)}`} (only if there are new matches)
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="inline-flex items-center gap-1.5 text-muted">
+                    <BellOff className="h-3.5 w-3.5" aria-hidden="true" /> Email alerts are off. Matches still appear in the app.
+                  </p>
+                )
+              ) : (
+                <Skeleton className="h-4 w-3/4" />
+              )}
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader title="Applications" action={<Link href="/dashboard/tracker" className="text-sm font-medium text-accent hover:text-accent-hover">Tracker</Link>} />
+            <CardBody>
+              <dl className="grid grid-cols-3 gap-3 text-center">
+                {[
+                  ['Saved', counts?.saved],
+                  ['Applied', counts?.applied],
+                  ['Interviewing', counts?.interviewing],
+                ].map(([label, value]) => (
+                  <div key={label as string}>
+                    <dd className="tabular text-xl font-semibold text-ink">{value === undefined ? '—' : formatNumber(value as number)}</dd>
+                    <dt className="text-xs text-muted">{label}</dt>
                   </div>
                 ))}
-              </div>
-            ) : (
-              /* VIEW 3: TABLE LIST VIEW */
-              <div className="glass-panel rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-100/80 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-slate-500 font-semibold">
-                      <tr>
-                        <th className="py-3.5 px-5">Watch List Name &amp; Details</th>
-                        <th className="py-3.5 px-4">Visibility</th>
-                        <th className="py-3.5 px-4">Pages &amp; Jobs</th>
-                        <th className="py-3.5 px-5 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800/70">
-                      {filteredLists.map(l => (
-                        <tr key={l.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition-colors group">
-                          <td className="py-4 px-5">
-                            <div className="space-y-0.5">
-                              <Link href={`/dashboard/lists/${l.id}`} className="font-extrabold text-sm text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-                                {l.name}
-                              </Link>
-                              {l.description && (
-                                <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1 max-w-md">{l.description}</p>
-                              )}
-                            </div>
-                          </td>
-                          <td className="py-4 px-4">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-medium ${
-                                l.visibility === 'public'
-                                  ? 'bg-blue-500/8 text-blue-600 dark:text-blue-400 border border-blue-500/20'
-                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-                              }`}>
-                                {l.visibility === 'public' ? <Globe className="w-3.5 h-3.5 text-blue-500" /> : <Lock className="w-3.5 h-3.5 text-slate-400" />}
-                                {l.visibility === 'public' ? 'Public' : 'Private'}
-                              </span>
-
-                              {l.isCollaborator && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
-                                  <Users className="w-3.5 h-3.5 text-purple-500" /> Collaborator
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="py-4 px-4">
-                            <div className="flex items-center gap-1.5">
-                              <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-medium text-slate-700 dark:text-slate-300">
-                                {pluralize(l.companyCount || 0, 'Page')}
-                              </span>
-                              <span className="px-2 py-0.5 rounded-md bg-blue-500/8 text-blue-600 dark:text-blue-400 border border-blue-500/20 text-[11px] font-medium">
-                                {pluralize(l.jobCount || 0, 'Job')}
-                              </span>
-                            </div>
-                          </td>
-                          <td className="py-4 px-5 text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              {l.visibility === 'public' && (
-                                <Link
-                                  href={`/lists/${l.slug}`}
-                                  className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                                  title="Public View"
-                                >
-                                  <Globe className="w-3.5 h-3.5 text-blue-500" />
-                                </Link>
-                              )}
-                              <button
-                                onClick={() => openEditModal(l)}
-                                className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                                title="Edit List"
-                              >
-                                <Edit3 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteList(l.id, l.name)}
-                                className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-500/20 transition-colors cursor-pointer"
-                                title="Delete List"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                              <Link
-                                href={`/dashboard/lists/${l.id}`}
-                                className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold transition-all shadow-sm"
-                              >
-                                Manage
-                              </Link>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Server Pagination */}
-        {pagination.totalPages > 1 && (
-          <div className="flex items-center justify-between pt-4 border-t border-slate-200 dark:border-slate-800">
-            <span className="text-xs text-slate-500">
-              Page <span className="font-bold text-slate-900 dark:text-white">{pagination.page}</span> of <span className="font-bold text-slate-900 dark:text-white">{pagination.totalPages}</span> ({pluralize(pagination.total, 'watch list', 'watch lists')} total)
-            </span>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setPage(prev => Math.max(1, prev - 1))}
-                disabled={page <= 1}
-                className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 flex items-center gap-1 cursor-pointer"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" /> Previous
-              </button>
-
-              <button
-                onClick={() => setPage(prev => Math.min(pagination.totalPages, prev + 1))}
-                disabled={page >= pagination.totalPages}
-                className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 flex items-center gap-1 cursor-pointer"
-              >
-                Next <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-        )}
+              </dl>
+              {data && data.reminders.length > 0 && (
+                <ul className="mt-4 space-y-2 border-t border-line pt-3 text-sm">
+                  {data.reminders.map(reminder => (
+                    <li key={reminder.id} className="flex items-center justify-between gap-3">
+                      <span className="truncate text-ink">
+                        {reminder.title} <span className="text-muted">· {reminder.companyName}</span>
+                      </span>
+                      <span className="shrink-0 text-xs text-subtle">{formatRelative(reminder.reminderAt)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardBody>
+          </Card>
+        </div>
       </div>
-      )}
 
-      {/* CREATE / EDIT WATCH LIST MODAL */}
-      {(showCreateModal || editingList) && mounted && createPortal(
-        <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl space-y-6 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Layers className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                {editingList ? 'Edit Watch List' : 'Create New Watch List'}
-              </h3>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowCreateModal(false);
-                  setEditingList(null);
-                }}
-                className="text-slate-400 hover:text-slate-900 dark:hover:text-white text-xl font-bold cursor-pointer"
-              >
-                &times;
-              </button>
-            </div>
-
-            <form onSubmit={editingList ? handleUpdateList : handleCreateList} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
-                  Watch List Name *
-                </label>
-                <input
-                  ref={createListInputRef}
-                  autoFocus
-                  type="text"
-                  required
-                  value={listName}
-                  onChange={e => setListName(e.target.value)}
-                  placeholder="e.g. AI & ML Tech Companies"
-                  className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs font-medium focus:outline-none focus:border-blue-600"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
-                  Description (Optional)
-                </label>
-                <textarea
-                  rows={3}
-                  value={listDescription}
-                  onChange={e => setListDescription(e.target.value)}
-                  placeholder="Short summary of companies in this list..."
-                  className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs font-medium focus:outline-none focus:border-blue-600"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
-                  Visibility
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setListVisibility('private')}
-                    className={`p-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                      listVisibility === 'private'
-                        ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                        : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-                    }`}
-                  >
-                    <Lock className="w-3.5 h-3.5" /> Private
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setListVisibility('public')}
-                    className={`p-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                      listVisibility === 'public'
-                        ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                        : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-                    }`}
-                  >
-                    <Globe className="w-3.5 h-3.5" /> Public
-                  </button>
-                </div>
-              </div>
-
-              <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowCreateModal(false);
-                    setEditingList(null);
-                  }}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="px-5 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-md cursor-pointer transition-all disabled:opacity-50"
-                >
-                  {submitting ? 'Saving...' : editingList ? 'Save Changes' : 'Create List'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {/* ADD CAREER PAGE MODAL */}
-      {showAddPageModal && mounted && createPortal(
-        <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl space-y-6 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Briefcase className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                Add Monitored Career Page
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowAddPageModal(false)}
-                className="text-slate-400 hover:text-slate-900 dark:hover:text-white text-xl font-bold cursor-pointer"
-              >
-                &times;
-              </button>
-            </div>
-
-            <form onSubmit={handleAddCareerPage} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
-                  Career Page URL *
-                </label>
-                <input
-                  ref={addPageInputRef}
-                  autoFocus
-                  type="url"
-                  required
-                  value={pageUrl}
-                  onChange={e => setPageUrl(e.target.value)}
-                  placeholder="https://company.com/careers"
-                  className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs font-mono focus:outline-none focus:border-blue-600"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
-                  Company Name (Optional)
-                </label>
-                <input
-                  type="text"
-                  value={companyName}
-                  onChange={e => setCompanyName(e.target.value)}
-                  placeholder="e.g. Stripe"
-                  className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs font-medium focus:outline-none focus:border-blue-600"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
-                  Attach to Watch List *
-                </label>
-                <select
-                  value={selectedListId}
-                  onChange={e => setSelectedListId(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-600 cursor-pointer"
-                >
-                  {lists.map(l => (
-                    <option key={l.id} value={l.id}>{l.name} ({pluralize(l.companyCount || 0, 'company', 'companies')})</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
-                  Alert Keywords (Optional comma-separated)
-                </label>
-                <input
-                  type="text"
-                  value={keywords}
-                  onChange={e => setKeywords(e.target.value)}
-                  placeholder="e.g. Engineer, Frontend, Remote"
-                  className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs font-medium focus:outline-none focus:border-blue-600"
-                />
-              </div>
-
-              <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowAddPageModal(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="px-5 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-md cursor-pointer transition-all disabled:opacity-50"
-                >
-                  {submitting ? 'Adding Page...' : 'Add Career Page'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {/* EDIT FOLLOWED LIST ALERT SETTINGS MODAL */}
-      {editingSubList && mounted && createPortal(
-        <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl space-y-6 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
-              <div>
-                <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <Sliders className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-                  Alert Preferences &amp; Keywords
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Configure alerts for <strong>{editingSubList.name}</strong>
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setEditingSubList(null)}
-                className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleUpdateSubAlerts} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
-                  Digest Frequency
-                </label>
-                <div className="flex p-1 rounded-xl bg-slate-100 dark:bg-slate-800 gap-1">
-                  {([
-                    { value: INHERIT_FREQUENCY, label: 'Default' },
-                    { value: 'realtime', label: 'Instant' },
-                    { value: 'daily', label: 'Daily' },
-                    { value: 'weekly', label: 'Weekly' },
-                  ] as const).map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => setSubDigestFreq(opt.value)}
-                      className={`flex-1 py-2 px-2 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
-                        normalizeFrequencyValue(subDigestFreq) === normalizeFrequencyValue(opt.value)
-                          ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-sm'
-                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-[11px] text-slate-500 mt-1.5">
-                  {subDigestFreq === INHERIT_FREQUENCY
-                    ? 'Uses your account schedule.'
-                    : 'Overrides your account schedule for this list.'}
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
-                  Must-Match Keywords (Optional)
-                </label>
-                <p className="text-[11px] text-slate-500 mb-1.5">Comma separated. Only send alerts if job title matches at least one keyword.</p>
-                <input
-                  type="text"
-                  value={subPosKeys}
-                  onChange={(e) => setSubPosKeys(e.target.value)}
-                  placeholder="e.g. Frontend, React, Senior, Remote"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-purple-600"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
-                  Exclude Keywords (Optional)
-                </label>
-                <p className="text-[11px] text-slate-500 mb-1.5">Comma separated. Ignore jobs containing any of these keywords.</p>
-                <input
-                  type="text"
-                  value={subNegKeys}
-                  onChange={(e) => setSubNegKeys(e.target.value)}
-                  placeholder="e.g. Intern, Junior, Contract"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-purple-600"
-                />
-              </div>
-
-              <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const slug = editingSubList.slug;
-                    const name = editingSubList.name;
-                    setEditingSubList(null);
-                    handleUnfollowSub(slug, name);
-                  }}
-                  className="px-4 py-2.5 rounded-xl text-xs font-bold bg-rose-500/10 text-rose-600 border border-rose-500/20 hover:bg-rose-500/20 cursor-pointer"
-                >
-                  Unfollow List
-                </button>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setEditingSubList(null)}
-                    className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-
-                  <button
-                    type="submit"
-                    disabled={submittingSub}
-                    className="px-5 py-2.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-md cursor-pointer disabled:opacity-50"
-                  >
-                    {submittingSub ? 'Saving...' : 'Save Preferences'}
-                  </button>
-                </div>
-              </div>
-            </form>
-          </div>
-        </div>,
-        document.body
-      )}
-    </div>
+      <AddCompanyDialog open={addOpen} onClose={() => setAddOpen(false)} onAdded={() => mutate()} />
+    </>
   );
 }

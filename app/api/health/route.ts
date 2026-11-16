@@ -1,31 +1,48 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { GET as getSystemStatus } from '../admin/system-status/route';
+import { NextResponse } from 'next/server';
+import { pingDb } from '@/lib/db/client';
+import { getWorkerHealth } from '@/lib/monitoring/scheduler';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(req: NextRequest) {
-  try {
-    // Reuse the admin System & Health evaluator, but ask it for its redacted public result.
-    const statusRequest = new NextRequest(new URL('/api/admin/system-status?health=true', req.url));
-    const statusResponse = await getSystemStatus(statusRequest);
-    const result = await statusResponse.json();
+/**
+ * Liveness and readiness for uptime monitors and the hosting platform.
+ *
+ *   200 {"status":"ok"}        database reachable, a worker reported recently
+ *   200 {"status":"degraded"}  database reachable, no recent worker heartbeat
+ *   503 {"status":"down"}      database unreachable
+ *
+ * Deliberately reveals nothing about configuration or internal hosts.
+ */
+export async function GET() {
+  const database = await pingDb();
+  let worker: { ok: boolean; secondsSinceHeartbeat: number | null } = { ok: false, secondsSinceHeartbeat: null };
 
-    return NextResponse.json({
-      status: result.overallStatus || 'outage',
-      summary: result.summary,
-      services: result.services,
-      checkedAt: result.timestamp || new Date().toISOString(),
-    }, {
-      status: statusResponse.ok ? 200 : 503,
-      headers: { 'Cache-Control': 'no-store, max-age=0' },
-    });
-  } catch {
-    return NextResponse.json({
-      status: 'outage',
-      checkedAt: new Date().toISOString(),
-    }, {
-      status: 503,
-      headers: { 'Cache-Control': 'no-store, max-age=0' },
-    });
+  if (database.ok) {
+    try {
+      const workers = await getWorkerHealth();
+      const freshest = workers.sort((a, b) => (a.secondsSinceHeartbeat ?? Infinity) - (b.secondsSinceHeartbeat ?? Infinity))[0];
+      // Healthy if any worker is alive (a stopped loop worker may be fresher than the last scheduled run).
+      worker = { ok: workers.some(item => item.alive), secondsSinceHeartbeat: freshest?.secondsSinceHeartbeat ?? null };
+    } catch {
+      worker = { ok: false, secondsSinceHeartbeat: null };
+    }
   }
+
+  const status = !database.ok ? 'down' : worker.ok ? 'ok' : 'degraded';
+  return NextResponse.json(
+    {
+      status,
+      checks: {
+        database: { ok: database.ok, latencyMs: database.latencyMs },
+        worker,
+      },
+      time: new Date().toISOString(),
+    },
+    { status: status === 'down' ? 503 : 200, headers: { 'Cache-Control': 'no-store' } },
+  );
+}
+
+export async function HEAD() {
+  const database = await pingDb();
+  return new NextResponse(null, { status: database.ok ? 200 : 503, headers: { 'Cache-Control': 'no-store' } });
 }

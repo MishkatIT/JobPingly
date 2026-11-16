@@ -1,49 +1,27 @@
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/db/client';
-import { featureFlags } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
+import { getSetting } from '@/lib/settings/store';
+import { isSafeHref } from '@/lib/security/ssrf';
 
-export const revalidate = 0; // Dynamic route, do not cache statically
+export const dynamic = 'force-dynamic';
 
-export interface BannerConfig {
-  enabled: boolean;
-  message: string;
-  type: 'info' | 'warning' | 'danger' | 'success';
-  linkUrl?: string;
-  linkText?: string;
-  bannerId: string;
-}
-
-const DEFAULT_BANNER: BannerConfig = {
-  enabled: false,
-  message: '',
-  type: 'info',
-  linkUrl: '',
-  linkText: '',
-  bannerId: 'default',
-};
-
+/** The site-wide announcement, if one is active. Cached briefly at the edge. */
 export async function GET() {
+  let banner: Record<string, unknown> = {};
   try {
-    const [flagRecord] = await db.select().from(featureFlags).where(eq(featureFlags.key, 'banner.config'));
-    if (!flagRecord || !flagRecord.value) {
-      return NextResponse.json(DEFAULT_BANNER);
-    }
-
-    const config = typeof flagRecord.value === 'object'
-      ? (flagRecord.value as unknown as BannerConfig)
-      : JSON.parse(String(flagRecord.value));
-
-    return NextResponse.json({
-      enabled: Boolean(config.enabled),
-      message: config.message || '',
-      type: config.type || 'info',
-      linkUrl: config.linkUrl || '',
-      linkText: config.linkText || '',
-      bannerId: config.bannerId || 'default',
-    });
-  } catch (err: any) {
-    console.error('[Public Banner API Error]', err.message);
-    return NextResponse.json(DEFAULT_BANNER);
+    banner = await getSetting('banner.config');
+  } catch {
+    banner = {};
   }
+  const enabled = banner.enabled === true && typeof banner.message === 'string' && banner.message.trim().length > 0;
+  const data = enabled
+    ? {
+        enabled: true,
+        id: String(banner.bannerId ?? ''),
+        tone: ['info', 'success', 'warning'].includes(String(banner.type)) ? String(banner.type) : 'info',
+        message: String(banner.message).slice(0, 300),
+        linkUrl: isSafeHref(banner.linkUrl) || (typeof banner.linkUrl === 'string' && banner.linkUrl.startsWith('/')) ? banner.linkUrl : null,
+        linkText: typeof banner.linkText === 'string' ? banner.linkText.slice(0, 40) : null,
+      }
+    : { enabled: false };
+  return NextResponse.json({ data }, { headers: { 'Cache-Control': 'public, max-age=60, stale-while-revalidate=300' } });
 }

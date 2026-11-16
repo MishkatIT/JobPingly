@@ -1,35 +1,17 @@
-'use client';
+import type { Metadata } from 'next';
+import type { ReactNode } from 'react';
+import { AdminShell } from '@/components/admin/admin-shell';
+import { SessionProvider } from '@/components/app/session';
+import { requireServerStaff, toClientUser } from '@/lib/auth/server';
 
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import LoadingSpinner from '@/components/LoadingSpinner';
-import { useAuth } from '@/components/auth/AuthContext';
+export const metadata: Metadata = { title: { default: 'Admin', template: '%s · Admin · JobPingly' }, robots: { index: false } };
 
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
-  const { user, loading } = useAuth();
-
-  useEffect(() => {
-    if (!loading) {
-      if (!user) {
-        router.replace('/login');
-      } else if (user.role !== 'admin') {
-        router.replace('/dashboard');
-      }
-    }
-  }, [user, loading, router]);
-
-  if (loading) {
-    return <LoadingSpinner message="Verifying Admin Access..." fullPage />;
-  }
-
-  if (!user || user.role !== 'admin') {
-    return null; // Will redirect via router.replace
-  }
-
+/** Staff only. Every admin API checks permissions again on the server. */
+export default async function AdminLayout({ children }: { children: ReactNode }) {
+  const user = await requireServerStaff();
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#0b0f19] text-slate-900 dark:text-slate-100 transition-colors p-4 sm:p-6 md:p-8 overflow-y-scroll">
-      {children}
-    </div>
+    <SessionProvider initialUser={toClientUser(user)}>
+      <AdminShell>{children}</AdminShell>
+    </SessionProvider>
   );
 }
