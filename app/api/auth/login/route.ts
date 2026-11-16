@@ -1,127 +1,40 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db/client';
-import { users, refreshTokens } from '@/lib/db/schema';
-import { verifyPassword } from '@/lib/auth/password';
-import { signAccessToken, generateRandomToken, hashToken } from '@/lib/auth/jwt';
-import { isFeatureEnabled } from '@/lib/flags/check';
-import { checkRateLimit, getClientIp } from '@/lib/security/rateLimit';
-import { eq } from 'drizzle-orm';
+import { z } from 'zod';
+import { errors } from '@/lib/api/errors';
+import { route } from '@/lib/api/route';
+import { recordAudit } from '@/lib/audit';
+import { authenticate, normalizeEmail } from '@/lib/auth/accounts';
+import { isStaff } from '@/lib/auth/rbac';
+import { landingPathFor, sessionResponse } from '@/lib/auth/respond';
+import { rateLimit } from '@/lib/security/rateLimit';
 
-export async function POST(req: NextRequest) {
-  try {
-    const clientIp = getClientIp(req);
-    const body = await req.json();
-    const { email, password } = body;
+const body = z.object({
+  email: z.email('Enter a valid email address.').max(254),
+  password: z.string().min(1, 'Enter your password.').max(200),
+  next: z.string().max(500).optional(),
+});
 
-    if (!email || !password) {
-      return NextResponse.json({ error: 'Email and password are required.' }, { status: 400 });
+export const POST = route(
+  {
+    auth: 'public',
+    body,
+    allowInMaintenance: true,
+    rateLimit: { name: 'auth:login', limit: 30, windowSeconds: 900, distributed: true },
+  },
+  async ({ req, body }) => {
+    const email = normalizeEmail(body.email);
+    // A per-address limit stops password guessing that is spread across many IPs.
+    const perAddress = await rateLimit({ key: `auth:login:email:${email}`, limit: 10, windowSeconds: 900, distributed: true });
+    if (!perAddress.allowed) {
+      throw errors.tooManyRequests(perAddress.retryAfterSeconds, 'Too many sign-in attempts for this account. Try again later or reset your password.');
     }
 
-    const cleanEmail = email.toLowerCase().trim();
-
-    // Rate limit check by email and IP
-    const rateLimit = checkRateLimit({
-      key: `login:${cleanEmail}:${clientIp}`,
-      limit: 10,
-      windowMs: 15 * 60 * 1000,
-    });
-
-    if (!rateLimit.success) {
-      return NextResponse.json(
-        { error: `Too many login attempts. Please try again in ${rateLimit.resetInSeconds} seconds.` },
-        { status: 429 }
-      );
+    const result = await authenticate(email, body.password);
+    if (result.status === 'unverified') {
+      return { status: 'verification_required', ticket: result.ticket, email: result.email };
     }
-
-    const [user] = await db.select().from(users).where(eq(users.email, cleanEmail));
-    
-    // If user does not exist or has no password set (Google-only user), return generic 401 error
-    if (!user || !user.passwordHash) {
-      return NextResponse.json({ error: 'Invalid email or password.' }, { status: 401 });
+    if (isStaff(result.role)) {
+      await recordAudit({ action: 'auth.admin_login', actor: { id: result.userId, email, role: result.role }, targetType: 'user', targetId: result.userId, req });
     }
-
-    const isValid = await verifyPassword(password, user.passwordHash);
-    if (!isValid) {
-      return NextResponse.json({ error: 'Invalid email or password.' }, { status: 401 });
-    }
-
-    // Check if user is blocked / suspended
-    if (user.isBlocked) {
-      return NextResponse.json(
-        { error: `Account suspended: ${user.blockedReason || 'Blocked by administrator.'}` },
-        { status: 403 }
-      );
-    }
-
-    // Check if email is verified
-    if (!user.emailVerified) {
-      return NextResponse.json(
-        {
-          error: 'Email verification required.',
-          requiresVerification: true,
-          email: user.email,
-        },
-        { status: 403 }
-      );
-    }
-
-    // Check feature flag: Non-admin users are blocked when auth.login_enabled is false; Admins can always login.
-    if (user.role !== 'admin') {
-      const loginEnabled = await isFeatureEnabled('auth.login_enabled', true);
-      if (!loginEnabled) {
-        return NextResponse.json(
-          { error: 'User login is currently disabled by administrator.' },
-          { status: 403 }
-        );
-      }
-    }
-
-    const accessToken = await signAccessToken({
-      userId: user.id,
-      email: user.email,
-      role: user.role,
-    });
-
-    const rawRefreshToken = generateRandomToken();
-    const refreshTokenHashed = hashToken(rawRefreshToken);
-    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-
-    await db.insert(refreshTokens).values({
-      userId: user.id,
-      tokenHash: refreshTokenHashed,
-      expiresAt,
-    });
-
-    const response = NextResponse.json({
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        emailVerified: user.emailVerified,
-      },
-      accessToken,
-    });
-
-    response.cookies.set('refresh_token', rawRefreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      expires: expiresAt,
-    });
-
-    response.cookies.set('access_token', accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 15 * 60,
-    });
-
-    return response;
-  } catch (err: any) {
-    console.error('[Login Route Error]', err);
-    return NextResponse.json({ error: err.message || 'Login failed' }, { status: 500 });
-  }
-}
+    return sessionResponse(result.userId, req, { status: 'signed_in', redirectTo: await landingPathFor(result.userId, body.next) });
+  },
+);

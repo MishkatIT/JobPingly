@@ -1,150 +1,206 @@
-@import 'tailwindcss/base';
-@import 'tailwindcss/components';
-@import 'tailwindcss/utilities';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-/* Base styles for Light and Dark themes */
-html, body {
-  margin: 0;
-  padding: 0;
-  min-height: 100vh;
+/*
+ * JobPingly design tokens.
+ *
+ * Every colour in the product comes from this file. Values are space-separated
+ * RGB triplets so Tailwind can apply opacity (bg-accent/10). Components use the
+ * semantic names from tailwind.config.js; nothing below should be referenced
+ * directly except through those classes.
+ *
+ * Principles: a near-neutral canvas, hairline borders instead of shadows, ink
+ * for primary actions, and a single accent that is reserved for links, focus
+ * and "this is live / new" signals. Status colours are only ever used for
+ * status.
+ */
+@layer base {
+  :root {
+    --canvas: 250 250 251;
+    --surface: 255 255 255;
+    --raised: 255 255 255;
+    --sunken: 244 245 247;
+    --line: 230 232 236;
+    --line-strong: 208 211 218;
+
+    --ink: 14 16 20;
+    --muted: 88 95 108;
+    --subtle: 134 141 153;
+
+    --primary: 14 16 20;
+    --primary-hover: 38 42 51;
+    --primary-fg: 255 255 255;
+
+    --accent: 36 87 245;
+    --accent-hover: 24 68 210;
+    --accent-soft: 237 242 255;
+    --accent-fg: 255 255 255;
+
+    --success: 11 122 83;
+    --success-soft: 230 246 239;
+    --warning: 156 88 4;
+    --warning-soft: 254 244 225;
+    --danger: 190 48 38;
+    --danger-soft: 253 236 234;
+    --danger-solid: 206 52 41;
+    --info: 36 87 245;
+    --info-soft: 237 242 255;
+
+    --shadow: 15 18 25;
+    color-scheme: light;
+  }
+
+  .dark {
+    --canvas: 10 11 14;
+    --surface: 16 18 22;
+    --raised: 22 25 31;
+    --sunken: 13 15 18;
+    --line: 34 38 46;
+    --line-strong: 52 57 68;
+
+    --ink: 236 238 242;
+    --muted: 160 167 180;
+    --subtle: 110 118 132;
+
+    --primary: 236 238 242;
+    --primary-hover: 255 255 255;
+    --primary-fg: 14 16 20;
+
+    --accent: 118 152 255;
+    --accent-hover: 150 176 255;
+    --accent-soft: 24 33 61;
+    --accent-fg: 10 11 14;
+
+    --success: 74 201 152;
+    --success-soft: 14 42 33;
+    --warning: 236 176 84;
+    --warning-soft: 48 35 12;
+    --danger: 245 124 114;
+    --danger-soft: 54 20 18;
+    --danger-solid: 214 68 58;
+    --info: 118 152 255;
+    --info-soft: 24 33 61;
+
+    --shadow: 0 0 0;
+    color-scheme: dark;
+  }
+
+  * {
+    border-color: rgb(var(--line));
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+    scroll-padding-top: 5rem;
+  }
+
+  body {
+    @apply bg-canvas text-ink text-base antialiased;
+    font-feature-settings: 'cv11', 'ss03';
+    min-height: 100dvh;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-semibold tracking-tight text-ink;
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  /* One focus treatment everywhere, visible only for keyboard users. */
+  :focus-visible {
+    outline: 2px solid rgb(var(--accent));
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: rgb(var(--accent) / 0.2);
+  }
+
+  /* Numbers in data views line up in columns. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  dialog {
+    color: inherit;
+  }
+
+  dialog::backdrop {
+    background: rgb(var(--shadow) / 0.45);
+    backdrop-filter: blur(2px);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }
 
-html.light, html.light body {
-  background-color: #f1f5f9;
-  color: #0f172a;
-  color-scheme: light;
+@layer components {
+  /* Thin, unobtrusive scrollbars inside panels. */
+  .scroll-slim {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--line-strong)) transparent;
+  }
+
+  .skeleton {
+    @apply rounded bg-sunken;
+    background-image: linear-gradient(90deg, transparent 0%, rgb(var(--line) / 0.6) 50%, transparent 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.6s linear infinite;
+  }
+
+  /* Long-form text: legal pages, help articles, job descriptions. */
+  .prose-jp {
+    @apply text-md leading-7 text-muted;
+  }
+  .prose-jp h2 {
+    @apply mb-3 mt-10 text-xl text-ink;
+  }
+  .prose-jp h3 {
+    @apply mb-2 mt-8 text-lg text-ink;
+  }
+  .prose-jp p {
+    @apply mb-4;
+  }
+  .prose-jp ul {
+    @apply mb-4 list-disc space-y-1.5 pl-5;
+  }
+  .prose-jp ol {
+    @apply mb-4 list-decimal space-y-1.5 pl-5;
+  }
+  .prose-jp a {
+    @apply text-accent underline underline-offset-2 hover:text-accent-hover;
+  }
+  .prose-jp strong {
+    @apply font-semibold text-ink;
+  }
+  .prose-jp code {
+    @apply rounded bg-sunken px-1.5 py-0.5 font-mono text-sm text-ink;
+  }
 }
 
-html.dark, html.dark body, body {
-  background-color: #080c14;
-  color: #f8fafc;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  overflow-x: hidden;
-  color-scheme: dark;
-}
-
-/* Premium Card & Panel Glassmorphism */
-html.dark .glass-panel {
-  background: rgba(15, 23, 42, 0.75);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-}
-
-html.light .glass-panel {
-  background: #ffffff;
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid #cbd5e1;
-  box-shadow: 0 4px 25px rgba(0, 0, 0, 0.04);
-}
-
-html.dark .glass-card {
-  background-color: rgba(30, 41, 59, 0.45);
-  backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-html.light .glass-card {
-  background-color: #ffffff;
-  backdrop-filter: blur(14px);
-  border: 1px solid #e2e8f0;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.03);
-}
-
-html.dark .glass-card:hover {
-  border-color: rgba(56, 189, 248, 0.4);
-  transform: translateY(-3px);
-  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.5);
-}
-
-html.light .glass-card:hover {
-  border-color: #0284c7;
-  transform: translateY(-3px);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.07);
-}
-
-/* Custom UI Badges & Buttons */
-.btn-primary {
-  background-color: #2563eb;
-  color: #ffffff;
-  font-weight: 600;
-  border-radius: 0.75rem;
-  transition: all 0.2s ease;
-  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
-}
-.btn-primary:hover {
-  background-color: #1d4ed8;
-  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5);
-  transform: translateY(-1px);
-}
-
-/* Custom Sleek Scrollbars */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-html.dark ::-webkit-scrollbar-thumb {
-  background: #334155;
-  border-radius: 9999px;
-}
-html.light ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 9999px;
-}
-
-/* Hover-Only Visible Scrollbars (Firefox & Webkit) */
-.hover-scrollbar {
-  scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
-}
-
-.hover-scrollbar:hover {
-  scrollbar-color: #94a3b8 transparent;
-}
-
-html.dark .hover-scrollbar:hover {
-  scrollbar-color: #475569 transparent;
-}
-
-.hover-scrollbar::-webkit-scrollbar {
-  width: 7px;
-  height: 7px;
-}
-
-.hover-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.hover-scrollbar::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 9999px;
-}
-
-.hover-scrollbar:hover::-webkit-scrollbar-thumb {
-  background: #94a3b8 !important;
-}
-
-html.dark .hover-scrollbar:hover::-webkit-scrollbar-thumb {
-  background: #475569 !important;
-}
-
-/* Site-wide Opaque Dropdown Panels (Zero Translucency / Text Bleed-Through) */
-html.dark .dropdown-menu, html.dark [role="menu"], .dropdown-panel {
-  background-color: #0f172a !important;
-  opacity: 1 !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-}
-
-html.light .dropdown-menu, html.light [role="menu"], .dropdown-panel {
-  background-color: #ffffff !important;
-  opacity: 1 !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  /* Visually hidden but available to assistive technology. */
+  .sr-only-focusable:not(:focus):not(:focus-within) {
+    @apply sr-only;
+  }
 }

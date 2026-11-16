@@ -20,7 +20,7 @@ export const FREQUENCY_OPTIONS: FrequencyOption[] = [
   { value: 'weekly', label: 'Weekly Digest (Summary every Monday)', description: 'Weekly summary' },
   { value: 'biweekly', label: 'Bi-weekly Digest (Summary every other Monday)', description: 'Fortnightly summary' },
   { value: 'monthly', label: 'Monthly Digest (Summary on 1st of month)', description: 'Monthly summary' },
-  { value: 'custom', label: '⚙️ Custom Frequency Interval...', description: 'Custom hours, days, or weeks' },
+  { value: 'custom', label: 'Custom interval...', description: 'Custom hours, days, or weeks' },
 ];
 
 export function normalizeFrequencyValue(value: string): string {

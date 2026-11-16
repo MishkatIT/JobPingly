@@ -1,81 +1,41 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getAuthUser } from '@/lib/auth/guard';
+import { z } from 'zod';
+import { created, route } from '@/lib/api/route';
+import { ISSUE_CATEGORIES } from '@/lib/constants';
 import { db } from '@/lib/db/client';
-import { reportedIssues, users } from '@/lib/db/schema';
-import { checkRateLimit, getClientIp } from '@/lib/security/rateLimit';
-import { eq } from 'drizzle-orm';
+import { reportedIssues } from '@/lib/db/schema';
+import { cleanText } from '@/lib/security/html';
+import { isSafeHref } from '@/lib/security/ssrf';
 
-// POST submit a new issue or feedback report
-export async function POST(req: NextRequest) {
-  try {
-    const clientIp = getClientIp(req);
-    const rateLimit = checkRateLimit({
-      key: `issue-submit:${clientIp}`,
-      limit: 5,
-      windowMs: 15 * 60 * 1000,
-    });
+const body = z.object({
+  category: z.enum(ISSUE_CATEGORIES).default('general'),
+  subject: z.string().trim().min(3, 'Add a short subject.').max(140),
+  description: z.string().trim().min(10, 'Tell us a little more (at least 10 characters).').max(5000),
+  email: z.email('Enter a valid email so we can reply.').max(254).optional(),
+  name: z.string().max(80).optional(),
+  targetUrl: z.string().max(2000).optional(),
+});
 
-    if (!rateLimit.success) {
-      return NextResponse.json(
-        { error: `Too many reports submitted. Please try again in ${rateLimit.resetInSeconds} seconds.` },
-        { status: 429 }
-      );
+/** Feedback and problem reports, from signed-in users or visitors. */
+export const POST = route(
+  { auth: 'optional', body, rateLimit: { name: 'issues:create', limit: 5, windowSeconds: 900, distributed: true } },
+  async ({ user, body }) => {
+    const email = user?.email ?? body.email;
+    if (!email) {
+      const { errors } = await import('@/lib/api/errors');
+      throw errors.validation([{ field: 'email', message: 'Enter your email so we can reply.' }]);
     }
-
-    const authUser = await getAuthUser(req);
-    const body = await req.json();
-    const { category, subject, description, targetUrl, email, name } = body;
-
-    if (!subject || !subject.trim() || !description || !description.trim()) {
-      return NextResponse.json(
-        { error: 'Subject and detailed description are required.' },
-        { status: 400 }
-      );
-    }
-
-    let reporterEmail = email?.toLowerCase().trim();
-    let reporterName = name?.trim();
-    let userId: string | null = null;
-
-    if (authUser) {
-      userId = authUser.userId;
-      const [u] = await db.select().from(users).where(eq(users.id, authUser.userId));
-      if (u) {
-        reporterEmail = u.email;
-        reporterName = u.name || reporterName || u.email.split('@')[0];
-      }
-    }
-
-    if (!reporterEmail || !reporterEmail.includes('@')) {
-      return NextResponse.json(
-        { error: 'Valid email address is required to submit a report.' },
-        { status: 400 }
-      );
-    }
-
-    const validCategory = ['jobs_not_loading', 'broken_url', 'scraper_bug', 'ui_bug', 'feature_request', 'general'].includes(category)
-      ? category
-      : 'general';
-
-    const [created] = await db.insert(reportedIssues).values({
-      userId,
-      reporterEmail,
-      reporterName: reporterName || null,
-      category: validCategory,
-      subject: subject.trim(),
-      description: description.trim(),
-      targetUrl: targetUrl ? targetUrl.trim() : null,
-      status: 'open',
-      priority: validCategory === 'broken_url' || validCategory === 'jobs_not_loading' || validCategory === 'scraper_bug' ? 'high' : 'medium',
-    }).returning();
-
-    return NextResponse.json({
-      success: true,
-      issue: created,
-      message: 'Thank you! Your issue report has been submitted to system administrators.',
-    }, { status: 201 });
-  } catch (err: any) {
-    console.error('[Submit Issue Error]', err);
-    return NextResponse.json({ error: err.message || 'Failed to submit issue report.' }, { status: 500 });
-  }
-}
+    const [issue] = await db
+      .insert(reportedIssues)
+      .values({
+        userId: user?.id ?? null,
+        reporterEmail: email.toLowerCase(),
+        reporterName: cleanText(user?.name ?? body.name, 80) || null,
+        category: body.category,
+        subject: cleanText(body.subject, 140),
+        description: body.description,
+        targetUrl: body.targetUrl && isSafeHref(body.targetUrl) ? body.targetUrl : null,
+      })
+      .returning({ id: reportedIssues.id });
+    return created({ id: issue.id });
+  },
+);
