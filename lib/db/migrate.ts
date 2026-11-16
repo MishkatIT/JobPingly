@@ -46,12 +46,6 @@ export function listMigrationFiles(directory: string): string[] {
     .sort();
 }
 
-/** Names of migration files not yet applied to the database (read-only check). */
-export async function pendingMigrations(databaseUrl: string, directory?: string): Promise<string[]> {
-  const result = await runMigrations({ databaseUrl, directory, dryRun: true });
-  return result.applied;
-}
-
 export async function runMigrations(options: MigrateOptions): Promise<MigrationResult> {
   const directory = options.directory ?? path.join(process.cwd(), 'drizzle');
   const log = options.log ?? (() => {});

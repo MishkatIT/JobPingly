@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import { afterEach, describe, test } from 'node:test';
+import { listMigrationFiles } from '@/lib/db/migrate';
+import { LATEST_MIGRATION } from '@/lib/db/schema-version';
 import { env } from '@/lib/env';
+
+describe('Schema version', () => {
+  test('the worker expects the newest migration file', () => {
+    const files = listMigrationFiles(path.join(process.cwd(), 'drizzle'));
+    assert.equal(LATEST_MIGRATION, files[files.length - 1], 'update LATEST_MIGRATION in lib/db/schema-version.ts');
+  });
+});
 
 /**
  * A production process with no mail provider must not treat logged emails as

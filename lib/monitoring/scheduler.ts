@@ -5,7 +5,7 @@ import { env } from '@/lib/env';
 import { processNotificationQueue } from '@/lib/notifications/processor';
 import { getSettings, invalidateSettingsCache } from '@/lib/settings/store';
 import { toScanError } from './errors';
-import { pendingMigrations } from '@/lib/db/migrate';
+import { LATEST_MIGRATION, schemaIsCurrent } from '@/lib/db/schema-version';
 import { backfillMatchesIfEmpty, closeExpiredJobs, runDailyHousekeeping, sendDueReminders } from './housekeeping';
 import { runScan } from './pipeline';
 import { claimTasks, completeTask, enqueueDueSources, failTask, recoverExpiredLeases, type ClaimedTask } from './queue';
@@ -189,12 +189,8 @@ export async function runCycle(options: CycleOptions = {}): Promise<CycleReport>
     // Never run against a database the code does not match yet (for example a
     // separate worker service that starts before the web service migrated).
     if (!globalThis.__jpSchemaReady) {
-      const pending = await pendingMigrations(env.databaseUrl).catch(error => {
-        console.warn('[worker] Could not check for pending migrations:', (error as Error).message);
-        return [] as string[];
-      });
-      if (pending.length > 0) {
-        report.skipped = `Database migrations pending (${pending.join(', ')}). Run "npm run db:migrate"; "npm start" does this automatically.`;
+      if (!(await schemaIsCurrent())) {
+        report.skipped = `The database is missing migration ${LATEST_MIGRATION}. Run "npm run db:migrate"; "npm start" does this automatically.`;
         console.warn(`[worker] ${report.skipped}`);
         report.durationMs = Date.now() - startedAt;
         return report;
