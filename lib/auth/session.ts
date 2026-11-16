@@ -63,11 +63,8 @@ interface CacheEntry {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
   var __jpSessionCache: Map<string, CacheEntry> | undefined;
-  // eslint-disable-next-line no-var
   var __jpActivityWrites: Map<string, number> | undefined;
-  // eslint-disable-next-line no-var
   var __jpCookieIssued: Map<string, number> | undefined;
 }
 

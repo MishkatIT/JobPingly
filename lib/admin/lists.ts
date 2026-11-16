@@ -1,9 +1,9 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { errors } from '@/lib/api/errors';
 import { recordAudit, type AuditActor } from '@/lib/audit';
 import { client, db } from '@/lib/db/client';
-import { lists } from '@/lib/db/schema';
-import { deleteMatchesForList } from '@/lib/monitoring/matching';
+import { listSubscriptions, lists, notificationQueue } from '@/lib/db/schema';
+import { deleteMatchesForList, recomputeMatchesForSubscription } from '@/lib/monitoring/matching';
 
 export const LIST_STATE_FILTERS = ['active', 'trash', 'featured', 'public'] as const;
 
@@ -69,10 +69,20 @@ export async function applyListAction(actor: AuditActor, listId: string, action:
       if (list.deletedAt) break;
       await db.update(lists).set({ deletedAt: now, featuredAt: null, updatedAt: now }).where(eq(lists.id, listId));
       await deleteMatchesForList(listId);
+      // Same as an owner deleting it: alerts already queued for this list are not sent.
+      await db
+        .update(notificationQueue)
+        .set({ sentAt: now, lastError: 'Watchlist removed by an administrator before delivery' })
+        .where(and(eq(notificationQueue.listId, listId), isNull(notificationQueue.sentAt)));
       break;
-    case 'restore':
+    case 'restore': {
+      if (!list.deletedAt) break;
       await db.update(lists).set({ deletedAt: null, updatedAt: now }).where(eq(lists.id, listId));
+      // Trashing removed every follower's matches; rebuild them so "Matching" is complete again.
+      const subscribers = await db.select({ userId: listSubscriptions.userId }).from(listSubscriptions).where(eq(listSubscriptions.listId, listId));
+      for (const subscriber of subscribers) await recomputeMatchesForSubscription(subscriber.userId, listId);
       break;
+    }
   }
 
   const auditAction = action === 'trash' ? 'list.trash' : action === 'restore' ? 'list.restore' : 'list.update';

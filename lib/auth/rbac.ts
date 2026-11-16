@@ -47,7 +47,7 @@ export const PERMISSIONS = {
 
   'settings.read': 'View platform settings',
   'settings.manage': 'Change limits, feature flags and announcements',
-  'settings.sensitive': 'Change registration, maintenance mode and monitoring kill-switches',
+  'settings.sensitive': 'Change sign-up and sign-in availability, maintenance mode and the email alert kill-switch',
 
   'audit.read': 'View the audit log',
   'data.export': 'Export platform data',

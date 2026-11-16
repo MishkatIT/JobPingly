@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ArrowLeft, Building2, CalendarClock, ExternalLink, EyeOff, History, MapPin, Sparkles } from 'lucide-react';
 import { useRevalidateWorkspace } from '@/components/app/add-company-dialog';
 import { CompanyAvatar, JobFacets, TimeAgo } from '@/components/app/bits';
@@ -71,15 +71,17 @@ export default function JobDetailPage() {
   const [tracking, setTracking] = useState({ status: '', notes: '', appliedAt: '', reminderAt: '' });
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    if (!data) return;
+  // Load the saved tracking details into the form whenever fresh data arrives.
+  const [loadedFrom, setLoadedFrom] = useState<JobDetail | undefined>(undefined);
+  if (data && data !== loadedFrom) {
+    setLoadedFrom(data);
     setTracking({
       status: data.tracking?.status ?? '',
       notes: data.tracking?.notes ?? '',
       appliedAt: data.tracking?.appliedAt ? data.tracking.appliedAt.slice(0, 10) : '',
       reminderAt: toLocalInputValue(data.tracking?.reminderAt),
     });
-  }, [data]);
+  }
 
   if (error) {
     return (

@@ -69,6 +69,12 @@ export async function listJobsAdmin(options: { q?: string; status: (typeof JOB_S
   };
 }
 
+/** Name of the source a job list is filtered by, for the filter chip. */
+export async function sourceSummary(id: string): Promise<{ id: string; name: string } | null> {
+  const [row] = await db.select({ id: careerPages.id, companyName: careerPages.companyName, url: careerPages.url }).from(careerPages).where(eq(careerPages.id, id));
+  return row ? { id: row.id, name: displayCompanyName(row.companyName, row.url) } : null;
+}
+
 export async function jobDetailAdmin(id: string) {
   const [row] = await db.select({ job: jobs, source: careerPages }).from(jobs).innerJoin(careerPages, eq(careerPages.id, jobs.careerPageId)).where(eq(jobs.id, id));
   if (!row) return null;

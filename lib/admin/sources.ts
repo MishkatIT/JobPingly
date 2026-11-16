@@ -4,7 +4,7 @@ import { recordAudit, type AuditActor } from '@/lib/audit';
 import { displayCompanyName, ensureSource } from '@/lib/companies/service';
 import { client, db } from '@/lib/db/client';
 import { careerPages, monitorTasks, scrapeLogs, users } from '@/lib/db/schema';
-import { adapterLabel, getAdapter } from '@/lib/monitoring/adapters';
+import { adapterLabel, getAdapter, listAdapters } from '@/lib/monitoring/adapters';
 import { describeErrorClass, toScanError } from '@/lib/monitoring/errors';
 import { extractSource } from '@/lib/monitoring/extract';
 import { createHttpClient } from '@/lib/monitoring/http';
@@ -95,6 +95,29 @@ export async function listSources(options: {
       errorLabel: row.lastErrorClass ? describeErrorClass(row.lastErrorClass).label : null,
     })),
   };
+}
+
+/** How many sources fall under each status filter, for the filter tabs. */
+export async function sourceStatusCounts(): Promise<Record<(typeof SOURCE_STATUS_FILTERS)[number], number>> {
+  const [row] = await client<Record<(typeof SOURCE_STATUS_FILTERS)[number], number>[]>`
+    SELECT
+      count(*)::int AS "all",
+      count(*) FILTER (WHERE cp.status = 'active' AND cp.last_success_at IS NOT NULL)::int AS "active",
+      count(*) FILTER (WHERE cp.status = 'degraded')::int AS "degraded",
+      count(*) FILTER (WHERE cp.status = 'broken')::int AS "broken",
+      count(*) FILTER (WHERE cp.status = 'paused')::int AS "paused",
+      count(*) FILTER (WHERE cp.last_success_at IS NULL AND cp.status <> 'paused')::int AS "pending",
+      count(*) FILTER (WHERE NOT EXISTS (
+        SELECT 1 FROM list_career_pages x JOIN lists l ON l.id = x.list_id
+        WHERE x.career_page_id = cp.id AND l.deleted_at IS NULL))::int AS "unwatched"
+    FROM career_pages cp
+  `;
+  return row ?? { all: 0, active: 0, degraded: 0, broken: 0, paused: 0, pending: 0, unwatched: 0 };
+}
+
+/** Adapter ids and names, for filters and the adapter override picker. */
+export function adapterOptions() {
+  return listAdapters().map(({ id, label, kind }) => ({ id, label, kind }));
 }
 
 export async function sourceDetail(id: string) {

@@ -30,7 +30,8 @@ export function SessionProvider({ initialUser, children }: { initialUser: Client
     try {
       await api('/api/auth/logout', { method: 'POST', body: {} });
     } finally {
-      window.location.assign('/login');
+      // A full page load, so no signed-in state survives in memory.
+      window.location.assign(new URL('/login', window.location.origin).href);
     }
   }, []);
 

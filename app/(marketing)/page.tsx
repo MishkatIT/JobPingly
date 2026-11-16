@@ -238,16 +238,17 @@ interface PreviewJob {
 }
 
 /** A view of the job feed. Uses real, recently discovered jobs from public watchlists when there are any. */
+/** Shown only until enough real public jobs exist; clearly captioned as an example. */
+const ILLUSTRATIVE_ROWS: (Omit<PreviewJob, 'firstSeenAt'> & { seen: string })[] = [
+  { id: '1', title: 'Senior Frontend Engineer', companyName: 'Example Pay', location: 'Remote, Asia', workplaceType: 'remote', employmentType: 'full_time', seen: '42 minutes ago', logoUrl: null },
+  { id: '2', title: 'Data Engineer', companyName: 'Example Commerce', location: 'Dhaka', workplaceType: 'hybrid', employmentType: 'full_time', seen: '3 hours ago', logoUrl: null },
+  { id: '3', title: 'Product Designer', companyName: 'Example Labs', location: 'Berlin', workplaceType: 'onsite', employmentType: 'full_time', seen: '9 hours ago', logoUrl: null },
+  { id: '4', title: 'Backend Engineer, Payments', companyName: 'Example Pay', location: 'Remote', workplaceType: 'remote', employmentType: 'contract', seen: 'yesterday', logoUrl: null },
+];
+
 function ProductPreview({ jobs }: { jobs: PreviewJob[] }) {
   const live = jobs.length >= 3;
-  const rows: PreviewJob[] = live
-    ? jobs
-    : [
-        { id: '1', title: 'Senior Frontend Engineer', companyName: 'Example Pay', location: 'Remote, Asia', workplaceType: 'remote', employmentType: 'full_time', firstSeenAt: new Date(Date.now() - 42 * 60_000), logoUrl: null },
-        { id: '2', title: 'Data Engineer', companyName: 'Example Commerce', location: 'Dhaka', workplaceType: 'hybrid', employmentType: 'full_time', firstSeenAt: new Date(Date.now() - 3 * 3600_000), logoUrl: null },
-        { id: '3', title: 'Product Designer', companyName: 'Example Labs', location: 'Berlin', workplaceType: 'onsite', employmentType: 'full_time', firstSeenAt: new Date(Date.now() - 9 * 3600_000), logoUrl: null },
-        { id: '4', title: 'Backend Engineer, Payments', companyName: 'Example Pay', location: 'Remote', workplaceType: 'remote', employmentType: 'contract', firstSeenAt: new Date(Date.now() - 26 * 3600_000), logoUrl: null },
-      ];
+  const rows = live ? jobs.map(job => ({ ...job, seen: formatRelative(job.firstSeenAt) })) : ILLUSTRATIVE_ROWS;
 
   return (
     <figure className="overflow-hidden rounded-xl border border-line bg-surface shadow-md">
@@ -270,7 +271,7 @@ function ProductPreview({ jobs }: { jobs: PreviewJob[] }) {
               </p>
               <JobFacets workplaceType={job.workplaceType} employmentType={job.employmentType} className="mt-2" />
             </div>
-            <span className="shrink-0 text-xs text-subtle">{formatRelative(job.firstSeenAt)}</span>
+            <span className="shrink-0 text-xs text-subtle">{job.seen}</span>
           </li>
         ))}
       </ul>

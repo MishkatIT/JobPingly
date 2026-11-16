@@ -91,7 +91,6 @@ function guardedLookup(hostname: string, options: dns.LookupOptions, callback: L
 }
 
 declare global {
-  // eslint-disable-next-line no-var
   var __jpScanAgent: Agent | undefined;
 }
 
@@ -117,7 +116,6 @@ interface HostState {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
   var __jpHostStates: Map<string, HostState> | undefined;
 }
 

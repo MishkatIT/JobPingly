@@ -2,9 +2,9 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useMemo, useState } from 'react';
 import { BellRing, Download, ExternalLink, Plus, SquareKanban, Trash2 } from 'lucide-react';
-import { Button, IconButton } from '@/components/ui/button';
+import { Button, IconButton, buttonClass } from '@/components/ui/button';
 import { Field, Input, Select, Textarea } from '@/components/ui/form';
 import { Dialog, Segmented, useConfirm } from '@/components/ui/overlay';
 import { Badge, EmptyState, ErrorState, PageHeader, Skeleton } from '@/components/ui/primitives';
@@ -59,14 +59,14 @@ function TrackerView() {
   const [editing, setEditing] = useState<Entry | null>(null);
   const [adding, setAdding] = useState(false);
 
-  // Reminder notifications link to ?focus=<entry id>: open that entry's notes.
+  // Reminder notifications link to ?focus=<entry id>: that entry's notes open first.
   const focus = params.get('focus');
-  useEffect(() => {
-    if (!focus || !data) return;
-    const entry = data.find(item => item.id === focus);
-    if (entry) setEditing(entry);
-    router.replace(pathname, { scroll: false });
-  }, [focus, data, router, pathname]);
+  const focused = focus ? (data?.find(item => item.id === focus) ?? null) : null;
+  const notesEntry = editing ?? focused;
+  const closeNotes = () => {
+    setEditing(null);
+    if (focus) router.replace(pathname, { scroll: false });
+  };
 
   const grouped = useMemo(() => {
     const map = new Map(COLUMNS.map(column => [column.id, [] as Entry[]]));
@@ -170,7 +170,8 @@ function TrackerView() {
                 { value: 'list', label: 'List' },
               ]}
             />
-            <a href="/api/tracker/export" className="inline-flex h-9 items-center gap-1.5 rounded-md border border-line-strong bg-surface px-3.5 text-base font-medium text-ink shadow-xs hover:bg-sunken">
+            {/* A file download, so a plain link rather than client-side navigation. */}
+            <a href="/api/tracker/export" download className={buttonClass('secondary')}>
               <Download className="h-4 w-4" aria-hidden="true" /> Export CSV
             </a>
             <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setAdding(true)}>
@@ -228,7 +229,7 @@ function TrackerView() {
         </div>
       )}
 
-      <NotesDialog entry={editing} onClose={() => setEditing(null)} onSaved={() => mutate()} />
+      <NotesDialog entry={notesEntry} onClose={closeNotes} onSaved={() => mutate()} />
       <AddJobDialog open={adding} onClose={() => setAdding(false)} onSaved={() => mutate()} />
       {confirmElement}
     </>

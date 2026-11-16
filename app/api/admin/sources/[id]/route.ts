@@ -2,12 +2,12 @@ import { z } from 'zod';
 import { errors } from '@/lib/api/errors';
 import { idParams, route } from '@/lib/api/route';
 import { actorOf } from '@/lib/audit';
-import { deleteSources, setSourcePaused, sourceDetail, updateSource } from '@/lib/admin/sources';
+import { adapterOptions, deleteSources, setSourcePaused, sourceDetail, updateSource } from '@/lib/admin/sources';
 
 export const GET = route({ permission: 'sources.read', params: idParams }, async ({ params }) => {
   const detail = await sourceDetail(params.id);
   if (!detail) throw errors.notFound('Source');
-  return detail;
+  return { ...detail, adapters: adapterOptions() };
 });
 
 const body = z.object({

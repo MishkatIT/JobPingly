@@ -1,25 +1,24 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Field, Input } from '@/components/ui/form';
 import { Callout } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
 import { api, ApiClientError, errorMessage } from '@/lib/client/api';
-import { clearVerification, readVerification, type PendingVerification } from './storage';
+import { useStoredString } from '@/lib/client/use-storage';
+import { VERIFICATION_KEY, clearVerification, parseVerification, type PendingVerification } from './storage';
 
 export default function VerifyPage() {
   const toast = useToast();
-  const [pending, setPending] = useState<PendingVerification | null | undefined>(undefined);
+  const raw = useStoredString('session', VERIFICATION_KEY);
+  const pending = useMemo<PendingVerification | null | undefined>(() => (raw === undefined ? undefined : parseVerification(raw)), [raw]);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState(60);
-
-  useEffect(() => {
-    setPending(readVerification());
-  }, []);
+  const [redirecting, setRedirecting] = useState(false);
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -28,6 +27,7 @@ export default function VerifyPage() {
   }, [cooldown]);
 
   if (pending === undefined) return <div className="h-64" aria-busy="true" />;
+  if (redirecting) return <p className="text-base text-muted" role="status">Email confirmed. Signing you in…</p>;
 
   if (!pending) {
     return (
@@ -52,6 +52,7 @@ export default function VerifyPage() {
     setError(null);
     try {
       const result = await api<{ redirectTo: string }>('/api/auth/verify', { body: { ticket: pending.ticket, code: code.replace(/\D/g, ''), next: pending.next ?? undefined } });
+      setRedirecting(true);
       clearVerification();
       window.location.assign(result.redirectTo);
     } catch (err) {

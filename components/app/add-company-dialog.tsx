@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useSWRConfig } from 'swr';
 import { CircleAlert, CircleCheck, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -53,25 +53,29 @@ export function AddCompanyDialog({
 
   const [url, setUrl] = useState('');
   const [companyName, setCompanyName] = useState('');
-  const [listId, setListId] = useState(defaultListId ?? '');
+  const [chosenListId, setListId] = useState(defaultListId ?? '');
   const [newListName, setNewListName] = useState('My companies');
   const [preview, setPreview] = useState<Preview | null>(null);
   const [checking, setChecking] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    setUrl(defaultUrl ?? '');
-    setCompanyName(defaultName ?? '');
-    setPreview(null);
-    setError(null);
-    setListId(defaultListId ?? '');
-  }, [open, defaultListId, defaultUrl, defaultName]);
+  // Start from a clean form each time the dialog opens (adjusting state while
+  // rendering, as React recommends, instead of in an effect).
+  const [wasOpen, setWasOpen] = useState(false);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setUrl(defaultUrl ?? '');
+      setCompanyName(defaultName ?? '');
+      setPreview(null);
+      setError(null);
+      setListId(defaultListId ?? '');
+    }
+  }
 
-  useEffect(() => {
-    if (!listId && editable.length > 0) setListId(editable[0].id);
-  }, [editable, listId]);
+  // Until the user picks one, add to the requested list or the first editable one.
+  const listId = editable.some(list => list.id === chosenListId) ? chosenListId : (editable[0]?.id ?? '');
 
   const check = async () => {
     if (!url.trim()) return;
@@ -123,7 +127,7 @@ export function AddCompanyDialog({
           <Button onClick={onClose} disabled={saving}>
             Cancel
           </Button>
-          <Button variant="primary" loading={saving} disabled={!url.trim()} onClick={add}>
+          <Button variant="primary" loading={saving} disabled={!url.trim() || !lists} onClick={add}>
             Add company
           </Button>
         </>

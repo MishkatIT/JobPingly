@@ -8,12 +8,39 @@ import { createNotifications } from '@/lib/notifications/inapp';
 import { pruneNotifications } from '@/lib/notifications/inapp';
 import { pruneNotificationQueue } from '@/lib/notifications/processor';
 import { getSettings } from '@/lib/settings/store';
+import { recomputeMatchesForSubscription } from './matching';
 import { pruneFinishedTasks } from './queue';
 
 /**
  * Periodic maintenance. Each task is a small number of set-based statements;
  * nothing here loads a table into memory.
  */
+
+/**
+ * One-time catch-up after upgrading from v1, which had no match table: when
+ * there are alerts but no recorded matches at all, compute every alert's
+ * matches against the jobs that are open now, so the "Matching" view is not
+ * empty until new jobs arrive. Never notifies. Returns null when not needed.
+ */
+export async function backfillMatchesIfEmpty(): Promise<number | null> {
+  const [state] = await client<{ hasMatches: boolean; hasSubscriptions: boolean }[]>`
+    SELECT EXISTS (SELECT 1 FROM job_matches) AS "hasMatches",
+      EXISTS (SELECT 1 FROM list_subscriptions) AS "hasSubscriptions"
+  `;
+  if (!state || state.hasMatches || !state.hasSubscriptions) return null;
+
+  const subscriptions = await client<{ userId: string; listId: string }[]>`
+    SELECT s.user_id AS "userId", s.list_id AS "listId"
+    FROM list_subscriptions s
+    JOIN lists l ON l.id = s.list_id AND l.deleted_at IS NULL
+    JOIN users u ON u.id = s.user_id AND NOT u.is_blocked
+  `;
+  let total = 0;
+  for (const subscription of subscriptions) {
+    total += await recomputeMatchesForSubscription(subscription.userId, subscription.listId);
+  }
+  return total;
+}
 
 /** Closes jobs whose application deadline has passed. Runs every cycle (one UPDATE). */
 export async function closeExpiredJobs(): Promise<number> {

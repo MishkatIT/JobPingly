@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { Monitor, Moon, Sun } from 'lucide-react';
 import { cn } from '@/lib/client/cn';
+import { useStoredString, writeStoredString } from '@/lib/client/use-storage';
 
 export type ThemePreference = 'light' | 'dark' | 'system';
 const STORAGE_KEY = 'jp-theme';
@@ -18,23 +19,24 @@ function apply(preference: ThemePreference) {
   document.documentElement.classList.toggle('dark', dark);
 }
 
-export function useTheme(): [ThemePreference, (value: ThemePreference) => void] {
-  const [preference, setPreference] = useState<ThemePreference>('system');
+function toPreference(value: string | null | undefined): ThemePreference {
+  return value === 'light' || value === 'dark' ? value : 'system';
+}
 
+export function useTheme(): [ThemePreference, (value: ThemePreference) => void] {
+  const preference = toPreference(useStoredString('local', STORAGE_KEY));
+
+  // Follow the operating system while the preference is "system".
   useEffect(() => {
-    const stored = (localStorage.getItem(STORAGE_KEY) as ThemePreference | null) ?? 'system';
-    setPreference(stored);
+    if (preference !== 'system') return;
     const media = window.matchMedia('(prefers-color-scheme: dark)');
-    const onChange = () => {
-      if ((localStorage.getItem(STORAGE_KEY) ?? 'system') === 'system') apply('system');
-    };
+    const onChange = () => apply('system');
     media.addEventListener('change', onChange);
     return () => media.removeEventListener('change', onChange);
-  }, []);
+  }, [preference]);
 
   const update = (value: ThemePreference) => {
-    localStorage.setItem(STORAGE_KEY, value);
-    setPreference(value);
+    writeStoredString('local', STORAGE_KEY, value);
     apply(value);
   };
   return [preference, update];

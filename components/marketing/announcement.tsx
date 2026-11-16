@@ -1,10 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/client/cn';
 import { useApi } from '@/lib/client/use-api';
+import { useStoredString, writeStoredString } from '@/lib/client/use-storage';
 
 interface Banner {
   enabled: boolean;
@@ -20,19 +20,16 @@ const STORAGE_KEY = 'jp-dismissed-banner';
 /** The site-wide announcement set in Admin > Settings. Dismissal is remembered per announcement. */
 export function AnnouncementBar() {
   const { data } = useApi<Banner>('/api/banner');
-  const [dismissed, setDismissed] = useState<string | null>(null);
+  const dismissed = useStoredString('local', STORAGE_KEY);
 
-  useEffect(() => {
-    setDismissed(localStorage.getItem(STORAGE_KEY));
-  }, []);
+  // `undefined` until hydrated: render nothing rather than flash a dismissed banner.
+  if (!data?.enabled || !data.message || dismissed === undefined) return null;
+  // Older banners were saved without an id; fall back to their content so
+  // dismissing one does not hide every later announcement.
+  const key = data.id || `${data.message}|${data.linkUrl ?? ''}`;
+  if (dismissed === key) return null;
 
-  if (!data?.enabled || !data.message || dismissed === (data.id ?? data.message)) return null;
-
-  const dismiss = () => {
-    const key = data.id ?? data.message ?? '';
-    localStorage.setItem(STORAGE_KEY, key);
-    setDismissed(key);
-  };
+  const dismiss = () => writeStoredString('local', STORAGE_KEY, key);
 
   return (
     <div

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { created, pageQuery, paginated, route, searchString } from '@/lib/api/route';
 import { actorOf } from '@/lib/audit';
-import { SOURCE_SORTS, SOURCE_STATUS_FILTERS, createSourceAsAdmin, listSources } from '@/lib/admin/sources';
+import { SOURCE_SORTS, SOURCE_STATUS_FILTERS, adapterOptions, createSourceAsAdmin, listSources, sourceStatusCounts } from '@/lib/admin/sources';
 
 const query = pageQuery.extend({
   q: searchString,
@@ -10,9 +10,10 @@ const query = pageQuery.extend({
   sort: z.enum(SOURCE_SORTS).default('name'),
 });
 
+/** Sources page; `meta.counts` holds the size of every status filter and `meta.adapters` the adapter names. */
 export const GET = route({ permission: 'sources.read', query }, async ({ query }) => {
-  const result = await listSources(query);
-  return paginated(result.items, { page: query.page, pageSize: query.pageSize, total: result.total });
+  const [result, counts] = await Promise.all([listSources(query), sourceStatusCounts()]);
+  return paginated(result.items, { page: query.page, pageSize: query.pageSize, total: result.total }, { counts, adapters: adapterOptions() });
 });
 
 const body = z.object({

@@ -28,7 +28,6 @@ import {
   shouldDeferForCohort,
   type NotificationPolicy,
 } from '@/lib/notifications/policy';
-import { test } from 'node:test';
 
 let failures = 0;
 let checks = 0;

@@ -54,6 +54,7 @@ export const AUDIT_ACTIONS = {
   'task.retry': 'Retried a monitoring task',
   'task.cancel': 'Cancelled a monitoring task',
   'task.run_cycle': 'Ran a worker cycle manually',
+  'task.recover': 'Returned stuck monitoring tasks to the queue',
   'queue.flush': 'Flushed the notification queue',
   'queue.clear': 'Cleared the notification queue',
 

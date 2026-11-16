@@ -5,7 +5,8 @@ import { env } from '@/lib/env';
 import { processNotificationQueue } from '@/lib/notifications/processor';
 import { getSettings, invalidateSettingsCache } from '@/lib/settings/store';
 import { toScanError } from './errors';
-import { closeExpiredJobs, runDailyHousekeeping, sendDueReminders } from './housekeeping';
+import { pendingMigrations } from '@/lib/db/migrate';
+import { backfillMatchesIfEmpty, closeExpiredJobs, runDailyHousekeeping, sendDueReminders } from './housekeeping';
 import { runScan } from './pipeline';
 import { claimTasks, completeTask, enqueueDueSources, failTask, recoverExpiredLeases, type ClaimedTask } from './queue';
 
@@ -53,14 +54,17 @@ export interface CycleReport {
   emailsSent: number;
   durationMs: number;
   error?: string;
+  /** Set when the cycle deliberately did nothing, e.g. while migrations are pending. */
+  skipped?: string;
+  /** Matches computed by the one-time catch-up after an upgrade. */
+  matchesBackfilled?: number;
 }
 
 declare global {
-  // eslint-disable-next-line no-var
+  var __jpSchemaReady: boolean | undefined;
+  var __jpMatchesChecked: boolean | undefined;
   var __jpCycleRunning: boolean | undefined;
-  // eslint-disable-next-line no-var
   var __jpLastHousekeeping: number | undefined;
-  // eslint-disable-next-line no-var
   var __jpWorkerStartedAt: Date | undefined;
 }
 
@@ -182,7 +186,36 @@ export async function runCycle(options: CycleOptions = {}): Promise<CycleReport>
   globalThis.__jpCycleRunning = true;
 
   try {
+    // Never run against a database the code does not match yet (for example a
+    // separate worker service that starts before the web service migrated).
+    if (!globalThis.__jpSchemaReady) {
+      const pending = await pendingMigrations(env.databaseUrl).catch(error => {
+        console.warn('[worker] Could not check for pending migrations:', (error as Error).message);
+        return [] as string[];
+      });
+      if (pending.length > 0) {
+        report.skipped = `Database migrations pending (${pending.join(', ')}). Run "npm run db:migrate"; "npm start" does this automatically.`;
+        console.warn(`[worker] ${report.skipped}`);
+        report.durationMs = Date.now() - startedAt;
+        return report;
+      }
+      globalThis.__jpSchemaReady = true;
+    }
+
     await heartbeat(workerId, { cycleStart: true, lastError: null });
+
+    if (!globalThis.__jpMatchesChecked) {
+      globalThis.__jpMatchesChecked = true;
+      const backfilled = await backfillMatchesIfEmpty().catch(error => {
+        console.error('[worker] Match backfill failed:', (error as Error).message);
+        globalThis.__jpMatchesChecked = false;
+        return null;
+      });
+      if (backfilled !== null) {
+        report.matchesBackfilled = backfilled;
+        console.log(`[worker] Computed ${backfilled} matches for existing alerts (one-time catch-up).`);
+      }
+    }
 
     // Settings can be changed from another process (the web server).
     invalidateSettingsCache();

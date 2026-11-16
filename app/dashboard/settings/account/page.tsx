@@ -56,7 +56,7 @@ function DeleteAccountDialog({ open, profile, onClose }: { open: boolean; profil
     setError(null);
     try {
       await api('/api/me', { method: 'DELETE', body: profile.hasPassword ? { password: value } : { email: value } });
-      window.location.assign('/login?reason=deleted');
+      window.location.assign(new URL('/login?reason=deleted', window.location.origin).href);
     } catch (err) {
       setError(err instanceof ApiClientError ? (Object.values(err.fieldErrors)[0] ?? err.message) : errorMessage(err));
       setBusy(false);

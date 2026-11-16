@@ -49,7 +49,6 @@ interface OutboxEntry {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
   var __jpOutbox: OutboxEntry[] | undefined;
 }
 

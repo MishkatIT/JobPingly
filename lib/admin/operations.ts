@@ -118,6 +118,7 @@ export async function applyMonitoringAction(actor: AuditActor, action: Monitorin
     }
     case 'recover': {
       const recovered = await recoverExpiredLeases();
+      await recordAudit({ action: 'task.recover', actor, metadata: { requeued: recovered.requeued, failed: recovered.failed }, req });
       return { recovered };
     }
   }
@@ -260,6 +261,10 @@ export async function updateIssue(actor: AuditActor, id: string, patch: { status
     if (patch.status === 'resolved' || patch.status === 'closed') {
       changes.resolvedAt = new Date();
       changes.resolvedBy = actor.id;
+    } else {
+      // Reopened: it is no longer resolved.
+      changes.resolvedAt = null;
+      changes.resolvedBy = null;
     }
   }
   if (patch.priority) changes.priority = patch.priority;

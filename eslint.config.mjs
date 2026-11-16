@@ -16,6 +16,16 @@ const config = [
       '@next/next/no-img-element': 'off',
     },
   },
+  {
+    // Plain Node.js entry points (CommonJS by design: they run before any build step).
+    files: ['scripts/**/*.js'],
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
+  },
+  {
+    // Tests are not React code; helpers such as useFakeDns are not hooks.
+    files: ['tests/**/*.ts'],
+    rules: { 'react-hooks/rules-of-hooks': 'off' },
+  },
 ];
 
 export default config;

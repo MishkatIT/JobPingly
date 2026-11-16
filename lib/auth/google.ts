@@ -10,7 +10,6 @@ import { env } from '@/lib/env';
 const GOOGLE_ISSUERS = ['https://accounts.google.com', 'accounts.google.com'];
 
 declare global {
-  // eslint-disable-next-line no-var
   var __jpGoogleJwks: ReturnType<typeof createRemoteJWKSet> | undefined;
 }
 

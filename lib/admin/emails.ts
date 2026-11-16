@@ -40,6 +40,18 @@ export async function emailStats() {
       (SELECT count(DISTINCT user_id) FROM notification_queue WHERE sent_at IS NULL)::int AS recipients,
       (SELECT count(*) FROM email_approvals WHERE status = 'pending')::int AS approvals
   `;
+  // How alert recipients are spread over the staggering groups, folded into the current rotation length.
+  const groups = await client<{ dispatchGroup: number | null; users: number }[]>`
+    SELECT dispatch_group AS "dispatchGroup", count(*)::int AS users
+    FROM users WHERE email_notifications_enabled AND NOT is_blocked
+    GROUP BY 1
+  `;
+  const distribution = new Map<number, number>();
+  for (let group = 1; group <= policy.cycleDays; group++) distribution.set(group, 0);
+  for (const row of groups) {
+    const group = resolveCohortGroup(row.dispatchGroup, policy.cycleDays);
+    distribution.set(group, (distribution.get(group) ?? 0) + row.users);
+  }
   return {
     provider: env.email.provider,
     sender: env.email.senderEmail,
@@ -50,6 +62,11 @@ export async function emailStats() {
     byTemplate,
     delivery,
     pending,
+    cohorts: {
+      cycleDays: policy.cycleDays,
+      todayCohort: policy.todayCohort,
+      distribution: Array.from(distribution.entries()).map(([group, users]) => ({ group, users })),
+    },
   };
 }
 
@@ -203,12 +220,27 @@ export async function sendTestEmail(actor: AuditActor, to: string, note: string 
 
 export const BROADCAST_AUDIENCES = ['all', 'active30', 'alerts_on'] as const;
 
+/**
+ * Verified, unsuspended accounts that have not unsubscribed. The unsubscribe
+ * link in every announcement turns `email_notifications_enabled` off, so it
+ * must exclude people from every audience (before v2 it only applied to one
+ * audience, so unsubscribing did not stop future announcements). Addresses an
+ * admin has revoked are skipped as well.
+ */
 async function broadcastRecipients(audience: (typeof BROADCAST_AUDIENCES)[number]) {
   return client<{ id: string; email: string; name: string | null }[]>`
     SELECT u.id, u.email, u.name FROM users u
-    WHERE u.email_verified AND NOT u.is_blocked
+    LEFT JOIN email_approvals a ON a.email = u.email
+    WHERE u.email_verified AND NOT u.is_blocked AND u.email_notifications_enabled
+      AND a.status IS DISTINCT FROM 'unapproved'
       ${audience === 'active30' ? client`AND u.last_active_at > now() - interval '30 days'` : client``}
-      ${audience === 'alerts_on' ? client`AND u.email_notifications_enabled` : client``}
+      ${
+        audience === 'alerts_on'
+          ? client`AND EXISTS (
+              SELECT 1 FROM list_subscriptions s JOIN lists l ON l.id = s.list_id AND l.deleted_at IS NULL
+              WHERE s.user_id = u.id AND s.alerts_enabled)`
+          : client``
+      }
     ORDER BY u.created_at
   `;
 }
@@ -229,10 +261,14 @@ export async function sendBroadcast(
   const remaining = Math.max(0, policy.dailyLimit - policy.safetyBuffer - today.sentToday);
   const batch = recipients.slice(0, Math.min(remaining, 500));
 
-  if (input.dryRun) return { recipients: recipients.length, wouldSend: batch.length, remainingToday: remaining };
-
   const subject = cleanText(input.subject, 140);
   if (!subject || !input.message.trim()) throw errors.validation([{ field: 'message', message: 'Write a subject and a message.' }]);
+
+  if (input.dryRun) {
+    // Exactly what recipients will see, apart from the greeting and their own unsubscribe link.
+    const preview = broadcastEmail({ name: null, subject, message: input.message.slice(0, 10_000), unsubscribeUrl: `${env.appUrl}/unsubscribe` });
+    return { recipients: recipients.length, wouldSend: batch.length, remainingToday: remaining, preview: { subject: preview.subject, html: preview.html } };
+  }
 
   let sent = 0;
   let failed = 0;
@@ -260,16 +296,19 @@ export async function sendBroadcast(
 /** Spreads users evenly across the staggering groups. */
 export async function rebalanceCohorts(actor: AuditActor, cycleDays: number, req: { headers: Headers }) {
   const days = Math.min(30, Math.max(1, Math.round(cycleDays)));
-  const recipients = await db.select({ id: users.id }).from(users).where(eq(users.emailNotificationsEnabled, true)).orderBy(users.createdAt);
-  for (let index = 0; index < recipients.length; index++) {
-    await db.update(users).set({ dispatchGroup: (index % days) + 1 }).where(eq(users.id, recipients[index].id));
-  }
+  // One statement instead of one UPDATE per user: assigns groups 1..days round-robin by sign-up order.
+  const assigned = await client<{ dispatchGroup: number }[]>`
+    UPDATE users u SET dispatch_group = ((r.rn - 1) % ${days}) + 1
+    FROM (SELECT id, row_number() OVER (ORDER BY created_at, id) AS rn FROM users WHERE email_notifications_enabled) r
+    WHERE u.id = r.id
+    RETURNING u.dispatch_group AS "dispatchGroup"
+  `;
   await setSetting('email.cohort_cycle_days', days, actor.id);
-  await recordAudit({ action: 'email.cohort_change', actor, metadata: { cycleDays: days, users: recipients.length }, req });
+  await recordAudit({ action: 'email.cohort_change', actor, metadata: { cycleDays: days, users: assigned.length }, req });
   const distribution = new Map<number, number>();
-  for (let index = 0; index < recipients.length; index++) {
-    const group = resolveCohortGroup((index % days) + 1, days);
+  for (const row of assigned) {
+    const group = resolveCohortGroup(row.dispatchGroup, days);
     distribution.set(group, (distribution.get(group) ?? 0) + 1);
   }
-  return { cycleDays: days, users: recipients.length, distribution: Object.fromEntries(distribution) };
+  return { cycleDays: days, users: assigned.length, distribution: Object.fromEntries(distribution) };
 }

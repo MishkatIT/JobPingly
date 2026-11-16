@@ -8,6 +8,7 @@ const query = z.object({
   action: z.string().max(60).optional(),
   actor: searchString,
   targetType: z.string().max(30).optional(),
+  targetId: z.string().max(80).optional(),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
 });

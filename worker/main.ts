@@ -24,7 +24,13 @@ async function main() {
     // A one-shot run may take longer than a loop cycle: it is the only chance
     // to work until the next invocation.
     const report = await runCycle({ mode: 'once', budgetMs: 12 * 60_000, maxTasks: 500 });
-    console.log('[worker] Cycle complete:', JSON.stringify(report));
+    if (report.skipped) {
+      // Not a failure: the deploy that brings the new schema has not finished.
+      if (process.env.GITHUB_ACTIONS) console.log(`::warning::${report.skipped}`);
+      console.log('[worker] Cycle skipped:', report.skipped);
+    } else {
+      console.log('[worker] Cycle complete:', JSON.stringify(report));
+    }
     await closeDb();
     process.exit(report.error ? 1 : 0);
   }

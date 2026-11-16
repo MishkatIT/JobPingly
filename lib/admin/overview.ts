@@ -1,6 +1,8 @@
 import { client } from '@/lib/db/client';
 import { getTodaySentEmailCount } from '@/lib/email/send';
 import { env } from '@/lib/env';
+import { adapterLabel } from '@/lib/monitoring/adapters';
+import { describeErrorClass } from '@/lib/monitoring/errors';
 import { getQueueStats } from '@/lib/monitoring/queue';
 import { getWorkerHealth } from '@/lib/monitoring/scheduler';
 import { loadNotificationPolicy } from '@/lib/notifications/policy';
@@ -119,8 +121,8 @@ export async function adminOverview() {
       scanSuccessRate24h: counts.scans24h > 0 ? (counts.scans24h - counts.scansFailed24h) / counts.scans24h : null,
     },
     series,
-    failuresByClass,
-    adapters,
+    failuresByClass: failuresByClass.map(row => ({ ...row, label: describeErrorClass(row.errorClass).label })),
+    adapters: adapters.map(row => ({ ...row, label: adapterLabel(row.adapter) })),
     queue,
     workers,
     email: { ...email, dailyLimit: policy.dailyLimit, digestLimit: policy.effectiveDigestLimit, provider: env.email.provider },

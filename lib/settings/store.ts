@@ -26,9 +26,7 @@ interface Snapshot {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
   var __jpSettings: Snapshot | undefined;
-  // eslint-disable-next-line no-var
   var __jpSettingsLoading: Promise<Snapshot> | undefined;
 }
 

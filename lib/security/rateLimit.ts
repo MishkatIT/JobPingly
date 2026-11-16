@@ -16,9 +16,7 @@ interface Bucket {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
   var __jpRateBuckets: Map<string, Bucket> | undefined;
-  // eslint-disable-next-line no-var
   var __jpRateSweep: ReturnType<typeof setInterval> | undefined;
 }
 

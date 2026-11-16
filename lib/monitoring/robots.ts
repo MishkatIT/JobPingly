@@ -23,7 +23,6 @@ interface RobotsPolicy {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
   var __jpRobotsCache: Map<string, RobotsPolicy> | undefined;
 }
 

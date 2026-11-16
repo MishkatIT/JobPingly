@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   Bell,
   Briefcase,
@@ -78,13 +78,14 @@ function NavLinks({ items, pathname, onNavigate }: { items: NavItem[]; pathname:
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { user, signOut } = useSession();
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  // The drawer remembers the page it was opened on, so navigating closes it.
+  const [drawerPath, setDrawerPath] = useState<string | null>(null);
+  const drawerOpen = drawerPath === pathname;
+  const setDrawerOpen = (open: boolean) => setDrawerPath(open ? pathname : null);
   const [addOpen, setAddOpen] = useState(false);
   const { meta: unreadMeta } = useApi<unknown[]>('/api/notifications?unread=1&pageSize=1', { refreshInterval: 60_000 });
   const unread = Number(unreadMeta?.unread ?? 0);
   const isStaff = user.permissions.includes('admin.access');
-
-  useEffect(() => setDrawerOpen(false), [pathname]);
 
   const primary: NavItem[] = [
     { href: '/dashboard', label: 'Overview', icon: LayoutDashboard, exact: true },
