@@ -201,10 +201,23 @@ export const isUrlSafe = checkUrlSyntax;
 
 export type DnsLookup = (hostname: string) => Promise<string[]>;
 
-const defaultLookup: DnsLookup = async hostname => {
+const systemLookup: DnsLookup = async hostname => {
   const records = await dns.lookup(hostname, { all: true, verbatim: true });
   return records.map(record => record.address);
 };
+
+let lookupOverride: DnsLookup | null = null;
+
+/**
+ * Replaces DNS resolution for the URL checks. Only the test suite uses this,
+ * so tests never depend on the network. Pass null to restore system DNS.
+ */
+export function setDnsLookupForTests(lookup: DnsLookup | null): void {
+  if (process.env.NODE_ENV !== 'test') throw new Error('setDnsLookupForTests is only available in tests.');
+  lookupOverride = lookup;
+}
+
+const defaultLookup: DnsLookup = hostname => (lookupOverride ?? systemLookup)(hostname);
 
 /**
  * Throws UnsafeUrlError unless the URL is http(s) and every address its

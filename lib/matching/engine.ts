@@ -59,30 +59,33 @@ function stem(token: string): string {
 }
 
 interface PreparedText {
-  tokens: string[];
-  compact: string;
+  /** Tokens as written (lower-cased). */
+  raw: string[];
+  /** Tokens with simple plurals folded. */
+  stems: string[];
 }
 
 function prepare(text: string | null | undefined): PreparedText {
-  const tokens = tokenize(text ?? '').map(stem);
-  return { tokens, compact: tokens.join('') };
+  const raw = tokenize(text ?? '');
+  return { raw, stems: raw.map(stem) };
 }
 
 const MAX_JOINED_TOKENS = 4;
 
 function containsTerm(text: PreparedText, term: string, wholeWord: boolean): boolean {
-  const termTokens = tokenize(term).map(stem);
-  if (termTokens.length === 0) return false;
-  const termCompact = termTokens.join('');
+  const termRaw = tokenize(term);
+  if (termRaw.length === 0) return false;
+  const termStems = termRaw.map(stem);
+  const termCompact = termRaw.join('');
 
-  if (!wholeWord) return text.compact.includes(termCompact);
+  if (!wholeWord) return text.raw.join('').includes(termCompact);
 
-  const { tokens } = text;
-  for (let start = 0; start < tokens.length; start++) {
-    // Exact phrase: the term's words appear consecutively.
+  const { raw, stems } = text;
+  for (let start = 0; start < stems.length; start++) {
+    // Exact phrase: the term's words appear consecutively (plurals folded).
     let phrase = true;
-    for (let offset = 0; offset < termTokens.length; offset++) {
-      if (tokens[start + offset] !== termTokens[offset]) {
+    for (let offset = 0; offset < termStems.length; offset++) {
+      if (stems[start + offset] !== termStems[offset]) {
         phrase = false;
         break;
       }
@@ -90,11 +93,12 @@ function containsTerm(text: PreparedText, term: string, wholeWord: boolean): boo
     if (phrase) return true;
 
     // Spacing variants: "frontend" vs "front end", "nodejs" vs "node js".
+    // Compared on the words as written, so folding never mangles "nodejs".
     let joined = '';
-    for (let length = 1; length <= MAX_JOINED_TOKENS && start + length <= tokens.length; length++) {
-      joined += tokens[start + length - 1];
-      if (joined.length > termCompact.length) break;
-      if (joined === termCompact) return true;
+    for (let length = 1; length <= MAX_JOINED_TOKENS && start + length <= raw.length; length++) {
+      joined += raw[start + length - 1];
+      if (joined.length > termCompact.length + 1) break;
+      if (joined === termCompact || stem(joined) === stem(termCompact)) return true;
     }
   }
   return false;
@@ -145,7 +149,7 @@ export function evaluateJob(job: MatchableJob, rules: MatchRules): MatchResult {
       title,
       department: prepare(job.department),
       location: prepare(job.location),
-      description: rules.fields.includes('description') ? prepare(job.description) : { tokens: [], compact: '' },
+      description: rules.fields.includes('description') ? prepare(job.description) : { raw: [], stems: [] },
     };
 
     for (const group of rules.include) {
